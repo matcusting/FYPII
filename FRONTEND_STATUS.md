@@ -1,0 +1,34 @@
+# 前端缺口与实现状态
+
+评估依据：用户提供的 `PROJECT_REQUIREMENTS.md`，尤其是 FR-01～FR-09、6.1 路由清单、6.3 用户体验要求和第 10 节 API 契约。该文件是项目规划，不是已完成证明。本记录仅评估 `uts-housing-frontend`，不将后端工作算作前端成果。
+
+## 本次修改前尚未完成的前端
+
+| 需求 | 修改前的缺口 |
+| --- | --- |
+| 公开页面 | `/` 只有按角色跳转的演示登录；缺首页、公开房源搜索与详情、注册、邮箱验证、找回密码、隐私、条款、帮助和 404。 |
+| 登录与权限 | 表单不验证账号、无会话、角色保护、认证状态或真实退出。 |
+| 房源 | 示例房源硬编码于组件；收藏、房东新增/编辑/删除仅修改本地状态；无审核、持久化、照片上传和可租确认。 |
+| 室友 | 候选人和匹配百分比固定；问卷、连接请求不保存，无隐私控制。 |
+| 评价与沟通 | 示例评价和聊天不是实际用户数据；无合格性检查、房源咨询与连接请求处理。 |
+| 管理 | 无管理员路由、认证/房源/评价/举报审核和校区管理。 |
+| 质量 | 无 TypeScript、自动化测试和完整的移动布局；原 ESLint 有 16 个错误。 |
+
+## 已实现的前端代码
+
+- 用 React + TypeScript + Vite、React Router、Tailwind CSS 和 TanStack Query 重建应用。公共导航可适应窄屏；页面有加载、错误、空数据及提交状态。
+- 覆盖需求文件 6.1 的公共、账户、房源、室友、请求、评价、管理员、法律说明和 404 路由。另有管理员账号管理路由。法律文本明确是待项目负责人审定的草稿。
+- 对接 `/api/v1` JSON 数据封套，使用包含 Cookie 的请求；受保护路由读取 `/auth/me`，并在客户端显示角色或认证限制。最终授权仍必须由后端执行。
+- 房源搜索、筛选、分页、详情、收藏、询问、评价、创建/编辑、签名照片上传、提交审核和确认可租；室友资料、隐私选项、服务端匹配结果、连接/屏蔽/举报；学生认证、请求处理、会话和通知设置；管理员审核、账号暂停和校区管理。
+- 删除原来未使用的演示页面模块；正式路由不生成虚构房源、匹配分数、评价或管理员统计。
+
+## 仍需完成，才能称为完整系统
+
+1. **后端和数据库：** 仓库目前没有第 10 节所述 API、数据库迁移或服务端会话。因此注册、登录、发布、匹配、评价、审核等前端操作尚不能端到端完成。前端会显示真实连接错误，不会伪报成功。
+2. **补全接口契约：** 需求文档未定义部分页面所需的读取及管理接口。前端暂按如下路径调用，后端实施时需统一字段、状态码、分页与权限：`GET /campuses`、`GET /amenities`、`GET /listings?mine=true`、`GET /roommates/:id`、`DELETE /roommates/profile`、`POST /roommates/blocks`、`GET /roommates/requests`、`GET /reviews/mine`、`GET /admin/{verifications,listings,reviews,reports,accounts}`、`PATCH /admin/accounts/:id`、`GET/DELETE /auth/sessions[/:id]`、`POST /account/deletion-requests`、`GET/PATCH /notifications/preferences`。账户页面的字段约定见 `uts-housing-frontend/src/features/account/API_CONTRACT.md`。
+3. **确认已有接口的细节：** `/listings` 筛选字段与分页响应、`/favorites` 的删除请求、`/uploads/sign` 返回与照片关联、学生认证证明文件的安全上传、审核状态与审计记录、`/auth/me` 的 `roles` 和 `studentVerified` 字段都需要与后端一致。服务端必须验证上传文件、用户角色、房源所有权和 CSRF，不能依赖前端判断。
+4. **内容和验收：** 学校/校区及邮箱域名、正式隐私与使用条款、响应式实机检查、WCAG 2.2 AA 人工审核、浏览器端到端测试和真实后端联调仍需完成。没有这些证据，不声称项目已上线或业务已完整交付。
+
+## 本地验证
+
+在 `uts-housing-frontend` 运行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`。这些命令验证前端代码与隔离的测试用例；不能代替后端联调或部署验收。
