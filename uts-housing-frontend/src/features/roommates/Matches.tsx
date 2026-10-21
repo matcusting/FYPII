@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { api, itemsOf, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
-import { matchOf, profileOf, profilePayload, type Match, type RoommateProfile } from './model'
+import { lifestyleFields, matchOf, profileOf, profilePayload, type Match, type RoommateProfile } from './model'
 import { buttonClass, inputClass, Notice, originalCardClass, RoommateShell, secondaryButtonClass, StudentGate } from './ui'
 
 const studyOptions = [['EVENING', 'Night Owl (Late)'], ['MORNING', 'Early Bird (Morning)']] as const
@@ -36,6 +36,13 @@ function QuickProfileEditor({ initial, onSaved }: { initial: RoommateProfile; on
   const [cleanliness, setCleanliness] = useState(initial.lifestyle.cleanliness || 'MODERATE')
   const [smoking, setSmoking] = useState(initial.lifestyle.smoking || 'NEVER')
   const [error, setError] = useState<string | null>(null)
+  const selectedLifestyle = { ...initial.lifestyle, studySchedule: study, cleanliness, smoking }
+  const answeredCount = lifestyleFields.filter(({ key }) => selectedLifestyle[key]).length
+  const quickChoices = [
+    { label: 'Study schedule', value: studyOptions.find(([option]) => option === study)?.[1] || 'Not selected' },
+    { label: 'Cleanliness', value: cleanlinessOptions.find(([option]) => option === cleanliness)?.[1] || 'Not selected' },
+    { label: 'Smoking preference', value: smokingOptions.find(([option]) => option === smoking)?.[1] || 'Not selected' },
+  ]
   const save = useMutation({
     mutationFn: (profile: RoommateProfile) => api<unknown>('/roommates/profile', { method: 'PATCH', body: JSON.stringify(profilePayload(profile)) }),
     onSuccess: () => {
@@ -57,19 +64,49 @@ function QuickProfileEditor({ initial, onSaved }: { initial: RoommateProfile; on
     })
   }
 
-  return <form onSubmit={submit}>
-    <h2 className="mb-8 border-b border-gray-100 pb-4 text-[1.1rem] font-bold text-[#1f2937]">Select your daily habits</h2>
-    <div className="space-y-[29px]">
-      <ChoiceGroup label="Study Schedule" value={study} options={studyOptions} onChange={setStudy} />
-      <ChoiceGroup label="Cleanliness Standard" value={cleanliness} options={cleanlinessOptions} onChange={setCleanliness} />
-      <ChoiceGroup label="Smoking Preference" value={smoking} options={smokingOptions} onChange={setSmoking} />
+  return <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)] lg:gap-10">
+    <div>
+      <div className="mb-8 border-b border-gray-100 pb-5">
+        <span className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">Your daily routine</span>
+        <h2 className="mt-2 text-xl font-bold text-[#1f2937]">Select your daily habits</h2>
+        <p className="mt-2 max-w-xl text-sm leading-6 text-gray-600">Start with three habits that often shape how comfortable a shared home feels. You can add more details later.</p>
+      </div>
+      <div className="space-y-8">
+        <ChoiceGroup label="Study Schedule" value={study} options={studyOptions} onChange={setStudy} />
+        <ChoiceGroup label="Cleanliness Standard" value={cleanliness} options={cleanlinessOptions} onChange={setCleanliness} />
+        <ChoiceGroup label="Smoking Preference" value={smoking} options={smokingOptions} onChange={setSmoking} />
+      </div>
+      <div className="mt-9 flex flex-wrap items-center gap-4">
+        <button className={buttonClass} type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save Profile & Find Matches'}</button>
+        <Link to="/roommates/profile" className="text-sm font-bold text-[#203569] underline-offset-4 hover:underline">More profile & privacy options</Link>
+      </div>
+      <p className="mt-4 max-w-xl text-xs leading-5 text-gray-600">Saving turns on roommate discovery. Other verified students can see only the profile details you have chosen to share.</p>
+      {error && <div className="mt-5"><Notice tone="error">{error}</Notice></div>}
+      {save.isError && <div className="mt-5"><Notice tone="error">Could not save your profile: {messageOf(save.error)}</Notice></div>}
     </div>
-    <div className="mt-9 flex flex-wrap items-center gap-4">
-      <button className={buttonClass} type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save Profile & Find Matches'}</button>
-      <Link to="/roommates/profile" className="text-sm font-bold text-[#203569] underline-offset-4 hover:underline">More profile & privacy options</Link>
-    </div>
-    {error && <div className="mt-5"><Notice tone="error">{error}</Notice></div>}
-    {save.isError && <div className="mt-5"><Notice tone="error">Could not save your profile: {messageOf(save.error)}</Notice></div>}
+    <aside aria-label="Profile snapshot" className="self-start rounded-xl border border-[#d7eddd] bg-[#f6fbf7] p-5 sm:p-6">
+      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">Your profile snapshot</p>
+      <div className="mt-4 flex items-end justify-between gap-3">
+        <h3 className="text-lg font-bold text-[#1f2937]">Lifestyle details</h3>
+        <span className="text-sm font-bold text-[#15803d]">{answeredCount} / {lifestyleFields.length}</span>
+      </div>
+      <div role="progressbar" aria-label="Lifestyle details selected" aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={lifestyleFields.length} className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#dceee1]">
+        <div className="h-full rounded-full bg-[#15803d] transition-[width]" style={{ width: `${answeredCount / lifestyleFields.length * 100}%` }} />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-gray-600">Progress includes these quick choices and answers in your full profile. Save to refresh your matches.</p>
+      <dl className="mt-6 space-y-3 border-t border-[#d7eddd] pt-5">
+        {quickChoices.map(choice => <div key={choice.label} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
+          <dt className="text-gray-600">{choice.label}</dt><dd className="font-semibold text-[#1f2937]">{choice.value}</dd>
+        </div>)}
+      </dl>
+      <div className="mt-6 rounded-lg border border-[#d7eddd] bg-white p-4">
+        <h4 className="text-sm font-bold text-[#1f2937]">Want a better introduction?</h4>
+        <p className="mt-1 text-xs leading-5 text-gray-600">{answeredCount === lifestyleFields.length
+          ? 'Your lifestyle answers are complete. Fine-tune roommate preferences, dealbreakers and privacy settings.'
+          : 'Fill in your remaining habits, then fine-tune roommate preferences and privacy settings.'}</p>
+        <Link to="/roommates/profile" className="mt-3 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">Complete my profile →</Link>
+      </div>
+    </aside>
   </form>
 }
 
@@ -145,34 +182,60 @@ function CandidateActions({ match }: { match: Match }) {
 function MatchesContent() {
   const [showMatches, setShowMatches] = useState(false)
   const profile = useQuery({ queryKey: ['roommates', 'profile'], queryFn: () => api<unknown>('/roommates/profile').then(profileOf) })
+  const matchesVisible = showMatches || profile.data?.discoverable === true
   const matches = useQuery({
     queryKey: ['roommates', 'matches'],
     queryFn: async () => itemsOf<unknown>(await api<unknown>('/roommates/matches')).map(matchOf).filter((match): match is Match => match !== null),
-    enabled: showMatches,
+    enabled: matchesVisible,
   })
   return <RoommateShell>
     <section className={originalCardClass}>
-      <div className="bg-[#15803d] px-8 py-4 text-white"><h1 className="text-[1.1rem] font-bold tracking-wide">Lifestyle Profile Builder</h1></div>
+      <div className="bg-[#15803d] px-8 py-5 text-white">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-green-100">Find your people</p>
+        <h1 className="mt-1 text-xl font-bold tracking-wide">Lifestyle Profile Builder</h1>
+        <p className="mt-2 text-sm leading-6 text-green-50">A few everyday habits can help you start a better roommate conversation.</p>
+      </div>
       <div className="p-8">
         {profile.isPending ? <p role="status">Loading your lifestyle profile…</p>
           : profile.isError ? <div className="space-y-4"><Notice tone="error">Could not load your lifestyle profile: {messageOf(profile.error)}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void profile.refetch()}>Retry</button></div>
             : <QuickProfileEditor initial={profile.data} onSaved={() => setShowMatches(true)} />}
       </div>
     </section>
-    {showMatches && <section className={originalCardClass + ' p-8'}>
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-[1.3rem] font-bold text-[#1f2937]">Top Compatible Roommates</h2>
-        <Link to="/roommates/profile" className="text-sm font-bold text-[#203569] underline-offset-4 hover:underline">Edit my profile</Link>
+    {matchesVisible && <section className={originalCardClass + ' p-6 sm:p-8'}>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">Your matches</p>
+          <h2 className="mt-2 text-[1.3rem] font-bold text-[#1f2937]">Top Compatible Roommates</h2>
+          <p className="mt-2 text-sm leading-6 text-gray-600">Explore profiles shared by verified students and decide who you would like to meet.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 text-sm font-bold">
+          {matches.isSuccess && <span className="rounded-full bg-[#e2f5e9] px-3 py-1.5 text-[#168a48]">{matches.data.length} {matches.data.length === 1 ? 'match' : 'matches'}</span>}
+          <button type="button" onClick={() => void matches.refetch()} disabled={matches.isFetching} className="text-[#203569] underline-offset-4 hover:underline disabled:opacity-50">{matches.isFetching ? 'Refreshing…' : 'Refresh matches'}</button>
+          <Link to="/roommates/profile" className="text-[#203569] underline-offset-4 hover:underline">Edit my profile</Link>
+        </div>
       </div>
       {matches.isPending ? <p role="status">Finding compatible roommates…</p>
         : matches.isError ? <div className="space-y-4"><Notice tone="error">Could not load matches: {messageOf(matches.error)}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void matches.refetch()}>Retry</button></div>
-          : matches.data.length === 0 ? <div className="rounded-xl border border-gray-200 p-8 text-center"><h3 className="text-lg font-bold">No matches yet</h3><p className="mt-2 text-sm text-gray-600">Try adding more lifestyle details or check again later.</p></div>
-            : <div className="grid gap-8 md:grid-cols-2">{matches.data.map(match => <article key={match.id} className="relative rounded-xl border border-gray-200 bg-white p-6 transition-colors hover:border-[#203569]">
-              <MatchDetails match={match} />
-              <Link to={'/roommates/' + encodeURIComponent(match.id)} className="mb-5 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">View public profile</Link>
-              <CandidateActions match={match} />
-            </article>)}</div>}
-      <p className="mt-6 text-xs text-gray-500">Match scores are a guide, not a guarantee of a good living arrangement. Contact details should only be shared with mutual consent.</p>
+          : matches.data.length === 0 ? <div className="rounded-xl border border-gray-200 bg-[#f8f9fa] p-8 text-center"><h3 className="text-lg font-bold">No matches yet</h3><p className="mt-2 text-sm text-gray-600">Add more lifestyle details or check again later when more students join.</p><Link to="/roommates/profile" className="mt-4 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">Complete my profile →</Link></div>
+            : <div className={matches.data.length === 1 ? 'grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(270px,0.85fr)]' : 'grid gap-6 md:grid-cols-2'}>
+              {matches.data.map(match => <article key={match.id} className="relative mt-2 min-w-0 rounded-xl border border-gray-200 bg-white p-6 transition-colors hover:border-[#a7d8b3]">
+                <MatchDetails match={match} />
+                <Link to={'/roommates/' + encodeURIComponent(match.id)} className="mb-5 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">View public profile</Link>
+                <CandidateActions match={match} />
+              </article>)}
+              {matches.data.length === 1 && <aside aria-label="Matching guide" className="self-start rounded-xl border border-[#d7eddd] bg-[#f6fbf7] p-5 sm:p-6">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">After you match</p>
+                <h3 className="mt-2 text-lg font-bold text-[#1f2937]">Get to know your potential roommate</h3>
+                <ol className="mt-5 space-y-5">
+                  <li className="flex gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#dceee1] text-xs font-bold text-[#15803d]">1</span><div><p className="text-sm font-bold text-[#1f2937]">Read their shared profile</p><p className="mt-1 text-xs leading-5 text-gray-600">Review the details they chose to make visible.</p></div></li>
+                  <li className="flex gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#dceee1] text-xs font-bold text-[#15803d]">2</span><div><p className="text-sm font-bold text-[#1f2937]">Send a connection request</p><p className="mt-1 text-xs leading-5 text-gray-600">Wait for a reply before sharing personal contact details.</p></div></li>
+                  <li className="flex gap-3"><span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#dceee1] text-xs font-bold text-[#15803d]">3</span><div><p className="text-sm font-bold text-[#1f2937]">Talk about daily life</p><p className="mt-1 text-xs leading-5 text-gray-600">Discuss routines, budget and house rules before deciding.</p></div></li>
+                </ol>
+                <div className="mt-6 border-t border-[#d7eddd] pt-5 text-xs leading-5 text-gray-600">Match scores and shared habits come from the matching service. Use them to start a conversation, not to make a final decision.</div>
+                <Link to="/student/messages" className="mt-4 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">View messages &amp; requests →</Link>
+              </aside>}
+            </div>}
+      {matches.isSuccess && matches.data.length > 1 && <p className="mt-6 text-xs text-gray-500">Match scores are a guide, not a guarantee of a good living arrangement. Contact details should only be shared with mutual consent.</p>}
     </section>}
   </RoommateShell>
 }
