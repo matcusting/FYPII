@@ -42,9 +42,9 @@ export function favoriteIds(value: unknown): Set<string> {
 }
 
 export function formatDate(value?: string): string {
-  if (!value) return '未提供'
+  if (!value) return 'Not provided'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('zh-CN')
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-MY')
 }
 
 export const propertyTypes = [
@@ -56,10 +56,10 @@ export const roomTypes = [
 ] as const
 
 export const statusNames: Record<string, string> = {
-  DRAFT: '草稿', PENDING_REVIEW: '审核中', PUBLISHED: '已发布', REJECTED: '已拒绝',
-  PAUSED: '已暂停', RENTED: '已出租', ARCHIVED: '已归档',
+  DRAFT: 'Draft', PENDING_REVIEW: 'In review', PUBLISHED: 'Published', REJECTED: 'Rejected',
+  PAUSED: 'Paused', RENTED: 'Rented', ARCHIVED: 'Archived',
 }
 
 export function labelOf(values: readonly (readonly [string, string])[], value?: string): string {
-  return values.find(([key]) => key === value)?.[1] || value || '未提供'
+  return values.find(([key]) => key === value)?.[1] || value || 'Not provided'
 }

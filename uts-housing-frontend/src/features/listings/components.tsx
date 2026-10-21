@@ -43,7 +43,7 @@ export function FavoriteButton({ listingId, compact = false }: { listingId: stri
     onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['favorites'] }) },
   })
   return <span className="inline-flex flex-col items-start gap-1">
-    <button type="button" aria-label={saved ? '取消收藏房源' : '收藏房源'} aria-pressed={saved} className={compact ? 'flex h-9 w-9 items-center justify-center rounded-full bg-white text-2xl text-[#e11d48] transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-[#203569] disabled:opacity-50' : secondaryButton} disabled={mutation.isPending || (!!user && (favorites.isPending || favorites.isError))} title={user && favorites.isError ? '暂时无法读取收藏状态' : undefined} onClick={() => {
+    <button type="button" aria-label={saved ? 'Remove listing from favorites' : 'Save listing to favorites'} aria-pressed={saved} className={compact ? 'flex h-9 w-9 items-center justify-center rounded-full bg-white text-2xl text-[#e11d48] transition hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-[#203569] disabled:opacity-50' : secondaryButton} disabled={mutation.isPending || (!!user && (favorites.isPending || favorites.isError))} title={user && favorites.isError ? 'Favorite status is temporarily unavailable' : undefined} onClick={() => {
       if (!user) { navigate(`/login?next=${encodeURIComponent(location.pathname + location.search)}`); return }
       mutation.mutate()
     }}>{compact ? (saved ? '♥' : '♡') : (saved ? '♥ Saved' : '♡ Save to Wishlist')}</button>
@@ -56,8 +56,8 @@ export function ListingCard({ listing }: { listing: Listing }) {
   const secondTag = listing.furnished ? 'Fully Furnished' : listing.amenities?.[0] || labelOf(roomTypes, listing.roomType)
   return <article className="group relative flex flex-col gap-4 rounded-xl border border-gray-200 bg-white p-4 transition hover:border-[#203569] hover:shadow-md sm:min-h-[134px] sm:flex-row sm:gap-5">
     <div className="absolute right-3 top-3 z-10"><FavoriteButton listingId={String(listing.id)} compact /></div>
-    <Link to={`/listings/${encodeURIComponent(String(listing.id))}`} aria-label={`查看房源：${listing.title}`} className="block shrink-0 sm:w-[140px]">
-      {photo?.url ? <img src={photo.url} alt={photo.alt || `${listing.title} 房源照片`} loading="lazy" className="h-[130px] w-full rounded-lg object-cover sm:h-[100px]" /> : <div className="flex h-[130px] w-full items-center justify-center rounded-lg bg-[#e2e8f0] text-sm font-bold text-gray-400 sm:h-[100px]">Image</div>}
+    <Link to={`/listings/${encodeURIComponent(String(listing.id))}`} aria-label={`View listing: ${listing.title}`} className="block shrink-0 sm:w-[140px]">
+      {photo?.url ? <img src={photo.url} alt={photo.alt || `${listing.title} property photo`} loading="lazy" className="h-[130px] w-full rounded-lg object-cover sm:h-[100px]" /> : <div className="flex h-[130px] w-full items-center justify-center rounded-lg bg-[#e2e8f0] text-sm font-bold text-gray-400 sm:h-[100px]">Image</div>}
     </Link>
     <div className="flex min-w-0 flex-1 flex-col justify-center">
       <h3 className="truncate pr-8 text-[1.1rem] font-bold text-[#203569] group-hover:text-blue-700"><Link to={`/listings/${encodeURIComponent(String(listing.id))}`} className="focus:outline-none focus:underline">{listing.title}</Link></h3>

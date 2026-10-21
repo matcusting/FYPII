@@ -46,12 +46,12 @@ function validatedPayload(form: CampusForm) {
   const longitude = Number(form.longitude)
   const domains = [...new Set(form.domains.split(/[\n,;]+/).map(domain => domain.trim().toLowerCase()).filter(Boolean))]
 
-  if (!name || !university) throw new Error('请填写校区和大学名称。')
+  if (!name || !university) throw new Error('Enter a campus name and university.')
   if (!form.latitude.trim() || !form.longitude.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-    throw new Error('请填写有效的经纬度：纬度 -90 至 90，经度 -180 至 180。')
+    throw new Error('Enter valid coordinates: latitude must be between -90 and 90, and longitude between -180 and 180.')
   }
   if (domains.some(domain => !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(domain) || domain.includes('..'))) {
-    throw new Error('验证域名格式有误；请逐行填写例如 university.edu.my 的域名。')
+    throw new Error('Invalid verification domain. Enter one domain per line, such as university.edu.my.')
   }
   return { name, university, latitude, longitude, domains, active: form.active }
 }
@@ -73,7 +73,7 @@ export function AdminCampusesPage() {
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'campuses'] })
-      setSuccess(editingId ? '校区信息已更新。' : '校区已创建。')
+      setSuccess(editingId ? 'Campus updated.' : 'Campus created.')
       setEditingId(null)
       setForm(blankForm)
       setValidation(null)
@@ -109,14 +109,14 @@ export function AdminCampusesPage() {
   }
 
   return (
-    <AdminShell title="校区与验证域名" description="维护大学校区坐标及可用于学生认证的邮箱域名；房源距离以校区坐标计算近似直线距离。">
+    <AdminShell title="Campuses & Verification Domains" description="Manage campus coordinates and email domains for student verification. Listing distances are approximate straight-line distances from campus coordinates.">
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(310px,0.8fr)]">
         <section aria-labelledby="campus-list-title">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 id="campus-list-title" className="text-xl font-bold text-slate-950">现有校区</h2>
-            <button type="button" className="button button-secondary button-small" onClick={() => { void campuses.refetch() }} disabled={campuses.isFetching}>刷新</button>
+            <h2 id="campus-list-title" className="text-xl font-bold text-slate-950">Existing campuses</h2>
+            <button type="button" className="button button-secondary button-small" onClick={() => { void campuses.refetch() }} disabled={campuses.isFetching}>Refresh</button>
           </div>
-          <QueryState loading={campuses.isPending} error={campuses.error ? messageOf(campuses.error) : null} empty={rows.length === 0} emptyText="尚未配置校区。" onRetry={() => { void campuses.refetch() }} />
+          <QueryState loading={campuses.isPending} error={campuses.error ? messageOf(campuses.error) : null} empty={rows.length === 0} emptyText="No campuses have been configured." onRetry={() => { void campuses.refetch() }} />
           {!campuses.isPending && !campuses.error && rows.length > 0 && (
             <ul className="grid gap-3">
               {rows.map((row, index) => {
@@ -129,17 +129,17 @@ export function AdminCampusesPage() {
                   <li key={id || index} className="card p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-lg font-bold text-slate-950">{firstText(row, 'name', 'campusName') || '未命名校区'}</h3>
-                        <p className="text-sm text-slate-600">{university || '大学名称未提供'}</p>
+                        <h3 className="text-lg font-bold text-slate-950">{firstText(row, 'name', 'campusName') || 'Unnamed campus'}</h3>
+                        <p className="text-sm text-slate-600">{university || 'University unavailable'}</p>
                       </div>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active === false ? 'bg-slate-100 text-slate-700' : active === true ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{active === null ? '状态未提供' : active ? '启用' : '停用'}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active === false ? 'bg-slate-100 text-slate-700' : active === true ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{active === null ? 'Status unavailable' : active ? 'Active' : 'Inactive'}</span>
                     </div>
                     <dl className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                      <div><dt className="font-semibold">坐标</dt><dd>{textValue(row.latitude ?? asRecord(row.coordinates)?.latitude) || '—'}, {textValue(row.longitude ?? asRecord(row.coordinates)?.longitude) || '—'}</dd></div>
-                      <div><dt className="font-semibold">验证域名</dt><dd className="break-words">{domains.length ? domains.join('、') : '未配置'}</dd></div>
-                      {(row.updatedAt || updatedBy) && <div className="sm:col-span-2"><dt className="font-semibold">更新记录</dt><dd>{updatedBy && `${updatedBy} · `}{dateText(row.updatedAt)}</dd></div>}
+                      <div><dt className="font-semibold">Coordinates</dt><dd>{textValue(row.latitude ?? asRecord(row.coordinates)?.latitude) || '—'}, {textValue(row.longitude ?? asRecord(row.coordinates)?.longitude) || '—'}</dd></div>
+                      <div><dt className="font-semibold">Verification domains</dt><dd className="break-words">{domains.length ? domains.join(', ') : 'None configured'}</dd></div>
+                      {(row.updatedAt || updatedBy) && <div className="sm:col-span-2"><dt className="font-semibold">Last updated</dt><dd>{updatedBy && `${updatedBy} · `}{dateText(row.updatedAt)}</dd></div>}
                     </dl>
-                    <button type="button" className="button button-secondary button-small mt-4" disabled={!id} onClick={() => edit(row)}>编辑校区</button>
+                    <button type="button" className="button button-secondary button-small mt-4" disabled={!id} onClick={() => edit(row)}>Edit campus</button>
                   </li>
                 )
               })}
@@ -149,21 +149,21 @@ export function AdminCampusesPage() {
 
         <section id="campus-editor" aria-labelledby="campus-editor-title" className="card p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="campus-editor-title" className="text-xl font-bold text-slate-950">{editingId ? '编辑校区' : '新增校区'}</h2>
-            {editingId && <button type="button" className="button button-secondary button-small" onClick={() => { setEditingId(null); setForm(blankForm); setValidation(null); save.reset() }}>取消编辑</button>}
+            <h2 id="campus-editor-title" className="text-xl font-bold text-slate-950">{editingId ? 'Edit campus' : 'Add campus'}</h2>
+            {editingId && <button type="button" className="button button-secondary button-small" onClick={() => { setEditingId(null); setForm(blankForm); setValidation(null); save.reset() }}>Cancel editing</button>}
           </div>
-          <p className="mt-2 text-sm text-slate-600">验证域名每行一个，例如 university.edu.my。域名留空时可通过人工审核认证学生。</p>
+          <p className="mt-2 text-sm text-slate-600">Enter one verification domain per line, such as university.edu.my. If no domain is listed, students can still be verified manually.</p>
           <form onSubmit={submit} className="mt-5 grid gap-4">
-            <div className="field"><label htmlFor="campus-name">校区名称</label><input id="campus-name" value={form.name} onChange={event => update('name', event.target.value)} required maxLength={120} autoComplete="off" /></div>
-            <div className="field"><label htmlFor="campus-university">大学名称</label><input id="campus-university" value={form.university} onChange={event => update('university', event.target.value)} required maxLength={120} autoComplete="organization" /></div>
+            <div className="field"><label htmlFor="campus-name">Campus name</label><input id="campus-name" value={form.name} onChange={event => update('name', event.target.value)} required maxLength={120} autoComplete="off" /></div>
+            <div className="field"><label htmlFor="campus-university">University name</label><input id="campus-university" value={form.university} onChange={event => update('university', event.target.value)} required maxLength={120} autoComplete="organization" /></div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="field"><label htmlFor="campus-latitude">纬度</label><input id="campus-latitude" type="number" min="-90" max="90" step="any" value={form.latitude} onChange={event => update('latitude', event.target.value)} required /></div>
-              <div className="field"><label htmlFor="campus-longitude">经度</label><input id="campus-longitude" type="number" min="-180" max="180" step="any" value={form.longitude} onChange={event => update('longitude', event.target.value)} required /></div>
+              <div className="field"><label htmlFor="campus-latitude">Latitude</label><input id="campus-latitude" type="number" min="-90" max="90" step="any" value={form.latitude} onChange={event => update('latitude', event.target.value)} required /></div>
+              <div className="field"><label htmlFor="campus-longitude">Longitude</label><input id="campus-longitude" type="number" min="-180" max="180" step="any" value={form.longitude} onChange={event => update('longitude', event.target.value)} required /></div>
             </div>
-            <div className="field"><label htmlFor="campus-domains">学生验证邮箱域名</label><textarea id="campus-domains" rows={4} value={form.domains} onChange={event => update('domains', event.target.value)} placeholder="university.edu.my" aria-describedby="campus-domains-hint" /><p id="campus-domains-hint" className="text-xs text-slate-600">只填写 @ 后面的部分；多个域名分行填写。</p></div>
-            <label className="flex items-center gap-3 text-sm font-medium text-slate-800"><input type="checkbox" checked={form.active} onChange={event => update('active', event.target.checked)} className="h-5 w-5" />启用此校区</label>
+            <div className="field"><label htmlFor="campus-domains">Student verification email domains</label><textarea id="campus-domains" rows={4} value={form.domains} onChange={event => update('domains', event.target.value)} placeholder="university.edu.my" aria-describedby="campus-domains-hint" /><p id="campus-domains-hint" className="text-xs text-slate-600">Enter only the part after @. Put each domain on a separate line.</p></div>
+            <label className="flex items-center gap-3 text-sm font-medium text-slate-800"><input type="checkbox" checked={form.active} onChange={event => update('active', event.target.checked)} className="h-5 w-5" />Enable this campus</label>
             <Notice error={validation || (save.error ? messageOf(save.error) : null)} success={success} />
-            <button type="submit" className="button" disabled={save.isPending}>{save.isPending ? '保存中…' : editingId ? '保存更改' : '创建校区'}</button>
+            <button type="submit" className="button" disabled={save.isPending}>{save.isPending ? 'Saving…' : editingId ? 'Save changes' : 'Create campus'}</button>
           </form>
         </section>
       </div>

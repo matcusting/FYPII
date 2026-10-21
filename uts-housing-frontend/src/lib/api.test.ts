@@ -13,8 +13,8 @@ describe('API transport', () => {
   })
 
   it('preserves the server error status and message', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: '没有权限' } }), { status: 403, headers: { 'Content-Type': 'application/json' } })))
-    await expect(api('/profile')).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN', message: '没有权限' } satisfies Partial<ApiError>)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Access denied' } }), { status: 403, headers: { 'Content-Type': 'application/json' } })))
+    await expect(api('/profile')).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN', message: 'Access denied' } satisfies Partial<ApiError>)
   })
 
   it('accepts an empty successful logout response', async () => {

@@ -13,7 +13,7 @@ describe('roommate privacy boundary', () => {
   })
 
   it('does not invent a score when the server reports insufficient data', () => {
-    expect(matchOf({ id: 'student-2', score: null, explanation: '回答维度不足' })?.score).toBeUndefined()
+    expect(matchOf({ id: 'student-2', score: null, explanation: 'Not enough answers to calculate a score' })?.score).toBeUndefined()
   })
 })
 

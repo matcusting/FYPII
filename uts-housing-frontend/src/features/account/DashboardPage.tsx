@@ -142,15 +142,15 @@ export function DashboardPage() {
   </div>
 
   const adminQueues = [
-    { label: '学生认证', to: '/admin/verifications', count: overviewNumber(overview.data, 'pendingVerifications', 'verificationsPending') },
-    { label: '房源审核', to: '/admin/listings', count: overviewNumber(overview.data, 'pendingListings', 'listingsPending') },
-    { label: '评价审核', to: '/admin/reviews', count: overviewNumber(overview.data, 'pendingReviews', 'reviewsPending') },
-    { label: '用户举报', to: '/admin/reports', count: overviewNumber(overview.data, 'openReports', 'pendingReports') },
+    { label: 'Student Verifications', to: '/admin/verifications', count: overviewNumber(overview.data, 'pendingVerifications', 'verificationsPending') },
+    { label: 'Listing Reviews', to: '/admin/listings', count: overviewNumber(overview.data, 'pendingListings', 'listingsPending') },
+    { label: 'Review Moderation', to: '/admin/reviews', count: overviewNumber(overview.data, 'pendingReviews', 'reviewsPending') },
+    { label: 'User Reports', to: '/admin/reports', count: overviewNumber(overview.data, 'openReports', 'pendingReports') },
   ]
-  return <PageShell title={`你好，${name}`} description="从这里查看账户状态和待处理事项。">
+  return <PageShell title={`Hello, ${name}`} description="Review your account status and pending tasks here.">
     <div className="grid gap-5 lg:grid-cols-2">
-      <Panel title="账户状态"><p className="text-sm text-gray-600">{user?.email}</p><Link to="/profile" className="mt-5 inline-block font-bold text-[#203569] hover:underline">编辑账户资料 →</Link></Panel>
-      <Panel title="待处理事项">{overview.isPending ? <LoadingNotice /> : overview.isError ? <ErrorNotice error={overview.error} onRetry={() => void overview.refetch()} /> : <nav className="grid gap-3 sm:grid-cols-2">{adminQueues.map(queue => <Link key={queue.to} to={queue.to} className="rounded-lg border border-gray-200 p-4 hover:bg-[#f4f7fb]"><span className="block font-bold">{queue.label}</span><span className="mt-1 block text-sm text-gray-500">{queue.count === undefined ? '查看队列' : `${queue.count} 项待处理`}</span></Link>)}</nav>}</Panel>
+      <Panel title="Account Status"><p className="text-sm text-gray-600">{user?.email}</p><Link to="/profile" className="mt-5 inline-block font-bold text-[#203569] hover:underline">Edit Profile →</Link></Panel>
+      <Panel title="Pending Tasks">{overview.isPending ? <LoadingNotice /> : overview.isError ? <ErrorNotice error={overview.error} onRetry={() => void overview.refetch()} /> : <nav className="grid gap-3 sm:grid-cols-2">{adminQueues.map(queue => <Link key={queue.to} to={queue.to} className="rounded-lg border border-gray-200 p-4 hover:bg-[#f4f7fb]"><span className="block font-bold">{queue.label}</span><span className="mt-1 block text-sm text-gray-500">{queue.count === undefined ? 'View queue' : `${queue.count} pending`}</span></Link>)}</nav>}</Panel>
     </div>
   </PageShell>
 }

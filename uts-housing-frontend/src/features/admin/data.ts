@@ -30,7 +30,7 @@ export function dateText(value: unknown): string {
   const parsed = new Date(source)
   return Number.isNaN(parsed.valueOf())
     ? source
-    : new Intl.DateTimeFormat('zh-CN', {
+    : new Intl.DateTimeFormat('en-MY', {
       dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur',
     }).format(parsed)
 }

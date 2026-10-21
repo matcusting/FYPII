@@ -1,22 +1,22 @@
 import { z } from 'zod'
 
-const email = z.string().trim().pipe(z.email('请输入有效的邮箱地址。')).transform(value => value.toLowerCase())
+const email = z.string().trim().pipe(z.email('Enter a valid email address.')).transform(value => value.toLowerCase())
 
 export const loginSchema = z.object({
   email,
-  password: z.string().min(1, '请输入密码。'),
+  password: z.string().min(1, 'Enter your password.'),
 })
 
 export const registerSchema = z.object({
   role: z.enum(['STUDENT', 'LANDLORD']),
-  name: z.string().trim().min(1, '请输入姓名。').max(100, '姓名不能超过 100 个字符。'),
+  name: z.string().trim().min(1, 'Enter your name.').max(100, 'Name must be 100 characters or fewer.'),
   email,
-  password: z.string().min(8, '密码至少需要 8 个字符。'),
-  confirmPassword: z.string().min(1, '请再次输入密码。'),
-  acceptTerms: z.boolean().refine(value => value, '请先阅读并同意使用条款与隐私说明。'),
+  password: z.string().min(8, 'Password must be at least 8 characters.'),
+  confirmPassword: z.string().min(1, 'Confirm your password.'),
+  acceptTerms: z.boolean().refine(value => value, 'Please read and accept the Terms of Use and Privacy Notice.'),
 }).refine(value => value.password === value.confirmPassword, {
   path: ['confirmPassword'],
-  message: '两次输入的密码不一致。',
+  message: 'The passwords do not match.',
 })
 
 export type LoginValues = z.infer<typeof loginSchema>

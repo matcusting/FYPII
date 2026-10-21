@@ -58,7 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = useCallback(async (email: string, password: string) => {
     await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
     const current = await refresh()
-    if (!current) throw new Error('登录成功，但无法读取账户信息。')
+    if (!current) throw new Error('You signed in, but your account details could not be loaded.')
     return current
   }, [refresh])
   const signOut = useCallback(async () => {
@@ -82,9 +82,9 @@ export function hasRole(user: User | null, ...roles: string[]) {
 export function AuthGuard({ children, roles, verifiedStudent = false }: { children: ReactNode; roles?: string[]; verifiedStudent?: boolean }) {
   const { user, loading } = useAuth()
   const location = useLocation()
-  if (loading) return <div className="container py-16" role="status">正在检查登录状态…</div>
+  if (loading) return <div className="container py-16" role="status">Checking your sign-in status…</div>
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
-  if (roles && !hasRole(user, ...roles)) return <div className="container py-16"><h1>无权访问</h1><p>当前账户没有访问此页面的权限。</p></div>
-  if (verifiedStudent && !user.studentVerified) return <div className="container py-16"><h1>需要学生认证</h1><p>请先完成学生身份认证，再使用此功能。</p></div>
+  if (roles && !hasRole(user, ...roles)) return <div className="container py-16"><h1>Access denied</h1><p>This account does not have permission to view this page.</p></div>
+  if (verifiedStudent && !user.studentVerified) return <div className="container py-16"><h1>Student verification required</h1><p>Verify your student status before using this feature.</p></div>
   return <>{children}</>
 }

@@ -1,11 +1,11 @@
 export const lifestyleFields = [
-  { key: 'smoking', label: '吸烟习惯', options: [['', '暂不填写'], ['NEVER', '不吸烟'], ['OCCASIONAL', '偶尔吸烟'], ['REGULAR', '经常吸烟'], ['NO_PREFERENCE', '不介意']] },
-  { key: 'studySchedule', label: '学习时间', options: [['', '暂不填写'], ['MORNING', '上午'], ['DAY', '白天'], ['EVENING', '晚上'], ['FLEXIBLE', '灵活']] },
-  { key: 'sleepSchedule', label: '作息时间', options: [['', '暂不填写'], ['EARLY', '早睡早起'], ['LATE', '晚睡晚起'], ['FLEXIBLE', '灵活']] },
-  { key: 'cleanliness', label: '整洁程度', options: [['', '暂不填写'], ['RELAXED', '随意'], ['MODERATE', '适中'], ['HIGH', '很讲究']] },
-  { key: 'noise', label: '噪音接受度', options: [['', '暂不填写'], ['QUIET', '偏好安静'], ['MODERATE', '适中'], ['LIVELY', '可以热闹']] },
-  { key: 'guests', label: '访客频率', options: [['', '暂不填写'], ['RARE', '很少'], ['SOMETIMES', '偶尔'], ['OFTEN', '经常']] },
-  { key: 'pets', label: '宠物偏好', options: [['', '暂不填写'], ['NO_PETS', '无宠物'], ['PETS_OK', '可接受宠物'], ['HAS_PETS', '有宠物']] },
+  { key: 'smoking', label: 'Smoking', options: [['', 'Prefer not to say'], ['NEVER', 'Never'], ['OCCASIONAL', 'Occasionally'], ['REGULAR', 'Regularly'], ['NO_PREFERENCE', 'No preference']] },
+  { key: 'studySchedule', label: 'Study schedule', options: [['', 'Prefer not to say'], ['MORNING', 'Morning'], ['DAY', 'Daytime'], ['EVENING', 'Evening'], ['FLEXIBLE', 'Flexible']] },
+  { key: 'sleepSchedule', label: 'Sleep schedule', options: [['', 'Prefer not to say'], ['EARLY', 'Early nights'], ['LATE', 'Late nights'], ['FLEXIBLE', 'Flexible']] },
+  { key: 'cleanliness', label: 'Cleanliness', options: [['', 'Prefer not to say'], ['RELAXED', 'Relaxed'], ['MODERATE', 'Moderate'], ['HIGH', 'Very tidy']] },
+  { key: 'noise', label: 'Noise preference', options: [['', 'Prefer not to say'], ['QUIET', 'Quiet'], ['MODERATE', 'Moderate'], ['LIVELY', 'Lively is fine']] },
+  { key: 'guests', label: 'Guests', options: [['', 'Prefer not to say'], ['RARE', 'Rarely'], ['SOMETIMES', 'Sometimes'], ['OFTEN', 'Often']] },
+  { key: 'pets', label: 'Pets', options: [['', 'Prefer not to say'], ['NO_PETS', 'No pets'], ['PETS_OK', 'Pets are welcome'], ['HAS_PETS', 'I have pets']] },
 ] as const
 
 export type LifestyleKey = typeof lifestyleFields[number]['key']
@@ -127,7 +127,7 @@ export function matchOf(raw: unknown): Match | null {
     }).slice(0, 5) : []
   const numberOrUndefined = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined
   return {
-    id, displayName: string(person.displayName ?? person.name) || '已验证学生',
+    id, displayName: string(person.displayName ?? person.name) || 'Verified student',
     university: canShow('university') ? string(person.university) : '',
     bio: canShow('bio') ? string(person.bio) : '',
     preferredLocation: canShow('preferredLocation') ? string(person.preferredLocation ?? person.approximateArea) : '',

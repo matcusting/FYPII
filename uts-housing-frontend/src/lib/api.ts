@@ -21,19 +21,19 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   if (response.status === 204 && response.ok) return undefined as T
   const contentType = response.headers.get('content-type') || ''
   if (!contentType.includes('application/json')) {
-    throw new ApiError('服务器未返回预期的 JSON 数据。请检查 API 服务是否运行。', response.status)
+    throw new ApiError('The server did not return the expected JSON response. Check that the API service is running.', response.status)
   }
   const payload = await response.json()
   if (!response.ok) {
-    throw new ApiError(payload?.error?.message || '请求失败，请稍后再试。', response.status, payload?.error?.code)
+    throw new ApiError(payload?.error?.message || 'The request failed. Please try again later.', response.status, payload?.error?.code)
   }
   return payload.data as T
 }
 
 export function messageOf(error: unknown): string {
   if (error instanceof ApiError) return error.message
-  if (error instanceof Error && error.name === 'TypeError') return '无法连接服务器，请检查网络或 API 服务。'
-  return error instanceof Error ? error.message : '发生未知错误。'
+  if (error instanceof Error && error.name === 'TypeError') return 'Could not connect to the server. Check your network or the API service.'
+  return error instanceof Error ? error.message : 'An unknown error occurred.'
 }
 
 export function query(params: Record<string, string | number | boolean | undefined | null>): string {

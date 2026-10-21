@@ -15,7 +15,7 @@ export function RoommateShell({ title, description, children }: { title?: string
         <div className="bg-[#15803d] px-8 py-4 text-white"><h1 className="text-[1.1rem] font-bold tracking-wide">{title}</h1></div>
         {(description || children) && <div className="p-8">
           {description && <p className="text-sm leading-6 text-gray-600">{description}</p>}
-          <nav aria-label="室友页面" className="mt-5 flex flex-wrap gap-3 text-sm font-bold">
+          <nav aria-label="Roommate pages" className="mt-5 flex flex-wrap gap-3 text-sm font-bold">
             <Link className="text-[#203569] underline-offset-4 hover:underline" to="/roommates">Find Roommates</Link>
             <Link className="text-[#203569] underline-offset-4 hover:underline" to="/roommates/profile">My Lifestyle Profile</Link>
           </nav>

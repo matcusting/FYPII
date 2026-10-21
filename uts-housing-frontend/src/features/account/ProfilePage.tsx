@@ -75,7 +75,7 @@ export function ProfilePage() {
       }),
     }),
     onSuccess: async () => {
-      setSaveMessage('资料已保存。')
+      setSaveMessage('Profile saved.')
       await queryClient.invalidateQueries({ queryKey: ['profile'] })
       setEdits({})
       await refresh()
@@ -95,7 +95,7 @@ export function ProfilePage() {
       return api('/verifications', { method: 'POST', body: JSON.stringify({ method: 'EMAIL_DOMAIN', university: fields.university.trim() }) })
     },
     onSuccess: async () => {
-      setVerificationMessage('学生认证申请已提交。审核结果会在账户状态中显示。')
+      setVerificationMessage('Your student verification request has been submitted. Check your account status for the review result.')
       setVerificationNote('')
       setVerificationProof(null)
       await refresh()
@@ -110,11 +110,11 @@ export function ProfilePage() {
 
   function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!fields.displayName.trim()) { setFormError('请输入显示名称。'); return }
+    if (!fields.displayName.trim()) { setFormError('Enter your name.'); return }
     const min = fields.budgetMin === '' ? null : Number(fields.budgetMin)
     const max = fields.budgetMax === '' ? null : Number(fields.budgetMax)
     if ((min !== null && (!Number.isFinite(min) || min < 0)) || (max !== null && (!Number.isFinite(max) || max < 0)) || (min !== null && max !== null && max < min)) {
-      setFormError('预算须为非负数，且上限不得低于下限。')
+      setFormError('Budget amounts must be non-negative, and the maximum cannot be lower than the minimum.')
       return
     }
     save.mutate(fields)
@@ -123,9 +123,9 @@ export function ProfilePage() {
   function submitVerification(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setVerificationMessage('')
-    if (!fields.university.trim()) { setVerificationMessage('请先填写并保存大学名称，再提交认证。'); return }
-    if (fields.university.trim() !== (profile.data?.university || '').trim()) { setVerificationMessage('请先保存修改后的大学名称。'); return }
-    if (verificationMethod === 'MANUAL' && !verificationProof) { setVerificationMessage('请先选择学生身份证明文件。'); return }
+    if (!fields.university.trim()) { setVerificationMessage('Enter and save your university before requesting verification.'); return }
+    if (fields.university.trim() !== (profile.data?.university || '').trim()) { setVerificationMessage('Save your updated university before requesting verification.'); return }
+    if (verificationMethod === 'MANUAL' && !verificationProof) { setVerificationMessage('Select a document that proves your student status.'); return }
     verification.mutate()
   }
 
@@ -186,7 +186,7 @@ export function ProfilePage() {
                 setVerificationProof(null)
                 if (!file) return
                 if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
-                  setVerificationMessage('请选择不超过 5 MB 的 PDF、JPG 或 PNG 文件。')
+                  setVerificationMessage('Select a PDF, JPG or PNG file no larger than 5 MB.')
                   event.target.value = ''
                   return
                 }

@@ -18,39 +18,39 @@ const configuration: Record<ModerationKind, {
   statuses: Array<{ value: string; label: string }>
 }> = {
   verifications: {
-    title: '学生认证', description: '核实学生身份后批准或拒绝申请，并记录处理原因。', singular: '认证申请',
-    approve: 'APPROVED', reject: 'REJECTED', approveLabel: '批准认证', rejectLabel: '拒绝认证',
-    statuses: [{ value: 'PENDING', label: '待审核' }, { value: 'APPROVED', label: '已批准' }, { value: 'REJECTED', label: '已拒绝' }],
+    title: 'Student Verification', description: 'Review student identity, approve or reject applications, and record the reason for each decision.', singular: 'verification request',
+    approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve verification', rejectLabel: 'Reject verification',
+    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
   },
   listings: {
-    title: '房源审核', description: '检查待发布房源的内容、位置与资料，决定是否公开展示。', singular: '房源',
-    approve: 'PUBLISHED', reject: 'REJECTED', approveLabel: '批准发布', rejectLabel: '拒绝发布',
-    extraAction: { value: 'PAUSED', label: '暂停房源' },
-    statuses: [{ value: 'PENDING_REVIEW', label: '待审核' }, { value: 'PUBLISHED', label: '已发布' }, { value: 'REJECTED', label: '已拒绝' }, { value: 'PAUSED', label: '已暂停' }],
+    title: 'Listing Review', description: 'Check each listing\'s content, location, and details before deciding whether it can be published.', singular: 'listing',
+    approve: 'PUBLISHED', reject: 'REJECTED', approveLabel: 'Approve publication', rejectLabel: 'Reject publication',
+    extraAction: { value: 'PAUSED', label: 'Pause listing' },
+    statuses: [{ value: 'PENDING_REVIEW', label: 'Pending review' }, { value: 'PUBLISHED', label: 'Published' }, { value: 'REJECTED', label: 'Rejected' }, { value: 'PAUSED', label: 'Paused' }],
   },
   reviews: {
-    title: '评价审核', description: '检查评价内容与证据，处理违反规则或涉及隐私的内容。', singular: '评价',
-    approve: 'APPROVED', reject: 'REJECTED', approveLabel: '批准评价', rejectLabel: '拒绝评价',
-    statuses: [{ value: 'PENDING', label: '待审核' }, { value: 'APPROVED', label: '已批准' }, { value: 'REJECTED', label: '已拒绝' }],
+    title: 'Review Moderation', description: 'Review ratings and evidence for policy violations or privacy concerns.', singular: 'review',
+    approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve review', rejectLabel: 'Reject review',
+    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
   },
   reports: {
-    title: '举报处理', description: '核查举报内容并记录处理结果；需要限制账号时应由服务端执行授权操作。', singular: '举报',
-    approve: 'RESOLVED', reject: 'DISMISSED', approveLabel: '标记已处理', rejectLabel: '驳回举报',
-    statuses: [{ value: 'OPEN', label: '未处理' }, { value: 'RESOLVED', label: '已处理' }, { value: 'DISMISSED', label: '已驳回' }],
+    title: 'Report Review', description: 'Investigate reports and record the outcome. Any account restrictions must be authorized by the server.', singular: 'report',
+    approve: 'RESOLVED', reject: 'DISMISSED', approveLabel: 'Mark resolved', rejectLabel: 'Dismiss report',
+    statuses: [{ value: 'OPEN', label: 'Open' }, { value: 'RESOLVED', label: 'Resolved' }, { value: 'DISMISSED', label: 'Dismissed' }],
   },
   accounts: {
-    title: '账号管理', description: '查看账号状态，并在需要时暂停或恢复账号。所有变更应由服务器记录审计信息。', singular: '账号',
-    approve: 'ACTIVE', reject: 'SUSPENDED', approveLabel: '恢复账号', rejectLabel: '暂停账号',
-    statuses: [{ value: 'ACTIVE', label: '正常' }, { value: 'SUSPENDED', label: '已暂停' }],
+    title: 'Account Management', description: 'Review account status and suspend or restore accounts when needed. The server must audit every change.', singular: 'account',
+    approve: 'ACTIVE', reject: 'SUSPENDED', approveLabel: 'Restore account', rejectLabel: 'Suspend account',
+    statuses: [{ value: 'ACTIVE', label: 'Active' }, { value: 'SUSPENDED', label: 'Suspended' }],
   },
 }
 
 const statusLabels: Record<string, string> = {
-  PENDING: '待审核', PENDING_REVIEW: '待审核', SUBMITTED: '已提交', OPEN: '未处理',
-  APPROVED: '已批准', VERIFIED: '已认证', PUBLISHED: '已发布',
-  REJECTED: '已拒绝', RESOLVED: '已处理', DISMISSED: '已驳回',
-  PAUSED: '已暂停', ARCHIVED: '已归档',
-  ACTIVE: '正常', SUSPENDED: '已暂停',
+  PENDING: 'Pending review', PENDING_REVIEW: 'Pending review', SUBMITTED: 'Submitted', OPEN: 'Open',
+  APPROVED: 'Approved', VERIFIED: 'Verified', PUBLISHED: 'Published',
+  REJECTED: 'Rejected', RESOLVED: 'Resolved', DISMISSED: 'Dismissed',
+  PAUSED: 'Paused', ARCHIVED: 'Archived',
+  ACTIVE: 'Active', SUSPENDED: 'Suspended',
 }
 
 function rowsOf(value: unknown, kind: ModerationKind): DataRecord[] {
@@ -68,15 +68,15 @@ function pageCount(value: unknown): number | null {
 }
 
 function rowTitle(row: DataRecord, kind: ModerationKind): string {
-  if (kind === 'accounts') return firstText(row, 'name', 'displayName', 'email') || '未提供账号名称'
-  if (kind === 'verifications') return nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'studentName', 'name', 'email') || '未提供申请人'
-  if (kind === 'listings') return firstText(row, 'title') || '未提供房源标题'
-  if (kind === 'reviews') return firstText(row, 'title', 'content', 'comment', 'body') || '未提供评价内容'
-  return firstText(row, 'reason', 'description', 'category') || '未提供举报说明'
+  if (kind === 'accounts') return firstText(row, 'name', 'displayName', 'email') || 'Account name unavailable'
+  if (kind === 'verifications') return nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'studentName', 'name', 'email') || 'Applicant unavailable'
+  if (kind === 'listings') return firstText(row, 'title') || 'Listing title unavailable'
+  if (kind === 'reviews') return firstText(row, 'title', 'content', 'comment', 'body') || 'Review content unavailable'
+  return firstText(row, 'reason', 'description', 'category') || 'Report details unavailable'
 }
 
 function rowDetail(row: DataRecord, kind: ModerationKind): string {
-  if (kind === 'accounts') return firstText(row, 'email') || (Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').join('、') : '')
+  if (kind === 'accounts') return firstText(row, 'email') || (Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').join(', ') : '')
   if (kind === 'verifications') return firstText(row, 'university', 'verificationMethod', 'emailDomain') || nestedText(row, 'student', 'email') || nestedText(row, 'user', 'email')
   if (kind === 'listings') return nestedText(row, 'owner', 'name', 'email') || firstText(row, 'approximateArea', 'campusName', 'ownerName')
   if (kind === 'reviews') return nestedText(row, 'listing', 'title') || nestedText(row, 'author', 'name') || firstText(row, 'listingId')
@@ -88,7 +88,7 @@ function auditInfo(row: DataRecord) {
   const when = row.moderatedAt ?? row.reviewedAt ?? row.resolvedAt
   const reason = firstText(row, 'moderationReason', 'decisionReason', 'resolutionNote', 'adminReason')
   if (!moderator && !when && !reason) return null
-  return [moderator && `处理人：${moderator}`, when && `处理时间：${dateText(when)}`, reason && `记录：${reason}`].filter(Boolean).join(' · ')
+  return [moderator && `Reviewed by: ${moderator}`, when && `Reviewed at: ${dateText(when)}`, reason && `Note: ${reason}`].filter(Boolean).join(' · ')
 }
 
 function safeDocumentUrl(value: unknown): string | null {
@@ -106,39 +106,39 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
   const details: Array<{ label: string; value: string }> = []
   if (kind === 'accounts') {
     details.push(
-      { label: '名称', value: firstText(row, 'name', 'displayName') },
-      { label: '邮箱', value: firstText(row, 'email') },
-      { label: '角色', value: Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').join('、') : firstText(row, 'role') },
-      { label: '邮箱验证', value: typeof row.emailVerified === 'boolean' ? row.emailVerified ? '已验证' : '未验证' : '' },
+      { label: 'Name', value: firstText(row, 'name', 'displayName') },
+      { label: 'Email', value: firstText(row, 'email') },
+      { label: 'Roles', value: Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').join(', ') : firstText(row, 'role') },
+      { label: 'Email verification', value: typeof row.emailVerified === 'boolean' ? row.emailVerified ? 'Verified' : 'Unverified' : '' },
     )
   } else if (kind === 'verifications') {
     details.push(
-      { label: '申请人', value: nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'name', 'email') },
-      { label: '邮箱', value: nestedText(row, 'student', 'email') || nestedText(row, 'user', 'email') || firstText(row, 'email') },
-      { label: '大学', value: firstText(row, 'university', 'universityName') },
-      { label: '认证方式', value: firstText(row, 'verificationMethod', 'method') },
+      { label: 'Applicant', value: nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'name', 'email') },
+      { label: 'Email', value: nestedText(row, 'student', 'email') || nestedText(row, 'user', 'email') || firstText(row, 'email') },
+      { label: 'University', value: firstText(row, 'university', 'universityName') },
+      { label: 'Verification method', value: firstText(row, 'verificationMethod', 'method') },
     )
   } else if (kind === 'listings') {
     details.push(
-      { label: '标题', value: firstText(row, 'title') },
-      { label: '描述', value: firstText(row, 'description') },
-      { label: '月租', value: firstText(row, 'rent', 'monthlyRent') },
-      { label: '区域', value: firstText(row, 'approximateArea', 'area', 'campusName') },
-      { label: '发布人', value: nestedText(row, 'owner', 'name', 'email') },
+      { label: 'Title', value: firstText(row, 'title') },
+      { label: 'Description', value: firstText(row, 'description') },
+      { label: 'Monthly rent', value: firstText(row, 'rent', 'monthlyRent') },
+      { label: 'Area', value: firstText(row, 'approximateArea', 'area', 'campusName') },
+      { label: 'Owner', value: nestedText(row, 'owner', 'name', 'email') },
     )
   } else if (kind === 'reviews') {
     details.push(
-      { label: '评价内容', value: firstText(row, 'content', 'comment', 'body') },
-      { label: '评分', value: firstText(row, 'rating') },
-      { label: '房源', value: nestedText(row, 'listing', 'title') || firstText(row, 'listingId') },
-      { label: '评价人', value: nestedText(row, 'author', 'name', 'email') || nestedText(row, 'user', 'name', 'email') },
+      { label: 'Review', value: firstText(row, 'content', 'comment', 'body') },
+      { label: 'Rating', value: firstText(row, 'rating') },
+      { label: 'Listing', value: nestedText(row, 'listing', 'title') || firstText(row, 'listingId') },
+      { label: 'Reviewer', value: nestedText(row, 'author', 'name', 'email') || nestedText(row, 'user', 'name', 'email') },
     )
   } else {
     details.push(
-      { label: '举报原因', value: firstText(row, 'reason', 'category') },
-      { label: '说明', value: firstText(row, 'description', 'details') },
-      { label: '被举报对象', value: [firstText(row, 'targetType'), firstText(row, 'targetId')].filter(Boolean).join(' · ') },
-      { label: '举报人', value: nestedText(row, 'reporter', 'name', 'email') },
+      { label: 'Reason for report', value: firstText(row, 'reason', 'category') },
+      { label: 'Details', value: firstText(row, 'description', 'details') },
+      { label: 'Reported item', value: [firstText(row, 'targetType'), firstText(row, 'targetId')].filter(Boolean).join(' · ') },
+      { label: 'Reported by', value: nestedText(row, 'reporter', 'name', 'email') },
     )
   }
 
@@ -149,13 +149,13 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
 
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
-      <h3 className="font-semibold text-slate-900">审核详情</h3>
+      <h3 className="font-semibold text-slate-900">Review details</h3>
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
         {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{item.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
       </dl>
-      {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">房源照片</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={`房源照片 ${index + 1}`} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
-      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">查看认证材料（仅限审核用途）</a></p>}
-      {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">查看举报证据</a></p>}
+      {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">Listing photos</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={`Listing photo ${index + 1}`} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
+      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">View verification document (review only)</a></p>}
+      {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">View report evidence</a></p>}
     </div>
   )
 }
@@ -195,7 +195,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
         queryClient.invalidateQueries({ queryKey: ['admin', kind] }),
         queryClient.invalidateQueries({ queryKey: ['admin', 'overview'] }),
       ])
-      setNotice(`${config.singular}处理结果已保存。`)
+      setNotice(`Decision saved for this ${config.singular}.`)
       setSelectedId(null)
       setReason('')
       setValidation(null)
@@ -216,7 +216,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     event.preventDefault()
     const explanation = reason.trim()
     if ((decision === config.reject || decision === config.extraAction?.value || kind === 'reports') && explanation.length < 3) {
-      setValidation('请填写至少 3 个字的处理原因。')
+      setValidation('Please enter a reason of at least 3 characters.')
       return
     }
     if (!selectedId) return
@@ -228,22 +228,22 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     <AdminShell title={config.title} description={config.description}>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div className="field min-w-48">
-          <label htmlFor={`admin-status-${kind}`}>按状态筛选</label>
+          <label htmlFor={`admin-status-${kind}`}>Filter by status</label>
           <select id={`admin-status-${kind}`} value={status} onChange={event => { setStatus(event.target.value); setPage(1); setSelectedId(null) }}>
-            <option value="">全部状态</option>
+            <option value="">All statuses</option>
             {config.statuses.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select>
         </div>
-        <button type="button" className="button button-secondary" onClick={() => { void list.refetch() }} disabled={list.isFetching}>刷新队列</button>
+        <button type="button" className="button button-secondary" onClick={() => { void list.refetch() }} disabled={list.isFetching}>Refresh queue</button>
       </div>
       <div className="mb-4"><Notice success={notice} error={validation || (mutation.error ? messageOf(mutation.error) : null)} /></div>
-      <QueryState loading={list.isPending} error={list.error ? messageOf(list.error) : null} empty={rows.length === 0} emptyText={`没有符合当前筛选条件的${config.singular}。`} onRetry={() => { void list.refetch() }} />
+      <QueryState loading={list.isPending} error={list.error ? messageOf(list.error) : null} empty={rows.length === 0} emptyText={`No ${config.singular}s match the current filter.`} onRetry={() => { void list.refetch() }} />
       {!list.isPending && !list.error && rows.length > 0 && (
         <div className="card overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-            <caption className="sr-only">{config.title}队列</caption>
+            <caption className="sr-only">{config.title} queue</caption>
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-700">
-              <tr><th scope="col" className="px-4 py-3">内容</th><th scope="col" className="px-4 py-3">状态</th><th scope="col" className="px-4 py-3">提交时间</th><th scope="col" className="px-4 py-3">审核记录</th><th scope="col" className="px-4 py-3">操作</th></tr>
+              <tr><th scope="col" className="px-4 py-3">Content</th><th scope="col" className="px-4 py-3">Status</th><th scope="col" className="px-4 py-3">Submitted</th><th scope="col" className="px-4 py-3">Review history</th><th scope="col" className="px-4 py-3">Actions</th></tr>
             </thead>
             <tbody>
               {rows.map((row, index) => {
@@ -256,24 +256,24 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                       <td className="max-w-xs px-4 py-4">
                         <strong className="block break-words text-slate-900">{rowTitle(row, kind)}</strong>
                         {rowDetail(row, kind) && <span className="mt-1 block break-words text-slate-600">{rowDetail(row, kind)}</span>}
-                        {id && <span className="mt-1 block text-xs text-slate-500">编号：{id}</span>}
+                        {id && <span className="mt-1 block text-xs text-slate-500">ID: {id}</span>}
                       </td>
-                      <td className="px-4 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-800">{statusLabels[currentStatus] || currentStatus || '未提供状态'}</span></td>
+                      <td className="px-4 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-800">{statusLabels[currentStatus] || currentStatus || 'Status unavailable'}</span></td>
                       <td className="whitespace-nowrap px-4 py-4 text-slate-700">{dateText(row.submittedAt ?? row.createdAt)}</td>
-                      <td className="max-w-xs px-4 py-4 text-slate-600">{audit || '尚无处理记录'}</td>
+                      <td className="max-w-xs px-4 py-4 text-slate-600">{audit || 'No review history yet'}</td>
                       <td className="px-4 py-4">
-                        <button type="button" className="button button-secondary button-small" disabled={!id || mutation.isPending} aria-expanded={selectedId === id} onClick={() => openForm(id, currentStatus)}>{selectedId === id ? '收起' : '处理'}</button>
+                        <button type="button" className="button button-secondary button-small" disabled={!id || mutation.isPending} aria-expanded={selectedId === id} onClick={() => openForm(id, currentStatus)}>{selectedId === id ? 'Close' : 'Review'}</button>
                       </td>
                     </tr>
                     {id && selectedId === id && (
                       <tr className="border-b border-slate-200 bg-[#f2f5fc]"><td colSpan={5} className="px-4 py-5">
                         {kind === 'accounts' ? <ModerationDetails kind={kind} row={row} /> : <>
-                          <QueryState loading={detail.isPending} error={detail.error ? messageOf(detail.error) : null} empty={!asRecord(detail.data)} emptyText="服务器未提供此条记录的详情。" onRetry={() => { void detail.refetch() }} />
+                          <QueryState loading={detail.isPending} error={detail.error ? messageOf(detail.error) : null} empty={!asRecord(detail.data)} emptyText="The server did not provide details for this record." onRetry={() => { void detail.refetch() }} />
                           {asRecord(detail.data) && !detail.error && <ModerationDetails kind={kind} row={asRecord(detail.data)!} />}
                         </>}
                         <form onSubmit={submit} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
                           <div className="field">
-                            <label htmlFor={`decision-${kind}-${id}`}>处理结果</label>
+                            <label htmlFor={`decision-${kind}-${id}`}>Decision</label>
                             <select id={`decision-${kind}-${id}`} value={decision} onChange={event => { setDecision(event.target.value); setValidation(null) }}>
                               <option value={config.approve}>{config.approveLabel}</option>
                               <option value={config.reject}>{config.rejectLabel}</option>
@@ -281,10 +281,10 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                             </select>
                           </div>
                           <div className="field">
-                            <label htmlFor={`reason-${kind}-${id}`}>处理原因{decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? '（必填）' : '（可选）'}</label>
-                            <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder="记录审核依据，拒绝或暂停时说明原因" />
+                            <label htmlFor={`reason-${kind}-${id}`}>Reason{decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)'}</label>
+                            <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder="Record your review findings and explain any rejection or suspension" />
                           </div>
-                          <button type="submit" className="button" disabled={mutation.isPending}>{mutation.isPending ? '保存中…' : '保存结果'}</button>
+                          <button type="submit" className="button" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save decision'}</button>
                         </form>
                       </td></tr>
                     )}
@@ -296,13 +296,13 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
         </div>
       )}
       {pages !== null && pages > 1 && !list.error && (
-        <nav aria-label="审核队列分页" className="mt-5 flex items-center justify-end gap-3">
-          <button type="button" className="button button-secondary button-small" disabled={page <= 1 || list.isFetching} onClick={() => { setPage(value => value - 1); setSelectedId(null) }}>上一页</button>
-          <span className="text-sm text-slate-700">第 {page} / {pages} 页</span>
-          <button type="button" className="button button-secondary button-small" disabled={page >= pages || list.isFetching} onClick={() => { setPage(value => value + 1); setSelectedId(null) }}>下一页</button>
+        <nav aria-label="Review queue pagination" className="mt-5 flex items-center justify-end gap-3">
+          <button type="button" className="button button-secondary button-small" disabled={page <= 1 || list.isFetching} onClick={() => { setPage(value => value - 1); setSelectedId(null) }}>Previous</button>
+          <span className="text-sm text-slate-700">Page {page} of {pages}</span>
+          <button type="button" className="button button-secondary button-small" disabled={page >= pages || list.isFetching} onClick={() => { setPage(value => value + 1); setSelectedId(null) }}>Next</button>
         </nav>
       )}
-      <p className="mt-4 text-xs text-slate-500">审核结果与审计记录以服务器保存的数据为准。</p>
+      <p className="mt-4 text-xs text-slate-500">Decisions and audit records are based on data saved by the server.</p>
     </AdminShell>
   )
 }

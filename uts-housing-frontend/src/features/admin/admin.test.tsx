@@ -27,14 +27,14 @@ describe('admin moderation', () => {
     renderPage(<AdminModerationPage kind="verifications" />)
     expect(await screen.findByText('Student A')).toBeTruthy()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: '处理' }))
+    await user.click(screen.getByRole('button', { name: 'Review' }))
     expect(await screen.findByText('student@uni.edu.my')).toBeTruthy()
-    await user.selectOptions(screen.getByLabelText('处理结果'), 'REJECTED')
-    await user.type(screen.getByLabelText('处理原因（必填）'), '材料无法核实')
-    await user.click(screen.getByRole('button', { name: '保存结果' }))
+    await user.selectOptions(screen.getByLabelText('Decision'), 'REJECTED')
+    await user.type(screen.getByLabelText('Reason (required)'), 'Documents could not be verified')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
     await waitFor(() => {
       expect(apiMock).toHaveBeenCalledWith('/admin/verifications/verify-1', expect.objectContaining({
-        method: 'PATCH', body: JSON.stringify({ status: 'REJECTED', reason: '材料无法核实' }),
+        method: 'PATCH', body: JSON.stringify({ status: 'REJECTED', reason: 'Documents could not be verified' }),
       }))
     })
   })
@@ -46,12 +46,12 @@ describe('admin moderation', () => {
     renderPage(<AdminModerationPage kind="accounts" />)
     expect(await screen.findByText('Landlord A')).toBeTruthy()
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: '处理' }))
-    expect((screen.getByLabelText('处理结果') as HTMLSelectElement).value).toBe('SUSPENDED')
-    await user.type(screen.getByLabelText('处理原因（必填）'), '重复违规发布')
-    await user.click(screen.getByRole('button', { name: '保存结果' }))
+    await user.click(screen.getByRole('button', { name: 'Review' }))
+    expect((screen.getByLabelText('Decision') as HTMLSelectElement).value).toBe('SUSPENDED')
+    await user.type(screen.getByLabelText('Reason (required)'), 'Repeated policy violations')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/accounts/account-1', expect.objectContaining({
-      method: 'PATCH', body: JSON.stringify({ status: 'SUSPENDED', reason: '重复违规发布' }),
+      method: 'PATCH', body: JSON.stringify({ status: 'SUSPENDED', reason: 'Repeated policy violations' }),
     })))
   })
 })
@@ -60,19 +60,19 @@ describe('campus settings', () => {
   it('validates domains before creating a campus with coordinates', async () => {
     apiMock.mockImplementation(async (path: string) => path === '/admin/campuses' ? [] : {})
     renderPage(<AdminCampusesPage />)
-    expect(await screen.findByText('尚未配置校区。')).toBeTruthy()
+    expect(await screen.findByText('No campuses have been configured.')).toBeTruthy()
     const user = userEvent.setup()
-    await user.type(screen.getByLabelText('校区名称'), 'North Campus')
-    await user.type(screen.getByLabelText('大学名称'), 'University A')
-    await user.type(screen.getByLabelText('纬度'), '3.1')
-    await user.type(screen.getByLabelText('经度'), '101.6')
-    await user.type(screen.getByLabelText('学生验证邮箱域名'), 'bad@domain')
-    await user.click(screen.getByRole('button', { name: '创建校区' }))
-    expect(screen.getByRole('alert').textContent).toContain('验证域名格式有误')
+    await user.type(screen.getByLabelText('Campus name'), 'North Campus')
+    await user.type(screen.getByLabelText('University name'), 'University A')
+    await user.type(screen.getByLabelText('Latitude'), '3.1')
+    await user.type(screen.getByLabelText('Longitude'), '101.6')
+    await user.type(screen.getByLabelText('Student verification email domains'), 'bad@domain')
+    await user.click(screen.getByRole('button', { name: 'Create campus' }))
+    expect(screen.getByRole('alert').textContent).toContain('Invalid verification domain')
     expect(apiMock.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0)
-    await user.clear(screen.getByLabelText('学生验证邮箱域名'))
-    await user.type(screen.getByLabelText('学生验证邮箱域名'), 'university.edu.my')
-    await user.click(screen.getByRole('button', { name: '创建校区' }))
+    await user.clear(screen.getByLabelText('Student verification email domains'))
+    await user.type(screen.getByLabelText('Student verification email domains'), 'university.edu.my')
+    await user.click(screen.getByRole('button', { name: 'Create campus' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/campuses', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ name: 'North Campus', university: 'University A', latitude: 3.1, longitude: 101.6, domains: ['university.edu.my'], active: true }),
