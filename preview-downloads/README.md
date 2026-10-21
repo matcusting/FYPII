@@ -5,7 +5,7 @@
 ZIP 内含已构建的前端、内存演示 API，以及官方 Windows x64 Node.js v20.19.5 运行程序；无需安装 Node.js 或运行 `npm`。ZIP 的 SHA-256 为：
 
 ```text
-c86ae397ec0492e954008ccb579be826fa290023a3367510065edcc2705da643
+7b13e5d912f089c120f7a4676157331b1ebc1df872c0b088a1dd5bd19e63eb59
 ```
 
 演示账号为 `student@demo.local`、`landlord@demo.local`、`admin@demo.local`，密码均为 `Demo12345!`。所有数据均为虚构示例，重启服务后恢复初始状态。此仓库尚无真实后端。

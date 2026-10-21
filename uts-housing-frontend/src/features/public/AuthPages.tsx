@@ -4,21 +4,9 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { api, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
-import type { User } from '../../lib/types'
+import { homeForUser, loginDestination } from '../../lib/routeAccess'
 import { AuthLayout, fieldClass, FormNotice, primaryButtonClass } from './ui'
 import { loginSchema, registerSchema, type LoginValues, type RegisterValues } from './schemas'
-
-function destinationFor(user: User): string {
-  const roles = user.roles?.map(role => role.toUpperCase()) || []
-  if (roles.includes('ADMIN')) return '/admin'
-  if (roles.includes('LANDLORD')) return '/landlord'
-  if (roles.includes('STUDENT')) return '/student'
-  return '/dashboard'
-}
-
-function safeNext(next: string | null, fallback: string): string {
-  return next?.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : fallback
-}
 
 export function LoginPage() {
   const { signIn, user } = useAuth()
@@ -35,7 +23,7 @@ export function LoginPage() {
     setError(null)
     try {
       const signedInUser = await signIn(values.email, values.password)
-      navigate(safeNext(searchParams.get('next'), destinationFor(signedInUser)), { replace: true })
+      navigate(loginDestination(searchParams.get('next'), signedInUser), { replace: true })
     } catch (failure) {
       setError(messageOf(failure))
     }
@@ -51,7 +39,7 @@ export function LoginPage() {
           <button type="button" role="tab" aria-selected={roleTab === 'STUDENT'} onClick={() => setRoleTab('STUDENT')} className={'rounded-md text-sm font-bold transition ' + (roleTab === 'STUDENT' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>Student</button>
           <button type="button" role="tab" aria-selected={roleTab === 'LANDLORD'} onClick={() => setRoleTab('LANDLORD')} className={'rounded-md text-sm font-bold transition ' + (roleTab === 'LANDLORD' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>Landlord</button>
         </div>
-        {user && <p className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">You are signed in. <Link to={destinationFor(user)} className="font-semibold underline">Go to Your Dashboard</Link></p>}
+        {user && <p className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">You are signed in. <Link to={homeForUser(user)} className="font-semibold underline">Go to Your Dashboard</Link></p>}
         <form onSubmit={handleSubmit(submit)} noValidate className="mt-9 space-y-5">
           <FormNotice error={error} />
           <div>

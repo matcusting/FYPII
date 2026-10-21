@@ -37,7 +37,7 @@ describe('account forms', () => {
   })
 
   it('rejects malformed login details and ignores an external return URL', async () => {
-    signInMock.mockResolvedValue({})
+    signInMock.mockResolvedValue({ roles: [] })
     render(<MemoryRouter initialEntries={['/login?next=%2F%2Fevil.example']}><Routes><Route path="/login" element={<LoginPage />} /><Route path="/dashboard" element={<p>Dashboard opened</p>} /></Routes></MemoryRouter>)
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Email'), 'bad-email')
@@ -51,5 +51,24 @@ describe('account forms', () => {
     await user.click(screen.getByRole('button', { name: 'Log In' }))
     expect(await screen.findByText('Dashboard opened')).toBeTruthy()
     expect(signInMock).toHaveBeenCalledWith('student@example.com', 'GoodPass123')
+  })
+
+  it.each([
+    ['/login?next=%2Fstudent', 'Landlord dashboard opened'],
+    ['/login?next=%2Flandlord%2Fmanage', 'Landlord listings opened'],
+  ])('routes a landlord signing in from %s to an allowed destination', async (loginPath, expectedPage) => {
+    signInMock.mockResolvedValue({ roles: ['LANDLORD'] })
+    render(<MemoryRouter initialEntries={[loginPath]}><Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/landlord" element={<p>Landlord dashboard opened</p>} />
+      <Route path="/landlord/manage" element={<p>Landlord listings opened</p>} />
+      <Route path="/student" element={<p>Student dashboard opened</p>} />
+    </Routes></MemoryRouter>)
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Email'), 'landlord@demo.local')
+    await user.type(screen.getByLabelText('Password'), 'Demo12345!')
+    await user.click(screen.getByRole('button', { name: 'Log In' }))
+    expect(await screen.findByText(expectedPage)).toBeTruthy()
+    expect(screen.queryByText('Student dashboard opened')).toBeNull()
   })
 })

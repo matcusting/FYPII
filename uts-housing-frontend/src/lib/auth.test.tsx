@@ -30,6 +30,7 @@ describe('protected routes', () => {
     expect(await screen.findByRole('heading', { name: 'Roommate matches' })).toBeTruthy()
     await userEvent.click(screen.getByRole('link', { name: 'Open admin dashboard' }))
     expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to Your Dashboard' }).getAttribute('href')).toBe('/student')
     expect(screen.queryByRole('heading', { name: 'Admin dashboard' })).toBeNull()
   })
 })

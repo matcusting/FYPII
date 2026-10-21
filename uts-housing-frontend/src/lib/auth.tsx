@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 import { api, ApiError, messageOf } from './api'
+import { homeForUser } from './routeAccess'
 import type { User } from './types'
 
 interface AuthContextValue {
@@ -84,7 +85,7 @@ export function AuthGuard({ children, roles, verifiedStudent = false }: { childr
   const location = useLocation()
   if (loading) return <div className="container py-16" role="status">Checking your sign-in status…</div>
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
-  if (roles && !hasRole(user, ...roles)) return <div className="container py-16"><h1>Access denied</h1><p>This account does not have permission to view this page.</p></div>
+  if (roles && !hasRole(user, ...roles)) return <div className="container py-16"><h1>Access denied</h1><p>This account does not have permission to view this page. Signed in as {user.email}.</p><Link to={homeForUser(user)} className="mt-4 inline-block font-semibold text-blue-800 underline">Go to Your Dashboard</Link></div>
   if (verifiedStudent && !user.studentVerified) return <div className="container py-16"><h1>Student verification required</h1><p>Verify your student status before using this feature.</p></div>
   return <>{children}</>
 }
