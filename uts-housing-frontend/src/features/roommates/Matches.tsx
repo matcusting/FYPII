@@ -138,8 +138,10 @@ function CandidateActions({ match }: { match: Match }) {
   const queryClient = useQueryClient()
   const [sent, setSent] = useState(false)
   const [blocked, setBlocked] = useState(false)
+  const [blockConfirmOpen, setBlockConfirmOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const [reportReason, setReportReason] = useState('')
+  const [reportError, setReportError] = useState('')
   const [reportSent, setReportSent] = useState(false)
   const request = useMutation({
     mutationFn: () => api<unknown>('/roommates/requests', { method: 'POST', body: JSON.stringify({ recipientId: match.id }) }),
@@ -147,7 +149,7 @@ function CandidateActions({ match }: { match: Match }) {
   })
   const block = useMutation({
     mutationFn: () => api<unknown>('/roommates/blocks', { method: 'POST', body: JSON.stringify({ blockedUserId: match.id }) }),
-    onSuccess: () => { setBlocked(true); void queryClient.invalidateQueries({ queryKey: ['roommates', 'matches'] }) },
+    onSuccess: () => { setBlocked(true); setBlockConfirmOpen(false); void queryClient.invalidateQueries({ queryKey: ['roommates', 'matches'] }) },
   })
   const report = useMutation({
     mutationFn: () => api<unknown>('/reports', { method: 'POST', body: JSON.stringify({ targetType: 'USER', targetId: match.id, reason: reportReason.trim() }) }),
@@ -155,7 +157,10 @@ function CandidateActions({ match }: { match: Match }) {
   })
   function submitReport(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (reportReason.trim().length >= 10) report.mutate()
+    const length = reportReason.trim().length
+    if (length < 10 || length > 1000) { setReportError('Describe the issue in 10 to 1,000 characters.'); return }
+    setReportError('')
+    report.mutate()
   }
   if (blocked) return <Notice tone="success">This student is blocked and should no longer appear in your matches.</Notice>
   return <div className="space-y-3">
@@ -164,16 +169,25 @@ function CandidateActions({ match }: { match: Match }) {
     </button>
     <div className="flex flex-wrap items-center gap-4 text-sm font-semibold text-gray-500">
       <button type="button" onClick={() => setReportOpen(open => !open)} aria-expanded={reportOpen} aria-controls={'report-' + match.id} className="hover:text-[#203569]">Report</button>
-      <button type="button" onClick={() => { if (window.confirm('Block ' + match.displayName + '?')) block.mutate() }} disabled={block.isPending} className="hover:text-red-700">Block</button>
+      <button type="button" onClick={() => setBlockConfirmOpen(open => !open)} aria-expanded={blockConfirmOpen} aria-controls={'block-confirm-' + match.id} disabled={block.isPending} className="hover:text-red-700">Block</button>
     </div>
+    {blockConfirmOpen && <div id={'block-confirm-' + match.id} role="group" aria-labelledby={'block-confirm-label-' + match.id} className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm">
+      <p id={'block-confirm-label-' + match.id} className="font-semibold text-red-900">Block {match.displayName}?</p>
+      <p className="mt-1 text-red-800">This student will no longer appear in your matches.</p>
+      <div className="mt-3 flex flex-wrap gap-3">
+        <button type="button" className={secondaryButtonClass} onClick={() => setBlockConfirmOpen(false)} disabled={block.isPending}>Cancel</button>
+        <button type="button" className="rounded-lg bg-red-700 px-4 py-2 font-semibold text-white hover:bg-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50" onClick={() => block.mutate()} disabled={block.isPending}>{block.isPending ? 'Blocking…' : 'Confirm Block'}</button>
+      </div>
+    </div>}
     {request.isError && <Notice tone="error">Connection request was not sent: {messageOf(request.error)}</Notice>}
     {block.isError && <Notice tone="error">Could not block this student: {messageOf(block.error)}</Notice>}
     {reportSent && <Notice tone="success">Your report has been sent for review.</Notice>}
-    {reportOpen && <form id={'report-' + match.id} onSubmit={submitReport} className="rounded-lg border border-gray-200 bg-[#f8f9fa] p-4">
+    {reportOpen && <form id={'report-' + match.id} onSubmit={submitReport} noValidate className="rounded-lg border border-gray-200 bg-[#f8f9fa] p-4">
       <label className="block text-sm font-bold" htmlFor={'report-reason-' + match.id}>Reason for report</label>
       <textarea id={'report-reason-' + match.id} className={inputClass} rows={3} minLength={10} maxLength={1000} required value={reportReason} onChange={event => setReportReason(event.currentTarget.value)} />
       <p className="mt-1 text-xs text-gray-500">At least 10 characters. Please do not include another person's sensitive information.</p>
       <button type="submit" className={buttonClass + ' mt-3'} disabled={report.isPending}>{report.isPending ? 'Sending…' : 'Submit report'}</button>
+      {reportError && <div className="mt-3"><Notice tone="error">{reportError}</Notice></div>}
       {report.isError && <div className="mt-3"><Notice tone="error">Report not sent: {messageOf(report.error)}</Notice></div>}
     </form>}
   </div>

@@ -60,7 +60,7 @@ function NotificationControls() {
 
   return <Panel title="Email Notifications">
     <p className="mb-4 text-sm text-slate-600">You can turn off these optional emails. Account security, email verification and password reset messages will still be sent.</p>
-    {preferences.isPending ? <LoadingNotice /> : preferences.isError ? <ErrorNotice error={preferences.error} onRetry={() => void preferences.refetch()} /> : values && <form onSubmit={submit} className="space-y-4">
+    {preferences.isPending ? <LoadingNotice /> : preferences.isError ? <ErrorNotice error={preferences.error} onRetry={() => void preferences.refetch()} /> : values && <form onSubmit={submit} noValidate className="space-y-4">
       <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 h-4 w-4" checked={values.emailInquiryUpdates} onChange={event => setEdits(previous => ({ ...previous, emailInquiryUpdates: event.target.checked }))} /><span>Property inquiry emails</span></label>
       <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 h-4 w-4" checked={values.emailConnectionRequests} onChange={event => setEdits(previous => ({ ...previous, emailConnectionRequests: event.target.checked }))} /><span>Roommate connection request emails</span></label>
       <label className="flex min-h-11 cursor-pointer items-start gap-3 text-sm"><input type="checkbox" className="mt-1 h-4 w-4" checked={values.emailProductUpdates} onChange={event => setEdits(previous => ({ ...previous, emailProductUpdates: event.target.checked }))} /><span>Product update emails</span></label>
@@ -107,7 +107,7 @@ function DeletionRequest() {
 
   return <Panel title="Request Account Deletion">
     <p className="mb-4 text-sm text-slate-600">This submits an account deletion request. Consider whether you need to keep your listings, inquiries and reviews. The platform privacy policy and follow-up notices explain how these records are handled.</p>
-    {request.isSuccess ? <p role="status" className="text-sm text-green-700">Your deletion request has been submitted. Watch for a follow-up notice.</p> : <form onSubmit={submit} className="space-y-3">
+    {request.isSuccess ? <p role="status" className="text-sm text-green-700">Your deletion request has been submitted. Watch for a follow-up notice.</p> : <form onSubmit={submit} noValidate className="space-y-3">
       <label className="block text-sm font-medium">Enter your account email to confirm this request
         <input className={inputClass} type="email" autoComplete="email" value={confirmationEmail} onChange={event => setConfirmationEmail(event.target.value)} placeholder={user?.email || ''} required />
       </label>

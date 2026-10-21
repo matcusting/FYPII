@@ -121,7 +121,7 @@ export function VerifyEmailPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!token.trim()) return
+    if (!token.trim()) { setError('Enter your verification token.'); return }
     setBusy(true)
     setError(null)
     try {
@@ -139,7 +139,7 @@ export function VerifyEmailPage() {
   return (
     <AuthLayout title="Verify Email" description="Use the link or verification code in your email to verify your address.">
       {complete ? <div className="space-y-5"><FormNotice success="Email verified. You can now sign in." /><Link to="/login" className={primaryButtonClass}>Go to Login</Link></div> : (
-        <form onSubmit={submit} className="space-y-5">
+        <form onSubmit={submit} noValidate className="space-y-5">
           <FormNotice error={error} />
           <div><label htmlFor="verification-token" className="font-medium text-slate-800">Verification Token</label><input id="verification-token" name="token" type="text" autoComplete="one-time-code" required value={token} onChange={event => setToken(event.target.value)} className={fieldClass} /><p className="mt-2 text-sm text-slate-600">If the link already includes a token, select Verify Email.</p></div>
           <button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{busy ? 'Verifying…' : 'Verify Email'}</button>
@@ -157,10 +157,13 @@ export function ForgotPasswordPage() {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const address = email.trim()
+    if (!address) { setError('Enter your email address.'); return }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) { setError('Enter a valid email address.'); return }
     setBusy(true)
     setError(null)
     try {
-      await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: email.trim() }) })
+      await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: address }) })
       setComplete(true)
     } catch (failure) {
       setError(messageOf(failure))
@@ -172,7 +175,7 @@ export function ForgotPasswordPage() {
   return (
     <AuthLayout title="Reset Password" description="Enter your account email address and we will send reset instructions.">
       {complete ? <div className="space-y-5"><FormNotice success="If this email address is registered, you will receive a password reset email. Check your inbox and spam folder." /><Link to="/login" className="font-semibold text-blue-800 underline">Back to Login</Link></div> : (
-        <form onSubmit={submit} className="space-y-5"><FormNotice error={error} /><div><label htmlFor="forgot-email" className="font-medium text-slate-800">Email</label><input id="forgot-email" name="email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} className={fieldClass} /></div><button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{busy ? 'Sending…' : 'Send Reset Instructions'}</button></form>
+        <form onSubmit={submit} noValidate className="space-y-5"><FormNotice error={error} /><div><label htmlFor="forgot-email" className="font-medium text-slate-800">Email</label><input id="forgot-email" name="email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} className={fieldClass} /></div><button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{busy ? 'Sending…' : 'Send Reset Instructions'}</button></form>
       )}
     </AuthLayout>
   )
@@ -190,6 +193,10 @@ export function ResetPasswordPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
+    if (!token.trim()) { setError('Enter your reset token.'); return }
+    if (password.length < 8) { setError('The new password must be at least 8 characters.'); return }
+    if (!confirmPassword) { setError('Confirm your new password.'); return }
+    if (confirmPassword.length < 8) { setError('The confirmation password must be at least 8 characters.'); return }
     if (password !== confirmPassword) {
       setError('The passwords do not match.')
       return
@@ -212,7 +219,7 @@ export function ResetPasswordPage() {
   return (
     <AuthLayout title="Set a New Password" description="Use the link and token in your reset email to update your password.">
       {complete ? <div className="space-y-5"><FormNotice success="Your password has been updated. Sign in with your new password." /><Link to="/login" className={primaryButtonClass}>Go to Login</Link></div> : (
-        <form onSubmit={submit} className="space-y-5">
+        <form onSubmit={submit} noValidate className="space-y-5">
           <FormNotice error={error} />
           <div><label htmlFor="reset-token" className="font-medium text-slate-800">Reset Token</label><input id="reset-token" name="token" type="text" autoComplete="one-time-code" required value={token} onChange={event => setToken(event.target.value)} className={fieldClass} /></div>
           <div><label htmlFor="reset-password" className="font-medium text-slate-800">New Password</label><input id="reset-password" name="password" type="password" autoComplete="new-password" minLength={8} required value={password} onChange={event => setPassword(event.target.value)} className={fieldClass} /><p className="mt-1 text-sm text-slate-500">At least 8 characters.</p></div>

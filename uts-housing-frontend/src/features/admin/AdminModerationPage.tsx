@@ -219,6 +219,10 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
       setValidation('Please enter a reason of at least 3 characters.')
       return
     }
+    if (explanation.length > 1000) {
+      setValidation('The reason must be 1,000 characters or fewer.')
+      return
+    }
     if (!selectedId) return
     setValidation(null)
     mutation.mutate({ id: selectedId, nextStatus: decision, explanation })
@@ -271,7 +275,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                           <QueryState loading={detail.isPending} error={detail.error ? messageOf(detail.error) : null} empty={!asRecord(detail.data)} emptyText="The server did not provide details for this record." onRetry={() => { void detail.refetch() }} />
                           {asRecord(detail.data) && !detail.error && <ModerationDetails kind={kind} row={asRecord(detail.data)!} />}
                         </>}
-                        <form onSubmit={submit} className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
+                        <form onSubmit={submit} noValidate className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
                           <div className="field">
                             <label htmlFor={`decision-${kind}-${id}`}>Decision</label>
                             <select id={`decision-${kind}-${id}`} value={decision} onChange={event => { setDecision(event.target.value); setValidation(null) }}>

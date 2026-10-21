@@ -47,6 +47,7 @@ function validatedPayload(form: CampusForm) {
   const domains = [...new Set(form.domains.split(/[\n,;]+/).map(domain => domain.trim().toLowerCase()).filter(Boolean))]
 
   if (!name || !university) throw new Error('Enter a campus name and university.')
+  if (name.length > 120 || university.length > 120) throw new Error('Campus and university names must be 120 characters or fewer.')
   if (!form.latitude.trim() || !form.longitude.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
     throw new Error('Enter valid coordinates: latitude must be between -90 and 90, and longitude between -180 and 180.')
   }
@@ -153,7 +154,7 @@ export function AdminCampusesPage() {
             {editingId && <button type="button" className="button button-secondary button-small" onClick={() => { setEditingId(null); setForm(blankForm); setValidation(null); save.reset() }}>Cancel editing</button>}
           </div>
           <p className="mt-2 text-sm text-slate-600">Enter one verification domain per line, such as university.edu.my. If no domain is listed, students can still be verified manually.</p>
-          <form onSubmit={submit} className="mt-5 grid gap-4">
+          <form onSubmit={submit} noValidate className="mt-5 grid gap-4">
             <div className="field"><label htmlFor="campus-name">Campus name</label><input id="campus-name" value={form.name} onChange={event => update('name', event.target.value)} required maxLength={120} autoComplete="off" /></div>
             <div className="field"><label htmlFor="campus-university">University name</label><input id="campus-university" value={form.university} onChange={event => update('university', event.target.value)} required maxLength={120} autoComplete="organization" /></div>
             <div className="grid gap-4 sm:grid-cols-2">

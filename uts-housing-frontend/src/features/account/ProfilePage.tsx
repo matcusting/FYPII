@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
+import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { hasRole, useAuth } from '../../lib/auth'
 import { ErrorNotice, LoadingNotice, Panel } from './shared'
 import { inputClass, labelForStatus } from './format'
@@ -111,6 +112,7 @@ export function ProfilePage() {
   function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!fields.displayName.trim()) { setFormError('Enter your name.'); return }
+    if (fields.preferredMoveInDate && !isIsoDate(fields.preferredMoveInDate)) { setFormError('Enter a valid preferred move-in date as YYYY-MM-DD.'); return }
     const min = fields.budgetMin === '' ? null : Number(fields.budgetMin)
     const max = fields.budgetMax === '' ? null : Number(fields.budgetMax)
     if ((min !== null && (!Number.isFinite(min) || min < 0)) || (max !== null && (!Number.isFinite(max) || max < 0)) || (min !== null && max !== null && max < min)) {
@@ -140,13 +142,13 @@ export function ProfilePage() {
           <div><h1 className="text-xl font-bold">{isStudent ? 'Student Profile Settings' : 'Profile Settings'}</h1><p className="mt-1 text-sm text-gray-300">Manage your personal information and housing preferences.</p></div>
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/10 text-xl font-bold" aria-hidden="true">{initials}</span>
         </header>
-        {profile.isPending ? <div className="p-8"><LoadingNotice /></div> : profile.isError ? <div className="p-8"><ErrorNotice error={profile.error} onRetry={() => void profile.refetch()} /></div> : <form onSubmit={submitProfile} className="space-y-6 p-6 sm:p-8">
+        {profile.isPending ? <div className="p-8"><LoadingNotice /></div> : profile.isError ? <div className="p-8"><ErrorNotice error={profile.error} onRetry={() => void profile.refetch()} /></div> : <form onSubmit={submitProfile} noValidate className="space-y-6 p-6 sm:p-8">
           {saveMessage && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-center text-sm font-bold text-green-800">✓ Profile updated successfully!</p>}
           <div className="grid gap-6 sm:grid-cols-2">
             <label className="block text-[13px] font-bold text-gray-700">Full Legal Name <span aria-hidden="true">*</span><input className={inputClass} value={fields.displayName} onChange={event => updateField('displayName', event.target.value)} maxLength={100} required autoComplete="name" /></label>
             <label className="block text-[13px] font-bold text-gray-700">University<input className={inputClass} value={fields.university} onChange={event => updateField('university', event.target.value)} maxLength={160} autoComplete="organization" /></label>
             <label className="block text-[13px] font-bold text-gray-700">Preferred Location<input className={inputClass} value={fields.preferredLocation} onChange={event => updateField('preferredLocation', event.target.value)} maxLength={160} placeholder="Near UTS campus" /></label>
-            <label className="block text-[13px] font-bold text-gray-700">Preferred Move-in Date<input className={inputClass} type="date" value={fields.preferredMoveInDate} onChange={event => updateField('preferredMoveInDate', event.target.value)} /></label>
+            <div className="block text-[13px] font-bold text-gray-700"><label htmlFor="preferred-move-in">Preferred Move-in Date</label><EnglishDateInput id="preferred-move-in" className={inputClass} value={fields.preferredMoveInDate} onValueChange={value => updateField('preferredMoveInDate', value)} /></div>
             <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">Account Email<input className={`${inputClass} cursor-not-allowed bg-gray-50 text-gray-500`} value={user?.email || ''} readOnly type="email" /></label>
             <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">Personal Bio / Roommate Notes<textarea className={inputClass} rows={3} maxLength={1000} value={fields.bio} onChange={event => updateField('bio', event.target.value)} placeholder="Tell others a little about yourself." /></label>
           </div>
@@ -157,7 +159,7 @@ export function ProfilePage() {
       </section>
 
       <Panel title="Housing Budget">
-        <form onSubmit={submitProfile} className="space-y-4">
+        <form onSubmit={submitProfile} noValidate className="space-y-4">
           <p className="text-sm text-gray-600">Set an optional monthly budget range for your housing search.</p>
           <div className="grid gap-5 sm:grid-cols-2">
             <label className="block text-[13px] font-bold text-gray-700">Monthly Budget From<input className={inputClass} type="number" min="0" step="0.01" inputMode="decimal" value={fields.budgetMin} onChange={event => updateField('budgetMin', event.target.value)} /></label>
@@ -172,27 +174,32 @@ export function ProfilePage() {
 
       {isStudent && <Panel title="Student Verification">
         <p className="mb-4 text-sm text-gray-600">Current status: <strong>{user?.studentVerified ? 'Verified' : labelForStatus(user?.verificationStatus || profile.data?.verificationStatus || 'UNVERIFIED')}</strong></p>
-        {user?.studentVerified ? <p className="text-sm text-green-700">Your student verification is complete.</p> : pendingVerification || verification.isSuccess ? <p className="text-sm text-gray-600">Your application is being reviewed.</p> : <form onSubmit={submitVerification} className="space-y-4 text-sm">
+        {user?.studentVerified ? <p className="text-sm text-green-700">Your student verification is complete.</p> : pendingVerification || verification.isSuccess ? <p className="text-sm text-gray-600">Your application is being reviewed.</p> : <form onSubmit={submitVerification} noValidate className="space-y-4 text-sm">
           <p className="text-gray-600">Save your university above before submitting. Approved university email domains are configured by the administrator.</p>
           <fieldset className="space-y-2"><legend className="font-semibold">Verification method</legend>
             <label className="flex items-start gap-2"><input type="radio" name="verification-method" className="mt-1" checked={verificationMethod === 'EMAIL_DOMAIN'} onChange={() => setVerificationMethod('EMAIL_DOMAIN')} /> Use my verified university email</label>
             <label className="flex items-start gap-2"><input type="radio" name="verification-method" className="mt-1" checked={verificationMethod === 'MANUAL'} onChange={() => setVerificationMethod('MANUAL')} /> Request manual review</label>
           </fieldset>
           {verificationMethod === 'MANUAL' && <div className="space-y-3">
-            <label className="block font-semibold">Proof of student status
-              <input className={inputClass} type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => {
-                const file = event.target.files?.[0] || null
-                setVerificationMessage('')
-                setVerificationProof(null)
-                if (!file) return
-                if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
-                  setVerificationMessage('Select a PDF, JPG or PNG file no larger than 5 MB.')
-                  event.target.value = ''
-                  return
-                }
-                setVerificationProof(file)
-              }} />
-            </label>
+            <div>
+              <span id="verification-proof-label" className="block font-semibold">Proof of student status</span>
+              <label className="mt-2 flex min-h-11 cursor-pointer flex-wrap items-center gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-[#203569]">
+                <input type="file" className="sr-only" aria-labelledby="verification-proof-label" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => {
+                  const file = event.target.files?.[0] || null
+                  setVerificationMessage('')
+                  setVerificationProof(null)
+                  if (!file) return
+                  if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+                    setVerificationMessage('Select a PDF, JPG or PNG file no larger than 5 MB.')
+                    event.target.value = ''
+                    return
+                  }
+                  setVerificationProof(file)
+                }} />
+                <span aria-hidden="true" className="rounded-md bg-[#203569] px-3 py-1.5 font-semibold text-white">Choose file</span>
+                <span className="min-w-0 flex-1 truncate text-gray-600">{verificationProof?.name || 'No file selected'}</span>
+              </label>
+            </div>
             <p className="text-xs text-gray-600">PDF, JPG or PNG, up to 5 MB. Cover unrelated personal details before uploading.</p>
             <label className="block font-semibold">Note (optional)
               <textarea className={inputClass} rows={3} maxLength={500} value={verificationNote} onChange={event => setVerificationNote(event.target.value)} placeholder="Explain why you need manual review. Do not include ID numbers." />

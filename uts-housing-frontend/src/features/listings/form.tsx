@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, messageOf } from '../../lib/api'
+import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { hasRole, useAuth } from '../../lib/auth'
 import { Field, inputClass, Notice, primaryButton, QueryState, secondaryButton } from './components'
 import { getList, propertyTypes, roomTypes, statusNames, type Amenity, type Campus, type ListingDetails } from './model'
@@ -43,20 +44,34 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     if (submitForReview && !maySubmit) { setError('Complete student verification before submitting a listing for review.'); return }
     if (submitForReview && photoCount < 1) { setError('Upload at least one property photo before submitting for review.'); return }
     const form = new FormData(event.currentTarget)
-    const rent = Number(form.get('rent'))
-    const deposit = Number(form.get('deposit'))
-    if (!Number.isFinite(rent) || rent <= 0 || !Number.isFinite(deposit) || deposit < 0) { setError('Enter valid monthly rent and deposit amounts.'); return }
+    const title = String(form.get('title') || '').trim()
+    const description = String(form.get('description') || '').trim()
+    const approximateArea = String(form.get('approximateArea') || '').trim()
+    const campusId = String(form.get('campusId') || '')
+    const propertyType = String(form.get('propertyType') || '')
+    const roomType = String(form.get('roomType') || '')
+    if (title.length < 8 || title.length > 120) { setError('Enter a listing title between 8 and 120 characters.'); return }
+    if (!campusId || !propertyType || !roomType) { setError('Select a campus, property type and room type.'); return }
+    if (approximateArea.length < 3 || approximateArea.length > 120) { setError('Enter an approximate area between 3 and 120 characters.'); return }
+    if (description.length < 30 || description.length > 5000) { setError('Enter a property description between 30 and 5,000 characters.'); return }
+    const rentText = String(form.get('rent') || '').trim()
+    const depositText = String(form.get('deposit') || '').trim()
+    const rent = Number(rentText)
+    const deposit = Number(depositText)
+    if (!/^\d+(\.\d{1,2})?$/.test(rentText) || !/^\d+(\.\d{1,2})?$/.test(depositText) || rent <= 0 || deposit < 0 || rent > 9999999 || deposit > 9999999) { setError('Enter valid monthly rent and deposit amounts with up to two decimal places.'); return }
+    const availableFrom = String(form.get('availableFrom') || '').trim()
+    if (!isIsoDate(availableFrom)) { setError('Enter a valid available-from date as YYYY-MM-DD.'); return }
     const payload: Record<string, unknown> = {
-      title: String(form.get('title') || '').trim(),
-      description: String(form.get('description') || '').trim(),
-      campusId: String(form.get('campusId') || ''),
-      propertyType: String(form.get('propertyType') || ''),
-      roomType: String(form.get('roomType') || ''),
+      title,
+      description,
+      campusId,
+      propertyType,
+      roomType,
       rent: rent.toFixed(2),
       currency: 'MYR',
       deposit: deposit.toFixed(2),
-      availableFrom: String(form.get('availableFrom') || ''),
-      approximateArea: String(form.get('approximateArea') || '').trim(),
+      availableFrom,
+      approximateArea,
       houseRules: String(form.get('houseRules') || '').trim(),
       contactMethod: String(form.get('contactMethod') || 'IN_APP'),
       furnished: form.get('furnished') === 'true',
@@ -83,7 +98,7 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     finally { setSaving(false); setUploadProgress('') }
   }
 
-  return <form className="max-w-4xl space-y-7" onSubmit={event => { void submit(event) }}>
+  return <form noValidate className="max-w-4xl space-y-7" onSubmit={event => { void submit(event) }}>
     <Field label="Listing Title" required><input className={inputClass} name="title" required minLength={8} maxLength={120} defaultValue={initial?.title || ''} placeholder="e.g., Master Room at Taman Universiti" /></Field>
     <div><p className="mb-2 text-[13px] font-bold text-[#374151]">Property Photo</p>
       {initial?.photos?.length ? <div className="mb-3 grid gap-3 sm:grid-cols-3">{initial.photos.map((photo, index) => <label key={photo.id || index} className="overflow-hidden rounded-lg border border-gray-200"><img src={photo.url} alt={photo.alt || `Existing photo ${index + 1}`} className="h-28 w-full object-cover" /><span className="flex items-center gap-2 p-2 text-xs"><input type="checkbox" disabled={!photo.id} checked={!!photo.id && removedPhotoIds.includes(photo.id)} onChange={() => { if (photo.id) setRemovedPhotoIds(value => value.includes(photo.id!) ? value.filter(id => id !== photo.id) : [...value, photo.id!]) }} />Remove this photo</span></label>)}</div> : null}
@@ -92,7 +107,7 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     </div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label="Monthly Rent (RM)" required><input className={inputClass} name="rent" type="number" min="1" max="9999999" step="0.01" required defaultValue={initial?.rent || ''} placeholder="0.00" /></Field><Field label="Security Deposit (RM)" required><input className={inputClass} name="deposit" type="number" min="0" max="9999999" step="0.01" required defaultValue={initial?.deposit ?? 0} placeholder="0.00" /></Field></div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label="Campus" required><select className={inputClass} name="campusId" required defaultValue={initial?.campusId || ''}><option value="" disabled>Select campus</option>{campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.name}{campus.university ? ` · ${campus.university}` : ''}</option>)}</select></Field><Field label="Room Type" required><select className={inputClass} name="roomType" required defaultValue={initial?.roomType || ''}><option value="" disabled>Select room type</option>{roomTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div>
-    <div className="grid gap-6 sm:grid-cols-2"><Field label="Property Type" required><select className={inputClass} name="propertyType" required defaultValue={initial?.propertyType || ''}><option value="" disabled>Select property type</option>{propertyTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><Field label="Available From" required><input className={inputClass} name="availableFrom" type="date" required defaultValue={initial?.availableFrom?.slice(0, 10) || ''} /></Field></div>
+    <div className="grid gap-6 sm:grid-cols-2"><Field label="Property Type" required><select className={inputClass} name="propertyType" required defaultValue={initial?.propertyType || ''}><option value="" disabled>Select property type</option>{propertyTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><div className="space-y-1.5 text-[13px] font-bold text-[#374151]"><label htmlFor="available-from">Available From <span className="text-rose-700" aria-hidden="true">*</span></label><EnglishDateInput id="available-from" className={inputClass} name="availableFrom" required defaultValue={initial?.availableFrom?.slice(0, 10) || ''} /></div></div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label="Approximate Area" required hint="Only the general area is shown publicly."><input className={inputClass} name="approximateArea" required minLength={3} maxLength={120} defaultValue={initial?.approximateArea || ''} placeholder="e.g., Sibu Jaya" /></Field><Field label="Furnishing"><select className={inputClass} name="furnished" defaultValue={String(initial?.furnished ?? false)}><option value="false">Unfurnished</option><option value="true">Furnished</option></select></Field></div>
     <Field label="Property Description" required><textarea className={inputClass} name="description" required minLength={30} maxLength={5000} rows={4} defaultValue={initial?.description || ''} placeholder="Describe the room, furniture, transport and included costs" /></Field>
     <div><p className="mb-3 text-[13px] font-bold text-[#374151]">Included Facilities (Select all that apply)</p>{amenities.length ? <div className="flex flex-wrap gap-2">{amenities.map(amenity => { const selected = selectedAmenityIds.includes(amenity.id); return <label key={amenity.id} className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-bold transition ${selected ? 'border-[#203569] bg-[#203569] text-white' : 'border-gray-200 bg-[#f1f3f5] text-[#64748b] hover:border-[#203569]'}`}><input type="checkbox" className="sr-only" checked={selected} onChange={() => setSelectedAmenityIds(value => value.includes(amenity.id) ? value.filter(id => id !== amenity.id) : [...value, amenity.id])} />{selected ? '✓ ' : '+ '}{amenity.name}</label> })}</div> : <p className="text-sm text-gray-500">Facilities are temporarily unavailable. You can still save your listing.</p>}</div>

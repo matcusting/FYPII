@@ -23,6 +23,7 @@ export function MyListingsPage() {
   const client = useQueryClient()
   const [page, setPage] = useState(1)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [confirmation, setConfirmation] = useState<{ id: string; type: 'rented' | 'archive' } | null>(null)
   const list = useQuery({ queryKey: ['my-listings', page], queryFn: () => getList<ListingDetails>(`/listings${query({ mine: true, page, limit: 20 })}`) })
   const action = useMutation({ mutationFn: ({ id, type }: { id: string; type: 'submit' | 'availability' | 'archive' | 'pause' | 'resume' | 'rented' }) => {
     const path = `/listings/${encodeURIComponent(id)}`
@@ -32,7 +33,7 @@ export function MyListingsPage() {
       return api(path, { method: 'PATCH', body: JSON.stringify({ status }) })
     }
     return api(`${path}/${type}`, { method: 'POST' })
-  }, onSuccess: async () => { setActionError(null); await Promise.all([client.invalidateQueries({ queryKey: ['my-listings'] }), client.invalidateQueries({ queryKey: ['listings'] })]) }, onError: error => { setActionError(messageOf(error)) } })
+  }, onSuccess: async () => { setActionError(null); setConfirmation(null); await Promise.all([client.invalidateQueries({ queryKey: ['my-listings'] }), client.invalidateQueries({ queryKey: ['listings'] })]) }, onError: error => { setActionError(messageOf(error)) } })
   const items = list.data?.items || []
   const hasNext = list.data?.pages ? page < list.data.pages : items.length >= 20
   return <div className="p-5 sm:p-10">
@@ -50,10 +51,15 @@ export function MyListingsPage() {
               <div className="flex flex-wrap gap-2"><Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}/edit`}>Edit Details</Link>{item.status === 'PUBLISHED' && <Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}`}>View Listing</Link>}
                 {['DRAFT', 'REJECTED', 'RENTED'].includes(item.status || '') && <button type="button" className={smallButton} disabled={action.isPending || !item.photos?.length} title={!item.photos?.length ? 'Upload at least one photo before submitting' : undefined} onClick={() => action.mutate({ id: item.id, type: 'submit' })}>Submit for Review</button>}
                 {['PUBLISHED', 'PAUSED'].includes(item.status || '') && <button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'availability' })}>Confirm Available</button>}
-                {item.status === 'PUBLISHED' && <><button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'pause' })}>Pause Listing</button><button type="button" className={smallButton} disabled={action.isPending} onClick={() => { if (window.confirm('Mark this property as rented? It will no longer appear in search.')) action.mutate({ id: item.id, type: 'rented' }) }}>Mark as Rented</button></>}
+                {item.status === 'PUBLISHED' && <><button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'pause' })}>Pause Listing</button><button type="button" className={smallButton} disabled={action.isPending} onClick={() => setConfirmation({ id: item.id, type: 'rented' })}>Mark as Rented</button></>}
                 {item.status === 'PAUSED' && <button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'resume' })}>Re-list Property</button>}
-                {item.status !== 'ARCHIVED' && <button type="button" className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50" disabled={action.isPending} onClick={() => { if (window.confirm('Archive this property? It will no longer appear in search.')) action.mutate({ id: item.id, type: 'archive' }) }}>Delete</button>}
-              </div>{item.lastConfirmedAt && <p className="mt-3 text-[11px] text-gray-400">Availability confirmed {formatDate(item.lastConfirmedAt)}</p>}</div>
+                {item.status !== 'ARCHIVED' && <button type="button" className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50" disabled={action.isPending} onClick={() => setConfirmation({ id: item.id, type: 'archive' })}>Delete</button>}
+              </div>
+              {confirmation?.id === item.id && <div role="group" aria-labelledby={`confirm-action-${item.id}`} className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-gray-800">
+                <p id={`confirm-action-${item.id}`} className="font-semibold">{confirmation.type === 'rented' ? 'Mark this property as rented? It will no longer appear in search.' : 'Archive this property? It will no longer appear in search.'}</p>
+                <div className="mt-3 flex flex-wrap gap-2"><button type="button" className={smallButton} disabled={action.isPending} onClick={() => setConfirmation(null)}>Cancel</button><button type="button" className="rounded border border-red-700 bg-red-700 px-4 py-1.5 text-xs font-bold text-white hover:bg-red-800 disabled:opacity-50" disabled={action.isPending} onClick={() => action.mutate(confirmation)}>{action.isPending ? 'Saving…' : confirmation.type === 'rented' ? 'Confirm Rented' : 'Archive Property'}</button></div>
+              </div>}
+              {item.lastConfirmedAt && <p className="mt-3 text-[11px] text-gray-400">Availability confirmed {formatDate(item.lastConfirmedAt)}</p>}</div>
           </div><span className={`inline-flex h-fit shrink-0 items-center gap-2 self-start rounded px-3 py-1.5 text-xs font-bold ${item.status === 'PUBLISHED' ? 'bg-[#dcfce7] text-[#15803d]' : 'bg-gray-200 text-gray-500'}`}>{item.status === 'PUBLISHED' && <span className="h-2 w-2 rounded-full bg-[#15803d]" />}{statusLabels[item.status || ''] || item.status || 'Unknown'}</span>
         </article>)}{!items.length && page > 1 && <Notice>No properties on this page. Go back to the previous page.</Notice>}</div>
         <nav aria-label="My properties pagination" className="mt-6 flex items-center justify-center gap-3"><button className={secondaryButton} type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button><span className="text-sm text-gray-600">Page {page}</span><button className={secondaryButton} type="button" disabled={!hasNext} onClick={() => setPage(page + 1)}>Next</button></nav>

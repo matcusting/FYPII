@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
+import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { blankProfile, lifestyleFields, profileOf, profilePayload, type LifestyleKey, type PrivacyField, type RoommateProfile } from './model'
 import { buttonClass, inputClass, Notice, RoommateShell, secondaryButtonClass, StudentGate } from './ui'
 
@@ -18,6 +19,7 @@ function validate(profile: RoommateProfile): string | null {
   if (profile.discoverable && !profile.displayName.trim()) return 'Enter a public display name before enabling discovery.'
   if (profile.displayName.length > 80) return 'Display name must be 80 characters or fewer.'
   if (profile.bio.length > 1000) return 'Bio must be 1,000 characters or fewer.'
+  if (profile.moveInDate && !isIsoDate(profile.moveInDate)) return 'Enter a valid preferred move-in date as YYYY-MM-DD.'
   for (const value of [profile.budgetMin, profile.budgetMax]) {
     if (value !== '' && (!Number.isFinite(Number(value)) || Number(value) < 0)) return 'Enter a valid, non-negative budget.'
   }
@@ -65,6 +67,7 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
   const [form, setForm] = useState(initial)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false)
   const save = useMutation({
     mutationFn: (value: RoommateProfile) => api<unknown>('/roommates/profile', { method: 'PATCH', body: JSON.stringify(profilePayload(value)) }),
     onSuccess: (_data, variables) => {
@@ -91,7 +94,7 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
     if (!issue) save.mutate(form)
   }
 
-  return <form onSubmit={submit} className="space-y-8">
+  return <form onSubmit={submit} noValidate className="space-y-8">
     <section className="border-b border-gray-100 pb-8">
       <h2 className="text-[1.1rem] font-bold text-[#1f2937]">Basic Information</h2>
       <p className="mb-5 mt-1 text-sm text-gray-600">Once discovery is on, verified students can see only the details you choose to share.</p>
@@ -99,7 +102,7 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
         <div><label className="block text-sm font-medium" htmlFor="roommate-display-name">Display Name</label><input id="roommate-display-name" className={inputClass} maxLength={80} value={form.displayName} onChange={event => update('displayName', event.currentTarget.value)} autoComplete="nickname" /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-university">University</label><input id="roommate-university" className={inputClass} maxLength={120} value={form.university} onChange={event => update('university', event.currentTarget.value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-location">Preferred Location</label><input id="roommate-location" className={inputClass} maxLength={120} value={form.preferredLocation} onChange={event => update('preferredLocation', event.currentTarget.value)} placeholder="e.g. near campus" /><p className="mt-1 text-xs text-gray-600">Use a general area rather than sharing your exact address.</p></div>
-        <div><label className="block text-sm font-medium" htmlFor="roommate-move-in">Preferred Move-in Date</label><input id="roommate-move-in" type="date" className={inputClass} value={form.moveInDate} onChange={event => update('moveInDate', event.currentTarget.value)} /></div>
+        <div><label className="block text-sm font-medium" htmlFor="roommate-move-in">Preferred Move-in Date</label><EnglishDateInput id="roommate-move-in" className={inputClass} value={form.moveInDate} onValueChange={value => update('moveInDate', value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-budget-min">Minimum Monthly Budget (MYR)</label><input id="roommate-budget-min" type="number" min="0" step="1" inputMode="numeric" className={inputClass} value={form.budgetMin} onChange={event => update('budgetMin', event.currentTarget.value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-budget-max">Maximum Monthly Budget (MYR)</label><input id="roommate-budget-max" type="number" min="0" step="1" inputMode="numeric" className={inputClass} value={form.budgetMax} onChange={event => update('budgetMax', event.currentTarget.value)} /></div>
       </div>
@@ -141,7 +144,18 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
       }}>Pause Discovery</button>}
       <Link className={secondaryButtonClass} to="/roommates">View Matches</Link>
     </div>
-    <details className="rounded-lg border border-gray-200 bg-white p-4 text-sm"><summary className="cursor-pointer font-medium text-red-800">Remove Roommate Profile</summary><p className="my-3 text-gray-600">This deletes your roommate profile and discovery settings. Your account profile is managed separately.</p><button type="button" className="rounded-lg border border-red-300 px-4 py-2 font-semibold text-red-800 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50" disabled={remove.isPending || save.isPending} onClick={() => { if (window.confirm('Remove your roommate profile?')) remove.mutate() }}>Confirm Removal</button></details>
+    <details className="rounded-lg border border-gray-200 bg-white p-4 text-sm">
+      <summary className="cursor-pointer font-medium text-red-800">Remove Roommate Profile</summary>
+      <p className="my-3 text-gray-600">This deletes your roommate profile and discovery settings. Your account profile is managed separately.</p>
+      <button type="button" className="rounded-lg border border-red-300 px-4 py-2 font-semibold text-red-800 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50" disabled={remove.isPending || save.isPending} aria-expanded={confirmingRemoval} onClick={() => setConfirmingRemoval(value => !value)}>{confirmingRemoval ? 'Hide Confirmation' : 'Continue to Remove Profile'}</button>
+      {confirmingRemoval && <div role="group" aria-label="Confirm profile removal" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4">
+        <p className="font-medium text-red-900" role="status">Are you sure you want to remove your roommate profile and discovery settings?</p>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <button type="button" className="rounded-lg bg-red-700 px-4 py-2 font-semibold text-white hover:bg-red-800 focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50" disabled={remove.isPending || save.isPending} onClick={() => { setConfirmingRemoval(false); remove.mutate() }}>Yes, Remove Profile</button>
+          <button type="button" className={secondaryButtonClass} onClick={() => setConfirmingRemoval(false)}>Cancel</button>
+        </div>
+      </div>}
+    </details>
   </form>
 }
 
