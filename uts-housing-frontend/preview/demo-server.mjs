@@ -340,7 +340,6 @@ async function api(req, res, url) {
 }
 
 const mime = { '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.html': 'text/html; charset=utf-8', '.png': 'image/png', '.jpg': 'image/jpeg', '.woff2': 'font/woff2', '.ico': 'image/x-icon' }
-const banner = '<div role="status" style="position:sticky;top:0;z-index:2147483647;padding:10px 16px;background:#7f1d1d;color:white;text-align:center;font:600 14px/1.5 system-ui,sans-serif">本机演示：所有账号、房源、评价、请求及审核数据均为虚构；重启后清空。请勿输入真实个人资料。</div>'
 function illustration(kind) {
   const themes = { room: ['#dbeafe', '#2563eb', '单人房示意'], apartment: ['#fef3c7', '#b45309', '公寓示意'], house: ['#dcfce7', '#15803d', '合租房示意'] }
   const [background, foreground, label] = themes[kind] || themes.room
@@ -373,7 +372,7 @@ async function staticFile(req, res, url) {
   const content = await readFile(file)
   const type = mime[extname(file)] || 'application/octet-stream'
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': file.endsWith('index.html') ? 'no-store' : 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' })
-  return res.end(file.endsWith('index.html') ? content.toString('utf8').replace('<body>', `<body>${banner}`) : content)
+  return res.end(content)
 }
 
 try { await stat(resolve(dist, 'index.html')) }

@@ -48,11 +48,11 @@ export function formatDate(value?: string): string {
 }
 
 export const propertyTypes = [
-  ['APARTMENT', '公寓'], ['HOUSE', '独立屋'], ['STUDIO', '单间公寓'], ['OTHER', '其他'],
+  ['APARTMENT', 'Apartment'], ['HOUSE', 'House'], ['STUDIO', 'Studio'], ['OTHER', 'Other'],
 ] as const
 
 export const roomTypes = [
-  ['SINGLE', '单人房'], ['SHARED', '合住房'], ['MASTER', '主人房'], ['ENTIRE', '整套'],
+  ['SINGLE', 'Single Room'], ['SHARED', 'Shared Room'], ['MASTER', 'Master Room'], ['ENTIRE', 'Whole Apartment'],
 ] as const
 
 export const statusNames: Record<string, string> = {

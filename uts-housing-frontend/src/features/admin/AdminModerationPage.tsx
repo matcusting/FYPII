@@ -153,9 +153,9 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
         {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{item.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
       </dl>
-      {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">房源照片</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-700"><img src={url} alt={`房源照片 ${index + 1}`} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
-      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-800 underline">查看认证材料（仅限审核用途）</a></p>}
-      {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-blue-800 underline">查看举报证据</a></p>}
+      {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">房源照片</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={`房源照片 ${index + 1}`} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
+      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">查看认证材料（仅限审核用途）</a></p>}
+      {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">查看举报证据</a></p>}
     </div>
   )
 }
@@ -266,7 +266,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                       </td>
                     </tr>
                     {id && selectedId === id && (
-                      <tr className="border-b border-slate-200 bg-blue-50/60"><td colSpan={5} className="px-4 py-5">
+                      <tr className="border-b border-slate-200 bg-[#f2f5fc]"><td colSpan={5} className="px-4 py-5">
                         {kind === 'accounts' ? <ModerationDetails kind={kind} row={row} /> : <>
                           <QueryState loading={detail.isPending} error={detail.error ? messageOf(detail.error) : null} empty={!asRecord(detail.data)} emptyText="服务器未提供此条记录的详情。" onRetry={() => { void detail.refetch() }} />
                           {asRecord(detail.data) && !detail.error && <ModerationDetails kind={kind} row={asRecord(detail.data)!} />}

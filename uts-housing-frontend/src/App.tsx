@@ -15,6 +15,7 @@ const ListingsPage = lazy(() => import('./features/listings').then(module => ({ 
 const ListingDetailPage = lazy(() => import('./features/listings').then(module => ({ default: module.ListingDetailPage })))
 const FavoritesPage = lazy(() => import('./features/listings').then(module => ({ default: module.FavoritesPage })))
 const MyListingsPage = lazy(() => import('./features/listings').then(module => ({ default: module.MyListingsPage })))
+const LandlordReviewsPage = lazy(() => import('./features/listings').then(module => ({ default: module.LandlordReviewsPage })))
 const ListingFormPage = lazy(() => import('./features/listings').then(module => ({ default: module.ListingFormPage })))
 const RoommatesPage = lazy(() => import('./features/roommates').then(module => ({ default: module.RoommatesPage })))
 const RoommateProfilePage = lazy(() => import('./features/roommates').then(module => ({ default: module.RoommateProfilePage })))
@@ -33,7 +34,8 @@ const AdminAccountsPage = lazy(() => import('./features/admin').then(module => (
 
 export default function App() {
   return <BrowserRouter><Routes><Route element={<SiteLayout />}>
-    <Route index element={<HomePage />} />
+    <Route index element={<LoginPage />} />
+    <Route path="welcome" element={<HomePage />} />
     <Route path="listings" element={<ListingsPage />} />
     <Route path="listings/:id" element={<ListingDetailPage />} />
     <Route path="login" element={<LoginPage />} />
@@ -62,8 +64,18 @@ export default function App() {
     <Route path="privacy" element={<StaticPage kind="privacy" />} />
     <Route path="terms" element={<StaticPage kind="terms" />} />
     <Route path="help" element={<StaticPage kind="help" />} />
-    <Route path="student/*" element={<Navigate to="/dashboard" replace />} />
-    <Route path="landlord/*" element={<Navigate to="/dashboard" replace />} />
+    <Route path="student" element={<AuthGuard roles={['STUDENT']}><DashboardPage /></AuthGuard>} />
+    <Route path="student/housing" element={<AuthGuard roles={['STUDENT']}><ListingsPage /></AuthGuard>} />
+    <Route path="student/roommates" element={<AuthGuard roles={['STUDENT']} verifiedStudent><RoommatesPage /></AuthGuard>} />
+    <Route path="student/profile" element={<AuthGuard roles={['STUDENT']}><ProfilePage /></AuthGuard>} />
+    <Route path="student/messages" element={<AuthGuard roles={['STUDENT']}><RequestsPage /></AuthGuard>} />
+    <Route path="landlord" element={<AuthGuard roles={['LANDLORD']}><DashboardPage /></AuthGuard>} />
+    <Route path="landlord/messages" element={<AuthGuard roles={['LANDLORD']}><RequestsPage /></AuthGuard>} />
+    <Route path="landlord/add" element={<AuthGuard roles={['LANDLORD']}><ListingFormPage /></AuthGuard>} />
+    <Route path="landlord/manage" element={<AuthGuard roles={['LANDLORD']}><MyListingsPage /></AuthGuard>} />
+    <Route path="landlord/reviews" element={<AuthGuard roles={['LANDLORD']}><LandlordReviewsPage /></AuthGuard>} />
+    <Route path="student/*" element={<Navigate to="/student" replace />} />
+    <Route path="landlord/*" element={<Navigate to="/landlord" replace />} />
     <Route path="*" element={<NotFoundPage />} />
   </Route></Routes></BrowserRouter>
 }

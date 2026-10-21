@@ -1,16 +1,16 @@
-export const inputClass = 'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 focus:border-[#203569] focus:outline-none focus:ring-2 focus:ring-[#203569]/20 disabled:bg-slate-100 disabled:text-slate-500'
+export const inputClass = 'mt-1.5 block w-full rounded-lg border border-gray-300 bg-white p-2.5 text-gray-800 outline-none transition-colors focus:border-[#203569] disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-50 disabled:text-gray-500'
 
 export function formatDate(value: string | undefined | null) {
   if (!value) return '—'
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('zh-MY', { dateStyle: 'medium' }).format(date)
+  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('en-MY', { dateStyle: 'medium' }).format(date)
 }
 
 export function labelForStatus(status: string | undefined | null) {
   const labels: Record<string, string> = {
-    UNVERIFIED: '未认证', PENDING: '待处理', PENDING_REVIEW: '待审核', APPROVED: '已通过', ACCEPTED: '已接受',
-    REJECTED: '已拒绝', DECLINED: '已婉拒', CLOSED: '已结束', PUBLISHED: '已发布',
-    DRAFT: '草稿', PAUSED: '已暂停', RENTED: '已出租', ARCHIVED: '已归档',
+    UNVERIFIED: 'Not verified', PENDING: 'Pending', PENDING_REVIEW: 'Pending review', APPROVED: 'Approved', ACCEPTED: 'Accepted',
+    REJECTED: 'Rejected', DECLINED: 'Declined', CLOSED: 'Closed', PUBLISHED: 'Published',
+    DRAFT: 'Draft', PAUSED: 'Paused', RENTED: 'Rented', ARCHIVED: 'Archived',
   }
-  return status ? (labels[status.toUpperCase()] || status) : '状态未知'
+  return status ? (labels[status.toUpperCase()] || status) : 'Status unknown'
 }

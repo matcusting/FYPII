@@ -34,10 +34,10 @@ export function AdminOverviewPage() {
       {data && !overview.error && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {metrics.map(metric => (
-            <Link key={metric.label} to={metric.path} className="card block p-5 no-underline transition hover:border-blue-400 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700">
+            <Link key={metric.label} to={metric.path} className="card block p-5 no-underline transition hover:border-[#a8bde8] hover:shadow-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#203569]">
               <span className="block text-sm font-medium text-slate-600">{metric.label}</span>
-              <strong className="mt-3 block text-3xl text-slate-950">{metricValue(data, metric.keys)}</strong>
-              <span className="mt-4 block text-sm font-semibold text-blue-800">查看详情 →</span>
+              <strong className="mt-3 block text-3xl text-[#203569]">{metricValue(data, metric.keys)}</strong>
+              <span className="mt-4 block text-sm font-semibold text-[#203569]">查看详情 →</span>
             </Link>
           ))}
         </div>

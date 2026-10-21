@@ -33,21 +33,28 @@ function LifestyleQuestions({ title, description, value, onChange, weights, onWe
   weights?: RoommateProfile['importanceWeights']
   onWeightChange?: (key: LifestyleKey, weight: number) => void
 }) {
-  return <fieldset className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-    <legend className="px-1 text-lg font-semibold">{title}</legend>
-    <p className="mb-5 text-sm text-slate-600">{description}</p>
-    <div className="grid gap-5 sm:grid-cols-2">
+  return <fieldset className="border-b border-gray-100 pb-8">
+    <legend className="text-[1.1rem] font-bold text-[#1f2937]">{title}</legend>
+    <p className="mb-6 mt-1 text-sm text-gray-600">{description}</p>
+    <div className="space-y-7">
       {lifestyleFields.map(({ key, label, options }) => <div key={key}>
-        <label htmlFor={`${title}-${key}`} className="block text-sm font-medium">{label}</label>
-        <select id={`${title}-${key}`} className={inputClass} value={value[key]} onChange={event => onChange(key, event.currentTarget.value)}>
-          {options.map(([optionValue, optionLabel]) => <option key={optionValue} value={optionValue}>{optionLabel}</option>)}
-        </select>
-        {weights && onWeightChange && <label className="mt-2 block text-xs text-slate-600" htmlFor={`weight-${key}`}>
-          重视程度
-          <select id={`weight-${key}`} className={`${inputClass} text-sm`} value={weights[key]} onChange={event => onWeightChange(key, Number(event.currentTarget.value))}>
-            {[1, 2, 3, 4, 5].map(weight => <option key={weight} value={weight}>{weight}{weight === 1 ? '（一般）' : weight === 5 ? '（非常重要）' : ''}</option>)}
-          </select>
-        </label>}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <p id={`${title}-${key}`} className="text-[15px] font-bold text-[#374151]">{label}</p>
+          {weights && onWeightChange && <label className="flex items-center gap-2 text-xs text-gray-600" htmlFor={`weight-${key}`}>
+            重视程度
+            <select id={`weight-${key}`} className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm text-[#374151] focus:border-[#203569] focus-visible:outline-2 focus-visible:outline-[#203569]" value={weights[key]} onChange={event => onWeightChange(key, Number(event.currentTarget.value))}>
+              {[1, 2, 3, 4, 5].map(weight => <option key={weight} value={weight}>{weight}{weight === 1 ? '（一般）' : weight === 5 ? '（非常重要）' : ''}</option>)}
+            </select>
+          </label>}
+        </div>
+        <div role="group" aria-labelledby={`${title}-${key}`} className="flex flex-wrap gap-3">
+          {options.map(([optionValue, optionLabel]) => <button key={optionValue} type="button" aria-pressed={value[key] === optionValue} onClick={() => onChange(key, optionValue)}
+            className={value[key] === optionValue
+              ? 'rounded-full border-2 border-[#86efac] bg-[#e2f5e9] px-5 py-2 text-sm font-bold text-[#168a48] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803d]'
+              : 'rounded-full border border-gray-200 bg-white px-5 py-2 text-sm font-medium text-gray-600 hover:border-gray-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#203569]'}>
+            {optionLabel}
+          </button>)}
+        </div>
       </div>)}
     </div>
   </fieldset>
@@ -84,40 +91,40 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
     if (!issue) save.mutate(form)
   }
 
-  return <form onSubmit={submit} className="space-y-6">
-    <div className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-      <h2 className="text-lg font-semibold">基本资料</h2>
-      <p className="mb-5 text-sm text-slate-600">仅在你开启发现后，后端才应将你选择公开的资料展示给已认证学生。</p>
+  return <form onSubmit={submit} className="space-y-8">
+    <section className="border-b border-gray-100 pb-8">
+      <h2 className="text-[1.1rem] font-bold text-[#1f2937]">基本资料</h2>
+      <p className="mb-5 mt-1 text-sm text-gray-600">开启室友发现后，已认证学生可以看到你选择公开的资料。</p>
       <div className="grid gap-5 sm:grid-cols-2">
         <div><label className="block text-sm font-medium" htmlFor="roommate-display-name">显示名称</label><input id="roommate-display-name" className={inputClass} maxLength={80} value={form.displayName} onChange={event => update('displayName', event.currentTarget.value)} autoComplete="nickname" /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-university">大学</label><input id="roommate-university" className={inputClass} maxLength={120} value={form.university} onChange={event => update('university', event.currentTarget.value)} /></div>
-        <div><label className="block text-sm font-medium" htmlFor="roommate-location">意向地区</label><input id="roommate-location" className={inputClass} maxLength={120} value={form.preferredLocation} onChange={event => update('preferredLocation', event.currentTarget.value)} placeholder="例如：校园附近区域" /><p className="mt-1 text-xs text-slate-600">请填写大致区域，避免公开精确住址。</p></div>
+        <div><label className="block text-sm font-medium" htmlFor="roommate-location">意向地区</label><input id="roommate-location" className={inputClass} maxLength={120} value={form.preferredLocation} onChange={event => update('preferredLocation', event.currentTarget.value)} placeholder="例如：校园附近区域" /><p className="mt-1 text-xs text-gray-600">请填写大致区域，避免公开精确住址。</p></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-move-in">计划入住日期</label><input id="roommate-move-in" type="date" className={inputClass} value={form.moveInDate} onChange={event => update('moveInDate', event.currentTarget.value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-budget-min">最低月预算（MYR）</label><input id="roommate-budget-min" type="number" min="0" step="1" inputMode="numeric" className={inputClass} value={form.budgetMin} onChange={event => update('budgetMin', event.currentTarget.value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-budget-max">最高月预算（MYR）</label><input id="roommate-budget-max" type="number" min="0" step="1" inputMode="numeric" className={inputClass} value={form.budgetMax} onChange={event => update('budgetMax', event.currentTarget.value)} /></div>
       </div>
-      <div className="mt-5"><label className="block text-sm font-medium" htmlFor="roommate-bio">简短介绍</label><textarea id="roommate-bio" className={inputClass} rows={4} maxLength={1000} value={form.bio} onChange={event => update('bio', event.currentTarget.value)} placeholder="介绍你的生活习惯和理想合租方式。请勿填写电话或精确住址。" /><p className="mt-1 text-right text-xs text-slate-600">{form.bio.length}/1000</p></div>
-    </div>
+      <div className="mt-5"><label className="block text-sm font-medium" htmlFor="roommate-bio">简短介绍</label><textarea id="roommate-bio" className={inputClass} rows={4} maxLength={1000} value={form.bio} onChange={event => update('bio', event.currentTarget.value)} placeholder="介绍你的生活习惯和理想合租方式。请勿填写电话或精确住址。" /><p className="mt-1 text-right text-xs text-gray-600">{form.bio.length}/1000</p></div>
+    </section>
 
     <LifestyleQuestions title="我的生活习惯" description="留空的维度不会作为已回答信息显示。" value={form.lifestyle} onChange={(key, answer) => setForm(previous => ({ ...previous, lifestyle: { ...previous.lifestyle, [key]: answer } }))} />
-    <LifestyleQuestions title="希望室友的习惯" description="这些偏好和重视程度交由服务器计算兼容度，页面不会自行计算百分比。" value={form.roommatePreferences} weights={form.importanceWeights} onChange={(key, answer) => setForm(previous => ({ ...previous, roommatePreferences: { ...previous.roommatePreferences, [key]: answer } }))} onWeightChange={(key, weight) => setForm(previous => ({ ...previous, importanceWeights: { ...previous.importanceWeights, [key]: weight } }))} />
+    <LifestyleQuestions title="希望室友的习惯" description="选择你的偏好和每项偏好的重要程度，有助于找到更合适的室友。" value={form.roommatePreferences} weights={form.importanceWeights} onChange={(key, answer) => setForm(previous => ({ ...previous, roommatePreferences: { ...previous.roommatePreferences, [key]: answer } }))} onWeightChange={(key, weight) => setForm(previous => ({ ...previous, importanceWeights: { ...previous.importanceWeights, [key]: weight } }))} />
 
-    <fieldset className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-      <legend className="px-1 text-lg font-semibold">不能接受的条件</legend>
-      <p className="mb-4 text-sm text-slate-600">这些条件应由服务器作为匹配过滤条件，而非降低分数。</p>
+    <fieldset className="border-b border-gray-100 pb-8">
+      <legend className="text-[1.1rem] font-bold text-[#1f2937]">不能接受的条件</legend>
+      <p className="mb-4 mt-1 text-sm text-gray-600">符合以下条件的学生才会出现在你的匹配结果中。</p>
       <div className="space-y-3">
         <label className="flex items-start gap-3"><input type="checkbox" checked={form.smokeFreeOnly} onChange={event => update('smokeFreeOnly', event.currentTarget.checked)} className="mt-1 accent-emerald-700" /><span>只考虑不吸烟的室友</span></label>
         <label className="flex items-start gap-3"><input type="checkbox" checked={form.petFreeOnly} onChange={event => update('petFreeOnly', event.currentTarget.checked)} className="mt-1 accent-emerald-700" /><span>只考虑没有宠物的室友</span></label>
       </div>
     </fieldset>
 
-    <fieldset className="rounded-xl border border-slate-200 bg-white p-5 sm:p-6">
-      <legend className="px-1 text-lg font-semibold">隐私与发现</legend>
-      <p className="mb-4 text-sm text-slate-600">所有可选字段默认仅自己可见。开启发现是单独的选择；即使开启，也只应展示下面勾选的字段。</p>
+    <fieldset className="border-b border-gray-100 pb-8">
+      <legend className="text-[1.1rem] font-bold text-[#1f2937]">隐私与发现</legend>
+      <p className="mb-4 mt-1 text-sm text-gray-600">所有可选字段默认仅自己可见。开启发现后，只有下面勾选的字段会展示给匹配对象。</p>
       <div className="grid gap-3 sm:grid-cols-2">
         {privacyFields.map(({ key, label }) => <label key={key} className="flex items-start gap-3"><input type="checkbox" className="mt-1 accent-emerald-700" checked={form.visibility[key]} onChange={event => setForm(previous => ({ ...previous, visibility: { ...previous.visibility, [key]: event.currentTarget.checked } }))} /><span>允许向匹配对象显示{label}</span></label>)}
       </div>
-      <label className="mt-6 flex items-start gap-3 border-t border-slate-200 pt-5 font-medium"><input type="checkbox" className="mt-1 accent-emerald-700" checked={form.discoverable} onChange={event => update('discoverable', event.currentTarget.checked)} /><span>开启室友发现，让其他已认证学生看到我的匹配资料</span></label>
+      <label className="mt-6 flex items-start gap-3 border-t border-gray-100 pt-5 font-medium"><input type="checkbox" className="mt-1 accent-[#15803d]" checked={form.discoverable} onChange={event => update('discoverable', event.currentTarget.checked)} /><span>开启室友发现，让其他已认证学生看到我的匹配资料</span></label>
     </fieldset>
 
     {validationError && <Notice tone="error">{validationError}</Notice>}
@@ -134,13 +141,13 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
       }}>暂停发现</button>}
       <Link className={secondaryButtonClass} to="/roommates">查看匹配</Link>
     </div>
-    <details className="rounded-lg border border-slate-200 bg-white p-4 text-sm"><summary className="cursor-pointer font-medium text-red-800">移除室友资料</summary><p className="my-3 text-slate-600">这会请求服务器删除你的室友资料和发现设置。账户资料仍由账户设置管理。</p><button type="button" className="rounded-lg border border-red-300 px-4 py-2 font-semibold text-red-800 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50" disabled={remove.isPending || save.isPending} onClick={() => { if (window.confirm('确定移除室友资料？')) remove.mutate() }}>确认移除室友资料</button></details>
+    <details className="rounded-lg border border-gray-200 bg-white p-4 text-sm"><summary className="cursor-pointer font-medium text-red-800">移除室友资料</summary><p className="my-3 text-gray-600">这会删除你的室友资料和发现设置。账户资料仍由账户设置管理。</p><button type="button" className="rounded-lg border border-red-300 px-4 py-2 font-semibold text-red-800 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-red-700 disabled:opacity-50" disabled={remove.isPending || save.isPending} onClick={() => { if (window.confirm('确定移除室友资料？')) remove.mutate() }}>确认移除室友资料</button></details>
   </form>
 }
 
 function ProfileContent() {
   const profile = useQuery({ queryKey: ['roommates', 'profile'], queryFn: () => api<unknown>('/roommates/profile').then(profileOf) })
-  return <RoommateShell title="我的室友资料" description="填写生活习惯和室友偏好，并自行决定是否加入匹配。">
+  return <RoommateShell title="My Lifestyle Profile" description="填写生活习惯和室友偏好，并自行决定是否加入匹配。">
     {profile.isPending ? <p role="status">正在读取室友资料…</p> : profile.isError ? <div className="space-y-4"><Notice tone="error">无法读取室友资料：{messageOf(profile.error)}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void profile.refetch()}>重试</button></div> : <ProfileEditor initial={profile.data} />}
   </RoommateShell>
 }

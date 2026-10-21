@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { query } from '../../lib/api'
 import type { Listing } from '../../lib/types'
@@ -42,32 +42,36 @@ export function ListingsPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  return <div className="mx-auto max-w-7xl space-y-7 px-4 py-10 sm:px-6 lg:px-8">
-    <header className="space-y-2"><p className="text-sm font-semibold uppercase tracking-wider text-indigo-700">学生租房</p><h1 className="text-3xl font-bold text-slate-900">寻找合适的房源</h1><p className="text-slate-600">浏览已审核的房源。可租状态由房东提供，请在联系时再次确认。</p></header>
-    <div className="grid items-start gap-7 lg:grid-cols-[290px_minmax(0,1fr)]">
-      <aside className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="mb-4 text-lg font-semibold">筛选条件</h2>
-        <form key={params.toString()} className="space-y-4" onSubmit={event => { event.preventDefault(); submit(event.currentTarget) }}>
-          <Field label="关键词"><input className={inputClass} type="search" name="q" defaultValue={params.get('q') || ''} placeholder="房源标题或描述" /></Field>
-          <Field label="区域"><input className={inputClass} name="area" defaultValue={params.get('area') || ''} placeholder="例如：Sibu Jaya" /></Field>
-          <Field label="大学"><input className={inputClass} name="university" defaultValue={params.get('university') || ''} placeholder="输入大学名称" /></Field>
-          <Field label="校区"><select className={inputClass} name="campusId" defaultValue={params.get('campusId') || ''}><option value="">所有校区</option>{(campuses.data?.items || []).map(campus => <option value={campus.id} key={campus.id}>{campus.name}</option>)}</select></Field>
-          {campuses.isError && <p className="text-xs text-amber-800" role="status">暂时无法读取校区列表，其他筛选仍可使用。</p>}
-          <div className="grid grid-cols-2 gap-3"><Field label="最低月租 (RM)"><input className={inputClass} type="number" name="minRent" min="0" step="1" defaultValue={params.get('minRent') || ''} /></Field><Field label="最高月租 (RM)"><input className={inputClass} type="number" name="maxRent" min="0" step="1" defaultValue={params.get('maxRent') || ''} onInput={event => event.currentTarget.setCustomValidity('')} /></Field></div>
-          <Field label="最高押金 (RM)"><input className={inputClass} type="number" name="maxDeposit" min="0" step="1" defaultValue={params.get('maxDeposit') || ''} /></Field>
-          <Field label="最迟可入住日期"><input className={inputClass} type="date" name="availableBy" defaultValue={params.get('availableBy') || ''} /></Field>
-          <Field label="校区距离上限 (公里)" hint="约略直线距离，不代表驾驶距离。"><input className={inputClass} type="number" name="maxDistanceKm" min="0" step="0.1" defaultValue={params.get('maxDistanceKm') || ''} /></Field>
-          <Field label="房屋类型"><select className={inputClass} name="propertyType" defaultValue={params.get('propertyType') || ''}><option value="">全部</option>{propertyTypes.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></Field>
-          <Field label="房间类型"><select className={inputClass} name="roomType" defaultValue={params.get('roomType') || ''}><option value="">全部</option>{roomTypes.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></Field>
-          <Field label="设施" hint="用逗号分隔多个设施关键词。"><input className={inputClass} name="amenities" defaultValue={params.get('amenities') || ''} placeholder="wifi,parking" /></Field>
-          <Field label="家具"><select className={inputClass} name="furnished" defaultValue={params.get('furnished') || ''}><option value="">不限</option><option value="true">配备家具</option><option value="false">未配备家具</option></select></Field>
-          <Field label="排序"><select className={inputClass} name="sort" defaultValue={params.get('sort') || 'newest'}><option value="newest">最新发布</option><option value="rent_asc">月租从低到高</option><option value="rent_desc">月租从高到低</option><option value="distance">离校区最近</option></select></Field>
-          <div className="flex gap-2"><button type="submit" className={primaryButton}>应用筛选</button><button type="button" className={secondaryButton} onClick={() => setParams({})}>清除</button></div>
+  return <div className="mx-auto w-full max-w-[1000px] px-4 pb-16 pt-2 font-sans sm:px-0">
+    <Link to="/dashboard" className="mb-4 inline-flex items-center gap-1 text-sm font-bold text-gray-500 transition hover:text-gray-800">← Back to Dashboard</Link>
+    <div className="flex min-h-[600px] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)] md:flex-row">
+      <aside className="flex flex-col border-b border-gray-100 bg-[#fcfcfd] p-6 md:w-[300px] md:shrink-0 md:border-b-0 md:border-r md:p-8">
+        <h1 className="mb-8 text-xl font-bold text-[#1f2937]">Filters</h1>
+        <form key={params.toString()} className="flex flex-1 flex-col gap-6" onSubmit={event => { event.preventDefault(); submit(event.currentTarget) }}>
+          <div><label htmlFor="rent-slider" className="mb-4 block text-[11px] font-bold uppercase tracking-wider text-[#475569]">Max Rent (RM)</label><input id="rent-slider" aria-label="Max Rent slider" className="w-full cursor-pointer accent-[#e11d48]" type="range" min="0" max="2000" step="50" defaultValue={params.get('maxRent') || '2000'} onInput={event => { const form = event.currentTarget.form; const value = event.currentTarget.value; const number = form?.querySelector<HTMLInputElement>('[name="maxRent"]'); const output = form?.querySelector<HTMLOutputElement>('#rent-output'); if (number) number.value = value; if (output) output.value = `RM ${value}` }} /><output id="rent-output" className="mt-1 block text-right text-sm text-[#475569]">{params.get('maxRent') ? `RM ${params.get('maxRent')}` : 'Any rent'}</output><input className="sr-only" aria-label="最高月租 (RM)" type="number" name="maxRent" min="0" step="1" defaultValue={params.get('maxRent') || ''} onInput={event => { event.currentTarget.setCustomValidity(''); const form = event.currentTarget.form; const slider = form?.querySelector<HTMLInputElement>('#rent-slider'); const output = form?.querySelector<HTMLOutputElement>('#rent-output'); if (slider) slider.value = event.currentTarget.value; if (output) output.value = event.currentTarget.value ? `RM ${event.currentTarget.value}` : 'Any rent' }} /></div>
+          <Field label="Distance to UTS"><select className={inputClass} name="maxDistanceKm" defaultValue={params.get('maxDistanceKm') || ''}><option value="">Any Distance</option><option value="5">Less than 5 km</option><option value="2">Less than 2 km</option></select></Field>
+          <Field label="Campus"><select aria-label="校区" className={inputClass} name="campusId" defaultValue={params.get('campusId') || ''}><option value="">All Campuses</option>{(campuses.data?.items || []).map(campus => <option value={campus.id} key={campus.id}>{campus.name}</option>)}</select></Field>
+          {campuses.isError && <p className="text-xs text-amber-800" role="status">Campus filters are temporarily unavailable.</p>}
+          <details className="border-t border-gray-200 pt-5 text-sm text-gray-600"><summary className="cursor-pointer font-bold text-[#203569]">More Filters</summary><div className="mt-5 space-y-4">
+            <Field label="Keyword"><input className={inputClass} type="search" name="q" defaultValue={params.get('q') || ''} placeholder="Title or description" /></Field>
+            <Field label="Area"><input className={inputClass} name="area" defaultValue={params.get('area') || ''} placeholder="e.g. Sibu Jaya" /></Field>
+            <Field label="University"><input className={inputClass} name="university" defaultValue={params.get('university') || ''} /></Field>
+            <Field label="Min Rent (RM)"><input className={inputClass} type="number" name="minRent" min="0" step="1" defaultValue={params.get('minRent') || ''} /></Field>
+            <Field label="Max Deposit (RM)"><input className={inputClass} type="number" name="maxDeposit" min="0" step="1" defaultValue={params.get('maxDeposit') || ''} /></Field>
+            <Field label="Available By"><input className={inputClass} type="date" name="availableBy" defaultValue={params.get('availableBy') || ''} /></Field>
+            <Field label="Property Type"><select className={inputClass} name="propertyType" defaultValue={params.get('propertyType') || ''}><option value="">All Types</option>{propertyTypes.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></Field>
+            <Field label="Room Type"><select className={inputClass} name="roomType" defaultValue={params.get('roomType') || ''}><option value="">All Types</option>{roomTypes.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></Field>
+            <Field label="Facilities" hint="Separate facilities with commas."><input className={inputClass} name="amenities" defaultValue={params.get('amenities') || ''} placeholder="wifi,parking" /></Field>
+            <Field label="Furnished"><select className={inputClass} name="furnished" defaultValue={params.get('furnished') || ''}><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></Field>
+            <Field label="Sort By"><select className={inputClass} name="sort" defaultValue={params.get('sort') || 'newest'}><option value="newest">Newest</option><option value="rent_asc">Rent: Low to High</option><option value="rent_desc">Rent: High to Low</option><option value="distance">Closest to Campus</option></select></Field>
+          </div></details>
+          <div className="mt-auto space-y-2 border-t border-gray-100 pt-5"><button type="submit" aria-label="应用筛选" className={`${primaryButton} w-full`}>Apply Filters</button><button type="button" className="w-full py-1 text-xs font-semibold text-gray-500 hover:text-[#203569]" onClick={() => setParams({})}>Reset Filters</button></div>
         </form>
       </aside>
-      <section aria-label="房源搜索结果" className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-2"><h2 className="text-xl font-semibold text-slate-900">搜索结果</h2><p className="text-sm text-slate-600" role="status">{listings.data?.total != null ? `找到 ${listings.data.total} 个房源` : `第 ${page} 页`}</p></div>
+      <section aria-label="房源搜索结果" className="min-w-0 flex-1 bg-white p-6 md:p-8"><h2 className="mb-6 text-xl font-bold text-[#203569]" role="status">{listings.isPending ? 'Loading...' : `${listings.data?.total ?? records.length} Verified Listings`}</h2>
         <QueryState loading={listings.isPending} error={listings.error} retry={() => { void listings.refetch() }} empty={!records.length && page === 1}>
-          {records.length ? <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">{records.map(listing => <ListingCard key={listing.id} listing={listing} />)}</div> : <p className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600">这一页没有房源，请返回上一页。</p>}
-          {(page > 1 || canNext) && <nav aria-label="搜索结果分页" className="flex items-center justify-center gap-4 pt-3"><button type="button" className={secondaryButton} disabled={page <= 1} onClick={() => changePage(page - 1)}>上一页</button><span className="text-sm text-slate-600">第 {page} 页{totalPages ? `，共 ${totalPages} 页` : ''}</span><button type="button" className={secondaryButton} disabled={!canNext} onClick={() => changePage(page + 1)}>下一页</button></nav>}
+          {records.length ? <div className="space-y-4 pb-6">{records.map(listing => <ListingCard key={listing.id} listing={listing} />)}</div> : <p className="rounded-xl border border-gray-200 bg-white p-8 text-center text-gray-600">This page has no properties. Return to the previous page.</p>}
+          {(page > 1 || canNext) && <nav aria-label="搜索结果分页" className="flex items-center justify-center gap-4 pt-3"><button type="button" className={secondaryButton} disabled={page <= 1} onClick={() => changePage(page - 1)}>Previous</button><span className="text-sm text-gray-600">Page {page}{totalPages ? ` of ${totalPages}` : ''}</span><button type="button" className={secondaryButton} disabled={!canNext} onClick={() => changePage(page + 1)}>Next</button></nav>}
         </QueryState>
       </section>
     </div>

@@ -2,13 +2,13 @@ import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
 
 const navigation = [
-  { to: '/admin', text: '总览', end: true },
-  { to: '/admin/verifications', text: '学生认证' },
-  { to: '/admin/listings', text: '房源审核' },
-  { to: '/admin/reviews', text: '评价审核' },
-  { to: '/admin/reports', text: '举报处理' },
-  { to: '/admin/accounts', text: '账号管理' },
-  { to: '/admin/campuses', text: '校区与域名' },
+  { to: '/admin', text: '总览', icon: '▦', end: true },
+  { to: '/admin/verifications', text: '学生认证', icon: '✓' },
+  { to: '/admin/listings', text: '房源审核', icon: '⌂' },
+  { to: '/admin/reviews', text: '评价审核', icon: '★' },
+  { to: '/admin/reports', text: '举报处理', icon: '⚑' },
+  { to: '/admin/accounts', text: '账号管理', icon: '♙' },
+  { to: '/admin/campuses', text: '校区与域名', icon: '◉' },
 ]
 
 export function AdminShell({ title, description, children }: {
@@ -17,20 +17,26 @@ export function AdminShell({ title, description, children }: {
   children: ReactNode
 }) {
   return (
-    <section className="container py-8 sm:py-10" aria-labelledby="admin-page-title">
-      <div className="mb-7">
-        <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-blue-800">管理后台</p>
-        <h1 id="admin-page-title" className="page-heading">{title}</h1>
-        <p className="mt-2 max-w-3xl text-slate-600">{description}</p>
+    <section className="mx-4 my-8 max-w-[1150px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm sm:mx-auto sm:w-[calc(100%-2rem)] md:min-h-[550px]" aria-labelledby="admin-page-title">
+      <div className="grid md:grid-cols-[235px_minmax(0,1fr)]">
+        <aside className="border-b border-slate-200 bg-[#f8f9fb] p-4 md:border-b-0 md:border-r md:p-6">
+          <p className="mb-3 px-3 text-sm font-bold uppercase tracking-wide text-[#203569]">Admin Portal</p>
+          <nav aria-label="管理后台导航" className="flex flex-wrap gap-1.5 md:flex-col">
+            {navigation.map(item => (
+              <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) =>
+                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#203569] ${isActive ? 'bg-[#dfe6ff] text-[#1d4ed8]' : 'text-slate-600 hover:bg-slate-100 hover:text-[#203569]'}`
+              }><span aria-hidden="true" className="w-5 text-center">{item.icon}</span>{item.text}</NavLink>
+            ))}
+          </nav>
+        </aside>
+        <div className="min-w-0 p-5 sm:p-8 md:p-10">
+          <div className="mb-7 border-b border-slate-200 pb-5">
+            <h1 id="admin-page-title" className="text-2xl font-bold text-slate-900">{title}</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{description}</p>
+          </div>
+          {children}
+        </div>
       </div>
-      <nav aria-label="管理后台导航" className="mb-7 flex flex-wrap gap-2">
-        {navigation.map(item => (
-          <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) =>
-            `rounded-lg px-3 py-2 text-sm font-semibold no-underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 ${isActive ? 'bg-blue-800 text-white' : 'border border-slate-300 bg-white text-slate-800 hover:bg-blue-50'}`
-          }>{item.text}</NavLink>
-        ))}
-      </nav>
-      {children}
     </section>
   )
 }

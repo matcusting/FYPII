@@ -4,11 +4,20 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
 import { api, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
+import type { User } from '../../lib/types'
 import { AuthLayout, fieldClass, FormNotice, primaryButtonClass } from './ui'
 import { loginSchema, registerSchema, type LoginValues, type RegisterValues } from './schemas'
 
-function safeNext(next: string | null): string {
-  return next?.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : '/dashboard'
+function destinationFor(user: User): string {
+  const roles = user.roles?.map(role => role.toUpperCase()) || []
+  if (roles.includes('ADMIN')) return '/admin'
+  if (roles.includes('LANDLORD')) return '/landlord'
+  if (roles.includes('STUDENT')) return '/student'
+  return '/dashboard'
+}
+
+function safeNext(next: string | null, fallback: string): string {
+  return next?.startsWith('/') && !next.startsWith('//') && !next.startsWith('/\\') ? next : fallback
 }
 
 export function LoginPage() {
@@ -16,6 +25,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
+  const [roleTab, setRoleTab] = useState<'STUDENT' | 'LANDLORD'>('STUDENT')
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
@@ -24,24 +34,45 @@ export function LoginPage() {
   async function submit(values: LoginValues) {
     setError(null)
     try {
-      await signIn(values.email, values.password)
-      navigate(safeNext(searchParams.get('next')), { replace: true })
+      const signedInUser = await signIn(values.email, values.password)
+      navigate(safeNext(searchParams.get('next'), destinationFor(signedInUser)), { replace: true })
     } catch (failure) {
       setError(messageOf(failure))
     }
   }
 
   return (
-    <AuthLayout title="登录账户" description="登录后管理房源、收藏与联系请求。">
-      {user ? <p className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">你已登录。<Link to="/dashboard" className="font-semibold underline">前往个人首页</Link></p> : null}
-      <form onSubmit={handleSubmit(submit)} noValidate className="space-y-5">
-        <FormNotice error={error} />
-        <div><label htmlFor="login-email" className="font-medium text-slate-800">邮箱</label><input id="login-email" type="email" autoComplete="email" aria-invalid={!!errors.email} aria-describedby={errors.email ? 'login-email-error' : undefined} {...register('email')} className={fieldClass} />{errors.email && <p id="login-email-error" role="alert" className="mt-1 text-sm text-red-700">{errors.email.message}</p>}</div>
-        <div><div className="flex justify-between gap-3"><label htmlFor="login-password" className="font-medium text-slate-800">密码</label><Link to="/forgot-password" className="text-sm font-medium text-blue-800 underline-offset-4 hover:underline">忘记密码？</Link></div><input id="login-password" type="password" autoComplete="current-password" aria-invalid={!!errors.password} aria-describedby={errors.password ? 'login-password-error' : undefined} {...register('password')} className={fieldClass} />{errors.password && <p id="login-password-error" role="alert" className="mt-1 text-sm text-red-700">{errors.password.message}</p>}</div>
-        <button type="submit" disabled={isSubmitting} className={`${primaryButtonClass} w-full`}>{isSubmitting ? '登录中…' : '登录'}</button>
-      </form>
-      <p className="mt-6 text-center text-slate-600">还没有账户？ <Link to="/register" className="font-semibold text-blue-800 underline-offset-4 hover:underline">注册</Link></p>
-    </AuthLayout>
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[#f8f9fa] px-4 py-8 font-sans">
+      <div className="relative top-4 w-full max-w-[420px] rounded-xl bg-white p-8 shadow-[0_8px_24px_rgba(15,23,42,0.05)] sm:p-10">
+        <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-[#203569] text-2xl font-bold text-white">UTS</div>
+        <h1 className="mt-5 text-center text-[26px] font-bold leading-tight text-[#1f2937]">System Login</h1>
+        <p className="mt-2 text-center text-sm text-[#64748b]">Housing &amp; Roommate Finder</p>
+        <div role="tablist" aria-label="账户身份" className="mt-6 grid h-11 grid-cols-2 rounded-lg bg-[#f1f2f4] p-1">
+          <button type="button" role="tab" aria-selected={roleTab === 'STUDENT'} onClick={() => setRoleTab('STUDENT')} className={'rounded-md text-sm font-bold transition ' + (roleTab === 'STUDENT' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>Student</button>
+          <button type="button" role="tab" aria-selected={roleTab === 'LANDLORD'} onClick={() => setRoleTab('LANDLORD')} className={'rounded-md text-sm font-bold transition ' + (roleTab === 'LANDLORD' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>Landlord</button>
+        </div>
+        {user && <p className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">你已登录。<Link to={destinationFor(user)} className="font-semibold underline">前往个人首页</Link></p>}
+        <form onSubmit={handleSubmit(submit)} noValidate className="mt-9 space-y-5">
+          <FormNotice error={error} />
+          <div>
+            <label htmlFor="login-email" className="block text-[13px] font-bold text-[#203569]">{roleTab === 'STUDENT' ? 'UTS Email' : 'Landlord Email'}</label>
+            <input id="login-email" type="email" autoComplete="email" aria-label="邮箱" aria-invalid={!!errors.email} aria-describedby={errors.email ? 'login-email-error' : undefined} {...register('email')} className="mt-2 h-[46px] w-full rounded-lg border border-[#cbd5e1] bg-white px-3 text-[#1f2937] outline-none focus:border-[#203569] focus:ring-2 focus:ring-blue-100" />
+            {errors.email && <p id="login-email-error" role="alert" className="mt-1 text-sm text-red-700">{errors.email.message}</p>}
+          </div>
+          <div>
+            <label htmlFor="login-password" className="block text-[13px] font-bold text-[#203569]">Password</label>
+            <input id="login-password" type="password" autoComplete="current-password" aria-label="密码" aria-invalid={!!errors.password} aria-describedby={errors.password ? 'login-password-error' : undefined} {...register('password')} className="mt-2 h-[46px] w-full rounded-lg border border-[#cbd5e1] bg-white px-3 text-[#1f2937] outline-none focus:border-[#203569] focus:ring-2 focus:ring-blue-100" />
+            {errors.password && <p id="login-password-error" role="alert" className="mt-1 text-sm text-red-700">{errors.password.message}</p>}
+          </div>
+          <button type="submit" aria-label="登录" disabled={isSubmitting} className="mt-6 flex h-[49px] w-full items-center justify-center rounded-lg bg-[#203569] px-4 font-bold text-white shadow-sm transition hover:bg-[#1a2b56] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting ? 'Logging in…' : roleTab === 'STUDENT' ? 'Verify & Login' : 'Login as Landlord'}</button>
+        </form>
+      </div>
+      <div className="relative top-4 mt-4 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#64748b]">
+        <Link to="/register" className="hover:text-[#203569] hover:underline">创建账户</Link>
+        <Link to="/forgot-password" className="hover:text-[#203569] hover:underline">忘记密码？</Link>
+        <Link to="/welcome" className="hover:text-[#203569] hover:underline">浏览网站</Link>
+      </div>
+    </div>
   )
 }
 
