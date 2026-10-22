@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, itemsOf, messageOf } from '../../lib/api'
 import { hasRole, useAuth } from '../../lib/auth'
@@ -32,6 +32,8 @@ interface RoommateRequest {
   message?: string
   createdAt?: string
 }
+interface ConversationMessage { id: string; senderId: string; body: string; createdAt?: string }
+interface PageResult<T> { items: T[]; page?: number; pages?: number }
 interface Thread {
   id: string
   kind: 'inquiry' | 'roommate'
@@ -42,6 +44,7 @@ interface Thread {
   createdAt?: string
   incoming: boolean
   listingId?: string
+  inquiryId?: string
   requestId?: string
 }
 
@@ -60,10 +63,24 @@ export function RequestsPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const [selectedId, setSelectedId] = useState('')
+  const [reply, setReply] = useState('')
+  const [replyError, setReplyError] = useState('')
   const isStudent = hasRole(user, 'STUDENT')
   const isLandlord = hasRole(user, 'LANDLORD') && !isStudent && !hasRole(user, 'ADMIN')
-  const inquiries = useQuery({ queryKey: ['inquiries'], queryFn: () => api<unknown>('/inquiries'), enabled: !!user })
-  const roommateRequests = useQuery({ queryKey: ['roommate-requests'], queryFn: () => api<unknown>('/roommates/requests'), enabled: !!user && isStudent })
+  const inquiries = useInfiniteQuery({
+    queryKey: ['inquiries'],
+    queryFn: ({ pageParam }) => api<PageResult<Inquiry>>(`/inquiries?page=${pageParam}&limit=20`),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => last.pages && pages.length < last.pages ? pages.length + 1 : undefined,
+    enabled: !!user,
+  })
+  const roommateRequests = useInfiniteQuery({
+    queryKey: ['roommate-requests'],
+    queryFn: ({ pageParam }) => api<PageResult<RoommateRequest>>(`/roommates/requests?page=${pageParam}&limit=20`),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => last.pages && pages.length < last.pages ? pages.length + 1 : undefined,
+    enabled: !!user && isStudent,
+  })
   const respond = useMutation({
     mutationFn: ({ id, status }: { id: string; status: 'ACCEPTED' | 'DECLINED' }) => api('/roommates/requests/' + encodeURIComponent(id), {
       method: 'PATCH', body: JSON.stringify({ status }),
@@ -72,7 +89,7 @@ export function RequestsPage() {
   })
 
   const threads: Thread[] = [
-    ...itemsOf<Inquiry>(inquiries.data).map(inquiry => {
+    ...(inquiries.data?.pages.flatMap(page => itemsOf<Inquiry>(page)) || []).map(inquiry => {
       const senderId = inquiry.senderId || inquiry.sender?.id
       const incoming = senderId ? senderId !== user?.id : isLandlord
       const other = incoming ? inquiry.sender : inquiry.recipient
@@ -82,10 +99,11 @@ export function RequestsPage() {
         subtitle: inquiry.listing?.title || 'Property inquiry',
         message: inquiry.message || '', status: inquiry.status,
         createdAt: inquiry.createdAt, incoming,
+        inquiryId: inquiry.id,
         listingId: inquiry.listingId || inquiry.listing?.id,
       }
     }),
-    ...itemsOf<RoommateRequest>(roommateRequests.data).map(request => {
+    ...(roommateRequests.data?.pages.flatMap(page => itemsOf<RoommateRequest>(page)) || []).map(request => {
       const incoming = isIncoming(request, user?.id)
       const other = incoming ? request.sender || request.requester : request.recipient
       return {
@@ -98,6 +116,24 @@ export function RequestsPage() {
     }),
   ].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
   const selected = threads.find(thread => thread.id === selectedId) || threads[0]
+  const canReply = !!selected && (selected.kind === 'inquiry' || selected.status?.toUpperCase() === 'ACCEPTED')
+  const messagePath = selected?.kind === 'inquiry' && selected.inquiryId
+    ? `/inquiries/${encodeURIComponent(selected.inquiryId)}/messages`
+    : selected?.kind === 'roommate' && selected.requestId
+      ? `/roommates/requests/${encodeURIComponent(selected.requestId)}/messages`
+      : ''
+  const messages = useInfiniteQuery({
+    queryKey: ['conversation-messages', selected?.id],
+    queryFn: ({ pageParam }) => api<PageResult<ConversationMessage>>(`${messagePath}?page=${pageParam}&limit=20`),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => last.pages && pages.length < last.pages ? pages.length + 1 : undefined,
+    enabled: !!messagePath && canReply, retry: false, refetchInterval: 5000,
+  })
+  const sendReply = useMutation({
+    mutationFn: (body: string) => api(messagePath, { method: 'POST', body: JSON.stringify({ body }) }),
+    onSuccess: async () => { setReply(''); setReplyError(''); await queryClient.invalidateQueries({ queryKey: ['conversation-messages', selected?.id] }); await queryClient.invalidateQueries({ queryKey: ['inquiries'] }) },
+  })
+  const conversationMessages = messages.data?.pages.slice().reverse().flatMap(page => itemsOf<ConversationMessage>(page)) || []
   const listLoading = inquiries.isPending || (isStudent && roommateRequests.isPending)
 
   return <div className={isLandlord ? 'min-w-0 flex-1 bg-white text-[#1f2937]' : 'min-h-screen bg-[#f8f9fa] px-4 pb-20 text-[#1f2937] sm:px-6'}>
@@ -110,12 +146,16 @@ export function RequestsPage() {
             {(inquiries.isError || roommateRequests.isError) && <div className="p-3"><ErrorNotice error={inquiries.error || roommateRequests.error} onRetry={() => { void inquiries.refetch(); if (isStudent) void roommateRequests.refetch() }} /></div>}
             {listLoading ? <div className="p-4"><LoadingNotice /></div> : threads.length ? <ul className="max-h-[570px] overflow-y-auto">
               {threads.map(thread => <li key={thread.id}>
-                <button type="button" onClick={() => setSelectedId(thread.id)} className={['flex min-h-[80px] w-full items-center gap-4 border-b border-gray-100 px-5 py-4 text-left transition hover:bg-[#eef2f7]', selected?.id === thread.id ? 'border-l-4 border-l-[#203569] bg-[#eef2f7] pl-4' : ''].join(' ')} aria-current={selected?.id === thread.id ? 'true' : undefined}>
+                <button type="button" onClick={() => { setSelectedId(thread.id); setReply(''); setReplyError('') }} className={['flex min-h-[80px] w-full items-center gap-4 border-b border-gray-100 px-5 py-4 text-left transition hover:bg-[#eef2f7]', selected?.id === thread.id ? 'border-l-4 border-l-[#203569] bg-[#eef2f7] pl-4' : ''].join(' ')} aria-current={selected?.id === thread.id ? 'true' : undefined}>
                   <span aria-hidden="true" className={['flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-sm font-bold', selected?.id === thread.id ? 'bg-[#203569] text-white' : 'bg-[#e2e8f0] text-gray-600'].join(' ')}>{initials(thread.name)}</span>
                   <span className="min-w-0 flex-1"><span className={['block truncate text-sm font-bold', selected?.id === thread.id ? 'text-[#203569]' : 'text-gray-800'].join(' ')}>{thread.name}</span><span className="mt-1 block truncate text-xs text-gray-500">{thread.subtitle}</span></span>
                 </button>
               </li>)}
             </ul> : <p className="p-6 text-sm text-gray-500">No conversations yet. {isStudent ? 'Explore listings or roommates to get started.' : 'Student inquiries will appear here.'}</p>}
+            {(inquiries.hasNextPage || roommateRequests.hasNextPage) && <div className="flex flex-wrap gap-2 border-t border-gray-100 p-3 text-xs font-semibold text-[#203569]">
+              {inquiries.hasNextPage && <button type="button" disabled={inquiries.isFetchingNextPage} onClick={() => void inquiries.fetchNextPage()} className="rounded-lg border border-[#203569] px-3 py-2 disabled:opacity-50">{inquiries.isFetchingNextPage ? 'Loading…' : 'More inquiries'}</button>}
+              {roommateRequests.hasNextPage && <button type="button" disabled={roommateRequests.isFetchingNextPage} onClick={() => void roommateRequests.fetchNextPage()} className="rounded-lg border border-[#203569] px-3 py-2 disabled:opacity-50">{roommateRequests.isFetchingNextPage ? 'Loading…' : 'More roommate requests'}</button>}
+            </div>}
             {isStudent && <div className="flex gap-4 p-5 text-xs font-bold text-[#203569]"><Link to="/listings" className="hover:underline">Browse Housing →</Link><Link to="/roommates" className="hover:underline">Find Roommates →</Link></div>}
           </aside>
           <section className={['flex min-w-0 flex-col', isLandlord ? 'min-h-[510px]' : 'min-h-[648px]'].join(' ')} aria-label="Conversation details">
@@ -126,11 +166,13 @@ export function RequestsPage() {
               </header>
               <div className="flex-1 bg-[#f8f9fa] p-6">
                 <p className="mb-5 text-center text-xs text-gray-400">{formatDate(selected.createdAt)}</p>
-                {selected.message ? <div className={['max-w-[440px] rounded-2xl p-4 text-sm leading-6 shadow-sm', selected.incoming ? 'border border-gray-200 bg-white text-gray-800' : 'ml-auto bg-[#203569] text-white'].join(' ')}>{selected.message}</div> : <p className="text-center text-sm text-gray-500">No message text was included with this request.</p>}
+                {messages.hasNextPage && <div className="mb-5 text-center"><button type="button" className="text-xs font-semibold text-[#203569] underline disabled:opacity-50" disabled={messages.isFetchingNextPage} onClick={() => void messages.fetchNextPage()}>{messages.isFetchingNextPage ? 'Loading…' : 'Load older messages'}</button></div>}
+                {conversationMessages.length ? <div className="space-y-4">{conversationMessages.map(message => <div key={message.id} className={['max-w-[440px] rounded-2xl p-4 text-sm leading-6 shadow-sm', message.senderId === user?.id ? 'ml-auto bg-[#203569] text-white' : 'border border-gray-200 bg-white text-gray-800'].join(' ')}><p className="whitespace-pre-wrap break-words">{message.body}</p>{message.createdAt && <span className="mt-2 block text-[11px] opacity-70">{formatDate(message.createdAt)}</span>}</div>)}</div> : selected.message ? <div className={['max-w-[440px] rounded-2xl p-4 text-sm leading-6 shadow-sm', selected.incoming ? 'border border-gray-200 bg-white text-gray-800' : 'ml-auto bg-[#203569] text-white'].join(' ')}>{selected.message}</div> : <p className="text-center text-sm text-gray-500">No message text was included with this request.</p>}
                 {selected.kind === 'roommate' && selected.incoming && selected.status?.toUpperCase() === 'PENDING' && selected.requestId && <div className="mt-5 flex gap-3"><button type="button" disabled={respond.isPending} onClick={() => respond.mutate({ id: selected.requestId!, status: 'ACCEPTED' })} className="rounded-lg bg-[#203569] px-4 py-2 text-sm font-bold text-white hover:bg-[#1a2b56] disabled:opacity-50">Accept Request</button><button type="button" disabled={respond.isPending} onClick={() => respond.mutate({ id: selected.requestId!, status: 'DECLINED' })} className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-50">Decline</button></div>}
                 {respond.isError && <p role="alert" className="mt-3 text-sm text-red-700">{messageOf(respond.error)}</p>}
+                {messages.isError && canReply && <p role="alert" className="mt-3 text-sm text-red-700">Could not load replies: {messageOf(messages.error)}</p>}
               </div>
-              <div className={['flex items-center gap-3 border-t border-gray-200 bg-white px-4', isLandlord ? 'min-h-[74px]' : 'min-h-[80px]'].join(' ')}><input aria-label="Reply" readOnly value="" placeholder="Replies are unavailable for this conversation" className="min-h-11 flex-1 cursor-not-allowed rounded-full border border-[#dbe4ff] bg-[#f4f7fb] px-5 text-sm text-gray-500 placeholder:text-gray-400" /><span aria-hidden="true" className="flex h-11 w-11 items-center justify-center rounded-full bg-[#94a3b8] text-lg text-white">➤</span></div>
+              <div className="border-t border-gray-200 bg-white px-4 py-3">{canReply ? <form onSubmit={event => { event.preventDefault(); const body = reply.trim(); if (!body || body.length > 2000) { setReplyError('Enter a reply between 1 and 2,000 characters.'); return } setReplyError(''); sendReply.mutate(body) }} className="flex items-center gap-3"><input aria-label="Reply" value={reply} maxLength={2000} onChange={event => setReply(event.target.value)} placeholder="Write a reply" className="min-h-11 flex-1 rounded-full border border-[#dbe4ff] bg-[#f4f7fb] px-5 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-[#203569]" /><button type="submit" aria-label="Send reply" disabled={sendReply.isPending || messages.isError} className="flex h-11 w-11 items-center justify-center rounded-full bg-[#203569] text-lg text-white hover:bg-[#1a2b56] disabled:opacity-50">➤</button></form> : <p className="py-3 text-center text-xs text-gray-500">Accept the roommate request before messaging.</p>}{replyError && <p role="alert" className="mt-2 text-xs text-red-700">{replyError}</p>}{sendReply.isError && <p role="alert" className="mt-2 text-xs text-red-700">{messageOf(sendReply.error)}</p>}</div>
             </> : <div className="flex flex-1 items-center justify-center p-6 text-center text-sm text-gray-500">Select a conversation to see its details.</div>}
           </section>
         </div>

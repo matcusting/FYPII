@@ -1,0 +1,424 @@
+import { Prisma, type User } from '@prisma/client'
+import { Router, raw, type Request, type Response, type NextFunction } from 'express'
+import { z } from 'zod'
+import { prisma } from '../core/db.js'
+import { currentUser, requireAuth } from '../core/auth.js'
+import { fail, ok } from '../core/http.js'
+import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, saveUpload, type UploadPurpose } from '../storage/listings.js'
+
+const router = Router()
+
+const withErrors = (handler: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => {
+  void handler(req, res).catch(next)
+}
+const isAdmin = (user: User | null) => !!user?.roles.includes('ADMIN')
+const mayPost = (user: User | null) => !!user && user.roles.some(role => role === 'STUDENT' || role === 'LANDLORD' || role === 'ADMIN')
+const queryText = (req: Request, name: string) => typeof req.query[name] === 'string' ? String(req.query[name]).trim() : ''
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime()) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value)
+const money = z.union([z.string(), z.number()]).transform(value => Number(value)).pipe(z.number().finite().min(0).max(9_999_999))
+const optionalCoordinate = z.number().finite().nullable().optional()
+
+const listingInput = z.object({
+  title: z.string().trim().min(8).max(120),
+  description: z.string().trim().min(30).max(5000),
+  campusId: z.string().min(1),
+  propertyType: z.enum(['APARTMENT', 'HOUSE', 'STUDIO', 'OTHER']),
+  roomType: z.enum(['SINGLE', 'SHARED', 'MASTER', 'ENTIRE']),
+  rent: money.refine(value => value > 0),
+  deposit: money,
+  currency: z.literal('MYR').default('MYR'),
+  availableFrom: isoDate,
+  approximateArea: z.string().trim().min(3).max(120),
+  houseRules: z.string().trim().max(2000).optional(),
+  contactMethod: z.literal('IN_APP').default('IN_APP'),
+  furnished: z.boolean().default(false),
+  amenityIds: z.array(z.string().min(1)).max(30).default([]),
+  photoKeys: z.array(z.uuid()).max(8).default([]),
+  latitude: optionalCoordinate,
+  longitude: optionalCoordinate,
+  address: z.string().trim().max(250).nullable().optional(),
+  showExactLocation: z.boolean().default(false),
+})
+
+const listingPatch = listingInput.omit({ photoKeys: true }).partial().extend({
+  newPhotoKeys: z.array(z.uuid()).max(8).optional(),
+  removePhotoIds: z.array(z.uuid()).max(8).optional(),
+  status: z.enum(['PAUSED', 'PUBLISHED', 'RENTED']).optional(),
+})
+
+const listingInclude = {
+  owner: { select: { id: true, name: true } },
+  campus: { select: { id: true, name: true, university: true, latitude: true, longitude: true } },
+  photos: { orderBy: { sortOrder: 'asc' as const } },
+  amenities: { include: { amenity: true } },
+  reviews: { where: { status: 'APPROVED' as const, active: true }, select: { rating: true } },
+} satisfies Prisma.ListingInclude
+
+type ListingRecord = Prisma.ListingGetPayload<{ include: typeof listingInclude }>
+
+export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const radians = (degrees: number) => degrees * Math.PI / 180
+  const deltaLat = radians(lat2 - lat1)
+  const deltaLon = radians(lon2 - lon1)
+  const arc = Math.sin(deltaLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(deltaLon / 2) ** 2
+  return 6371.0088 * 2 * Math.asin(Math.min(1, Math.sqrt(arc)))
+}
+
+export function canViewExactLocation(ownerId: string, showExactLocation: boolean, user: Pick<User, 'id' | 'roles'> | null) {
+  return !!user && (user.id === ownerId || user.roles.includes('ADMIN') || (showExactLocation && user.roles.includes('STUDENT')))
+}
+
+// A hidden pin must not be recoverable by querying distance to multiple campuses.
+// Public distances use the centre of a roughly 2 km grid cell, never the stored pin.
+export function distanceAnchor(latitude: number, longitude: number, exactLocationVisible: boolean) {
+  const cellSizeDegrees = 0.02
+  return exactLocationVisible
+    ? { latitude, longitude }
+    : { latitude: Math.round(latitude / cellSizeDegrees) * cellSizeDegrees, longitude: Math.round(longitude / cellSizeDegrees) * cellSizeDegrees }
+}
+
+function listingDistance(record: ListingRecord, user: User | null, campus: { latitude: number; longitude: number }) {
+  if (record.latitude == null || record.longitude == null) return null
+  const anchor = distanceAnchor(record.latitude, record.longitude, canViewExactLocation(record.ownerId, record.showExactLocation, user))
+  return haversineKm(anchor.latitude, anchor.longitude, campus.latitude, campus.longitude)
+}
+
+export function serializeListing(record: ListingRecord, user: User | null, distanceCampus?: { latitude: number; longitude: number } | null) {
+  const privateAccess = !!user && (record.ownerId === user.id || isAdmin(user))
+  const exactLocationVisible = canViewExactLocation(record.ownerId, record.showExactLocation, user)
+  const { latitude, longitude, address, moderationReason, ...safe } = record
+  const reference = distanceCampus || record.campus
+  const distance = listingDistance(record, user, reference)
+  const distanceKm = distance == null ? undefined : Number(distance.toFixed(exactLocationVisible ? 2 : 1))
+  const rating = record.reviews.length ? Number((record.reviews.reduce((sum, review) => sum + review.rating, 0) / record.reviews.length).toFixed(1)) : undefined
+  return {
+    ...safe,
+    rent: Number(record.rent),
+    deposit: Number(record.deposit),
+    availableFrom: record.availableFrom.toISOString().slice(0, 10),
+    lastConfirmedAt: record.lastConfirmedAt?.toISOString() || null,
+    createdAt: record.createdAt.toISOString(),
+    updatedAt: record.updatedAt.toISOString(),
+    campusName: record.campus.name,
+    campus: { id: record.campus.id, name: record.campus.name, university: record.campus.university },
+    amenities: record.amenities.map(item => item.amenity.name),
+    amenityIds: record.amenities.map(item => item.amenityId),
+    photos: record.photos.map(photo => ({ id: photo.id, objectKey: photo.storageKey, url: photo.url || `/api/v1/media/${photo.storageKey}`, alt: `${record.title} property photo` })),
+    reviews: undefined,
+    distanceKm,
+    rating,
+    reviewCount: record.reviews.length,
+    availabilityStale: !record.lastConfirmedAt || Date.now() - record.lastConfirmedAt.getTime() > 30 * 24 * 60 * 60 * 1000,
+    rejectionReason: privateAccess ? moderationReason : undefined,
+    showExactLocation: privateAccess ? record.showExactLocation : exactLocationVisible,
+    latitude: exactLocationVisible ? latitude : undefined,
+    longitude: exactLocationVisible ? longitude : undefined,
+    address: exactLocationVisible ? address : undefined,
+  }
+}
+
+function invalidLocation(latitude: number | null | undefined, longitude: number | null | undefined, showExactLocation: boolean) {
+  const hasLat = latitude != null
+  const hasLng = longitude != null
+  return hasLat !== hasLng || (hasLat && (latitude! < -90 || latitude! > 90 || longitude! < -180 || longitude! > 180)) || (showExactLocation && !hasLat)
+}
+
+async function validAmenities(ids: string[]) {
+  if (ids.length !== new Set(ids).size) return false
+  if (!ids.length) return true
+  return await prisma.amenity.count({ where: { id: { in: ids } } }) === ids.length
+}
+
+async function validPhotoUploads(keys: string[], ownerId: string) {
+  if (keys.length !== new Set(keys).size) return null
+  if (!keys.length) return []
+  const uploads = await prisma.mediaUpload.findMany({ where: { storageKey: { in: keys }, ownerId, purpose: 'LISTING_PHOTO', status: 'UPLOADED' } })
+  if (uploads.length !== keys.length) return null
+  const linked = await prisma.listingPhoto.count({ where: { storageKey: { in: keys } } })
+  if (linked) return null
+  for (const key of keys) if (!await listingUploadMetadata(key)) return null
+  return keys.map(key => ({ key, mimeType: uploads.find(upload => upload.storageKey === key)?.mimeType || 'image/jpeg' }))
+}
+
+function failValidation(res: Response, issue = 'Please check the listing details and try again.') {
+  fail(res, 400, issue, 'VALIDATION_ERROR')
+}
+
+router.get('/campuses', withErrors(async (_req, res) => {
+  const items = await prisma.campus.findMany({ where: { active: true }, orderBy: { name: 'asc' } })
+  ok(res, { items: items.map(({ id, name, university, latitude, longitude }) => ({ id, name, university, latitude, longitude })) })
+}))
+
+router.get('/amenities', withErrors(async (_req, res) => {
+  ok(res, { items: await prisma.amenity.findMany({ orderBy: { name: 'asc' } }) })
+}))
+
+router.post('/uploads/sign', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  if (!mayPost(user)) { fail(res, 403, 'This account cannot upload property files.', 'FORBIDDEN'); return }
+  const request = z.object({ fileName: z.string().min(1).max(255), contentType: z.string(), size: z.number().int(), purpose: z.enum(['LISTING_PHOTO', 'REVIEW_EVIDENCE']).default('LISTING_PHOTO') }).safeParse(req.body)
+  if (!request.success || !isAllowedUploadType(request.data.purpose as UploadPurpose, request.data.contentType, request.data.size)) { failValidation(res, 'Choose an allowed file under 5 MB.'); return }
+  if (request.data.purpose === 'REVIEW_EVIDENCE' && (!user.roles.includes('STUDENT') || !user.studentVerified)) { fail(res, 403, 'Only verified students can upload rental experience proof.', 'FORBIDDEN'); return }
+  const ticket = createUploadTicket(user.id, request.data.contentType, request.data.size, request.data.purpose)
+  await prisma.mediaUpload.create({ data: { ownerId: user.id, storageKey: ticket.objectKey, mimeType: request.data.contentType, size: request.data.size, purpose: request.data.purpose, status: 'PENDING' } })
+  ok(res, ticket, 201)
+}))
+
+router.put('/uploads/:objectKey', requireAuth, raw({ type: ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'], limit: '6mb' }), withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const objectKey = req.params.objectKey
+  const row = await prisma.mediaUpload.findUnique({ where: { storageKey: objectKey } })
+  if (!row || row.ownerId !== user.id || row.status !== 'PENDING') { fail(res, 404, 'This upload link is unavailable.', 'NOT_FOUND'); return }
+  const mimeType = queryText(req, 'type')
+  const purpose = queryText(req, 'purpose')
+  const declaredSize = Number(queryText(req, 'size'))
+  const expires = Number(queryText(req, 'expires'))
+  const sig = queryText(req, 'sig')
+  if (mimeType !== row.mimeType || purpose !== row.purpose || declaredSize !== row.size || req.get('content-type')?.split(';')[0] !== row.mimeType || !Buffer.isBuffer(req.body)) { failValidation(res, 'The uploaded file does not match its upload link.'); return }
+  try {
+    await saveUpload({ objectKey, ownerId: user.id, mimeType, declaredSize, expires, sig, purpose: purpose as UploadPurpose, bytes: req.body as Buffer })
+  } catch (error) {
+    failValidation(res, error instanceof Error ? error.message : 'The upload failed validation.')
+    return
+  }
+  await prisma.mediaUpload.update({ where: { storageKey: objectKey }, data: { status: 'UPLOADED' } })
+  ok(res, { uploaded: true })
+}))
+
+router.get('/media/:objectKey', withErrors(async (req, res) => {
+  const photo = await prisma.listingPhoto.findFirst({ where: { storageKey: req.params.objectKey }, include: { listing: { select: { status: true, ownerId: true } } } })
+  const user = currentUser(req)
+  if (!photo || (photo.listing.status !== 'PUBLISHED' && photo.listing.ownerId !== user?.id && !isAdmin(user))) { fail(res, 404, 'This photo is unavailable.', 'NOT_FOUND'); return }
+  const uploaded = await readListingUpload(photo.storageKey)
+  if (!uploaded) { fail(res, 404, 'This photo is unavailable.', 'NOT_FOUND'); return }
+  res.setHeader('Content-Type', uploaded.mimeType)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Cache-Control', photo.listing.status === 'PUBLISHED' ? 'public, max-age=3600' : 'private, no-store')
+  res.end(uploaded.bytes)
+}))
+
+router.get('/private-media/:objectKey', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const upload = await prisma.mediaUpload.findUnique({ where: { storageKey: req.params.objectKey } })
+  if (!upload || upload.purpose !== 'REVIEW_EVIDENCE' || upload.status !== 'UPLOADED' || (upload.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This proof is unavailable.', 'NOT_FOUND'); return }
+  const stored = await readUpload(upload.storageKey)
+  if (!stored || stored.purpose !== 'REVIEW_EVIDENCE') { fail(res, 404, 'This proof is unavailable.', 'NOT_FOUND'); return }
+  res.setHeader('Content-Type', stored.mimeType)
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('Content-Disposition', `attachment; filename="proof-${upload.id}"`)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.end(stored.bytes)
+}))
+
+router.get('/listings', withErrors(async (req, res) => {
+  const user = currentUser(req)
+  const mine = queryText(req, 'mine') === 'true'
+  if (mine && !user) { fail(res, 401, 'Sign in to see your listings.', 'UNAUTHORIZED'); return }
+  const page = Number(queryText(req, 'page') || 1)
+  const limit = Number(queryText(req, 'limit') || 12)
+  if (!Number.isInteger(page) || page < 1 || page > 10_000 || !Number.isInteger(limit) || limit < 1 || limit > 100) { failValidation(res, 'Use a valid page and page size.'); return }
+  const numericFilters = ['minRent', 'maxRent', 'minDeposit', 'maxDeposit', 'maxDistanceKm'] as const
+  const numbers = Object.fromEntries(numericFilters.map(name => [name, queryText(req, name) ? Number(queryText(req, name)) : null])) as Record<(typeof numericFilters)[number], number | null>
+  if (numericFilters.some(name => numbers[name] != null && (!Number.isFinite(numbers[name]) || numbers[name]! < 0 || numbers[name]! > (name === 'maxDistanceKm' ? 500 : 9_999_999))) ||
+    (numbers.minRent != null && numbers.maxRent != null && numbers.minRent > numbers.maxRent) ||
+    (numbers.minDeposit != null && numbers.maxDeposit != null && numbers.minDeposit > numbers.maxDeposit)) { failValidation(res, 'Use valid price and distance ranges.'); return }
+  const availableBy = queryText(req, 'availableBy')
+  if (availableBy && !isoDate.safeParse(availableBy).success) { failValidation(res, 'Enter a valid available-by date as YYYY-MM-DD.'); return }
+  const sort = queryText(req, 'sort') || 'newest'
+  if (!['newest', 'rent_asc', 'rent_desc', 'distance'].includes(sort)) { failValidation(res, 'Choose a valid sort order.'); return }
+  const campusId = queryText(req, 'campusId')
+  if ((numbers.maxDistanceKm != null || sort === 'distance') && !campusId) { failValidation(res, 'Choose a campus before filtering or sorting by distance.'); return }
+  const distanceCampus = campusId ? await prisma.campus.findUnique({ where: { id: campusId } }) : null
+  if (campusId && (!distanceCampus || !distanceCampus.active)) { ok(res, { items: [], total: 0, page, pages: 1, limit }); return }
+  const terms = queryText(req, 'amenities').toLowerCase().split(',').map(term => term.trim()).filter(Boolean)
+  const search = queryText(req, 'q')
+  const area = queryText(req, 'area')
+  const university = queryText(req, 'university')
+  const propertyType = queryText(req, 'propertyType')
+  const roomType = queryText(req, 'roomType')
+  const furnished = queryText(req, 'furnished')
+  if (search.length > 200 || area.length > 120 || university.length > 120 || campusId.length > 100 || terms.length > 20 || terms.some(term => term.length > 60) ||
+    (propertyType && !['APARTMENT', 'HOUSE', 'STUDIO', 'OTHER'].includes(propertyType)) ||
+    (roomType && !['SINGLE', 'SHARED', 'MASTER', 'ENTIRE'].includes(roomType))) { failValidation(res, 'Check the search terms and property filters.'); return }
+  if (furnished && !['true', 'false'].includes(furnished)) { failValidation(res, 'Choose a valid furnishing filter.'); return }
+  const filters: Prisma.ListingWhereInput[] = []
+  if (search) filters.push({ OR: [{ title: { contains: search, mode: 'insensitive' } }, { description: { contains: search, mode: 'insensitive' } }] })
+  if (area) filters.push({ approximateArea: { contains: area, mode: 'insensitive' } })
+  if (university) filters.push({ campus: { university: { contains: university, mode: 'insensitive' } } })
+  if (campusId) filters.push({ campusId })
+  if (propertyType) filters.push({ propertyType })
+  if (roomType) filters.push({ roomType })
+  if (furnished) filters.push({ furnished: furnished === 'true' })
+  if (numbers.minRent != null) filters.push({ rent: { gte: numbers.minRent } })
+  if (numbers.maxRent != null) filters.push({ rent: { lte: numbers.maxRent } })
+  if (numbers.minDeposit != null) filters.push({ deposit: { gte: numbers.minDeposit } })
+  if (numbers.maxDeposit != null) filters.push({ deposit: { lte: numbers.maxDeposit } })
+  if (availableBy) filters.push({ availableFrom: { lte: new Date(`${availableBy}T00:00:00.000Z`) } })
+  for (const term of terms) filters.push({ amenities: { some: { OR: [{ amenityId: term }, { amenity: { name: { contains: term, mode: 'insensitive' } } }, { amenity: { slug: { contains: term, mode: 'insensitive' } } }] } } })
+  const where: Prisma.ListingWhereInput = { ...(mine ? { ownerId: user!.id } : { status: 'PUBLISHED' }), AND: filters }
+  const distanceQuery = numbers.maxDistanceKm != null || sort === 'distance'
+  const orderBy: Prisma.ListingOrderByWithRelationInput[] = sort === 'rent_asc' ? [{ rent: 'asc' }, { createdAt: 'desc' }] : sort === 'rent_desc' ? [{ rent: 'desc' }, { createdAt: 'desc' }] : [{ createdAt: 'desc' }]
+  if (distanceQuery) {
+    const records = await prisma.listing.findMany({ where, include: listingInclude, orderBy })
+    const distance = (item: ListingRecord) => listingDistance(item, user, distanceCampus!) ?? Infinity
+    const filtered = numbers.maxDistanceKm == null ? records : records.filter(item => distance(item) <= numbers.maxDistanceKm!)
+    if (sort === 'distance') filtered.sort((a, b) => distance(a) - distance(b) || b.createdAt.getTime() - a.createdAt.getTime())
+    const total = filtered.length
+    ok(res, { items: filtered.slice((page - 1) * limit, page * limit).map(item => serializeListing(item, user, distanceCampus)), total, page, pages: Math.max(1, Math.ceil(total / limit)), limit })
+    return
+  }
+  const [total, records] = await Promise.all([
+    prisma.listing.count({ where }),
+    prisma.listing.findMany({ where, include: listingInclude, orderBy, skip: (page - 1) * limit, take: limit }),
+  ])
+  ok(res, { items: records.map(item => serializeListing(item, user, distanceCampus)), total, page, pages: Math.max(1, Math.ceil(total / limit)), limit })
+}))
+
+router.get('/listings/:id', withErrors(async (req, res) => {
+  const record = await prisma.listing.findUnique({ where: { id: req.params.id }, include: listingInclude })
+  const user = currentUser(req)
+  if (!record || (record.status !== 'PUBLISHED' && record.ownerId !== user?.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  ok(res, serializeListing(record, user))
+}))
+
+router.post('/listings', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  if (!mayPost(user)) { fail(res, 403, 'This account cannot create property listings.', 'FORBIDDEN'); return }
+  const parsed = listingInput.safeParse(req.body)
+  if (!parsed.success) { failValidation(res); return }
+  const value = parsed.data
+  if (invalidLocation(value.latitude, value.longitude, value.showExactLocation) || !await validAmenities(value.amenityIds)) { failValidation(res, 'Choose valid location and facilities.'); return }
+  const campus = await prisma.campus.findUnique({ where: { id: value.campusId } })
+  if (!campus?.active) { failValidation(res, 'Choose an active campus.'); return }
+  const photos = await validPhotoUploads(value.photoKeys, user.id)
+  if (!photos) { failValidation(res, 'Upload valid property photos before attaching them.'); return }
+  const created = await prisma.$transaction(async tx => {
+    const listing = await tx.listing.create({ data: {
+      ownerId: user.id, campusId: value.campusId, title: value.title, description: value.description, propertyType: value.propertyType, roomType: value.roomType,
+      rent: value.rent.toFixed(2), deposit: value.deposit.toFixed(2), currency: value.currency, availableFrom: new Date(`${value.availableFrom}T00:00:00.000Z`),
+      approximateArea: value.approximateArea, latitude: value.latitude ?? null, longitude: value.longitude ?? null, address: value.address ?? null,
+      showExactLocation: value.showExactLocation, houseRules: value.houseRules || null, contactMethod: value.contactMethod, furnished: value.furnished, status: 'DRAFT',
+    } })
+    if (value.amenityIds.length) await tx.listingAmenity.createMany({ data: value.amenityIds.map(amenityId => ({ listingId: listing.id, amenityId })) })
+    if (photos.length) await tx.listingPhoto.createMany({ data: photos.map(({ key, mimeType }, sortOrder) => ({ listingId: listing.id, storageKey: key, mimeType, sortOrder })) })
+    return listing
+  })
+  const result = await prisma.listing.findUniqueOrThrow({ where: { id: created.id }, include: listingInclude })
+  ok(res, serializeListing(result, user), 201)
+}))
+
+router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const existing = await prisma.listing.findUnique({ where: { id: req.params.id } })
+  if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  if (existing.status === 'ARCHIVED') { fail(res, 409, 'Archived listings cannot be edited.', 'INVALID_STATUS'); return }
+  const parsed = listingPatch.safeParse(req.body)
+  if (!parsed.success) { failValidation(res); return }
+  const value = parsed.data
+  if (value.status) {
+    if (Object.keys(req.body as Record<string, unknown>).some(key => key !== 'status')) { failValidation(res, 'Change listing status separately from its details.'); return }
+    const allowed = (existing.status === 'PUBLISHED' && ['PAUSED', 'RENTED'].includes(value.status)) || (existing.status === 'PAUSED' && value.status === 'PUBLISHED')
+    if (!allowed) { fail(res, 409, 'This listing status change is not allowed.', 'INVALID_STATUS'); return }
+    // An owner may request republication, but cannot undo an admin pause without review.
+    const nextStatus = existing.status === 'PAUSED' && value.status === 'PUBLISHED' && !isAdmin(user) ? 'PENDING_REVIEW' : value.status
+    await prisma.listing.update({ where: { id: existing.id }, data: { status: nextStatus, ...(nextStatus === 'PENDING_REVIEW' ? { reviewedAt: null } : {}) } })
+  } else {
+    const latitude = value.latitude === undefined ? existing.latitude : value.latitude
+    const longitude = value.longitude === undefined ? existing.longitude : value.longitude
+    const showExactLocation = value.showExactLocation ?? existing.showExactLocation
+    if (invalidLocation(latitude, longitude, showExactLocation) || (value.amenityIds && !await validAmenities(value.amenityIds))) { failValidation(res, 'Choose valid location and facilities.'); return }
+    if (value.campusId) {
+      const campus = await prisma.campus.findUnique({ where: { id: value.campusId } })
+      if (!campus?.active) { failValidation(res, 'Choose an active campus.'); return }
+    }
+    const removePhotoIds = value.removePhotoIds || []
+    const currentPhotos = await prisma.listingPhoto.findMany({ where: { listingId: existing.id } })
+    if (removePhotoIds.some(id => !currentPhotos.some(photo => photo.id === id))) { failValidation(res, 'One or more photos do not belong to this listing.'); return }
+    const newPhotos = await validPhotoUploads(value.newPhotoKeys || [], user.id)
+    if (!newPhotos || currentPhotos.length - removePhotoIds.length + newPhotos.length > 8) { failValidation(res, 'A listing can have up to eight valid photos.'); return }
+    const update: Prisma.ListingUncheckedUpdateInput = {}
+    if (value.title !== undefined) update.title = value.title
+    if (value.description !== undefined) update.description = value.description
+    if (value.campusId !== undefined) update.campusId = value.campusId
+    if (value.propertyType !== undefined) update.propertyType = value.propertyType
+    if (value.roomType !== undefined) update.roomType = value.roomType
+    if (value.rent !== undefined) update.rent = value.rent.toFixed(2)
+    if (value.deposit !== undefined) update.deposit = value.deposit.toFixed(2)
+    if (value.availableFrom !== undefined) update.availableFrom = new Date(`${value.availableFrom}T00:00:00.000Z`)
+    if (value.approximateArea !== undefined) update.approximateArea = value.approximateArea
+    if (value.latitude !== undefined) update.latitude = value.latitude
+    if (value.longitude !== undefined) update.longitude = value.longitude
+    if (value.address !== undefined) update.address = value.address
+    if (value.showExactLocation !== undefined) update.showExactLocation = value.showExactLocation
+    if (value.houseRules !== undefined) update.houseRules = value.houseRules
+    if (value.contactMethod !== undefined) update.contactMethod = value.contactMethod
+    if (value.furnished !== undefined) update.furnished = value.furnished
+    if (Object.keys(update).length || value.amenityIds !== undefined || removePhotoIds.length || newPhotos.length) {
+      if (existing.status === 'PUBLISHED' || existing.status === 'PAUSED') { update.status = 'PENDING_REVIEW'; update.reviewedAt = null }
+      if (existing.status === 'REJECTED') update.status = 'DRAFT'
+      await prisma.$transaction(async tx => {
+        await tx.listing.update({ where: { id: existing.id }, data: update })
+        if (value.amenityIds !== undefined) {
+          await tx.listingAmenity.deleteMany({ where: { listingId: existing.id } })
+          if (value.amenityIds.length) await tx.listingAmenity.createMany({ data: value.amenityIds.map(amenityId => ({ listingId: existing.id, amenityId })) })
+        }
+        if (removePhotoIds.length) await tx.listingPhoto.deleteMany({ where: { listingId: existing.id, id: { in: removePhotoIds } } })
+        if (newPhotos.length) await tx.listingPhoto.createMany({ data: newPhotos.map(({ key, mimeType }, index) => ({ listingId: existing.id, storageKey: key, mimeType, sortOrder: currentPhotos.length - removePhotoIds.length + index })) })
+      })
+    }
+  }
+  const result = await prisma.listing.findUniqueOrThrow({ where: { id: existing.id }, include: listingInclude })
+  ok(res, serializeListing(result, user))
+}))
+
+router.delete('/listings/:id', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const existing = await prisma.listing.findUnique({ where: { id: req.params.id } })
+  if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  const updated = await prisma.listing.update({ where: { id: existing.id }, data: { status: 'ARCHIVED' }, include: listingInclude })
+  ok(res, serializeListing(updated, user))
+}))
+
+router.post('/listings/:id/submit', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const existing = await prisma.listing.findUnique({ where: { id: req.params.id }, include: { _count: { select: { photos: true } } } })
+  if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  if (!user.emailVerifiedAt || (user.roles.includes('STUDENT') && !user.studentVerified && !isAdmin(user))) { fail(res, 403, 'Verify your account before submitting a listing.', 'FORBIDDEN'); return }
+  if (!['DRAFT', 'REJECTED', 'RENTED'].includes(existing.status) || existing._count.photos < 1) { fail(res, 409, 'Add at least one photo to an eligible draft before submitting.', 'INVALID_STATUS'); return }
+  const updated = await prisma.listing.update({ where: { id: existing.id }, data: { status: 'PENDING_REVIEW', moderationReason: null, lastConfirmedAt: new Date() }, include: listingInclude })
+  ok(res, serializeListing(updated, user))
+}))
+
+router.post('/listings/:id/availability', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const existing = await prisma.listing.findUnique({ where: { id: req.params.id } })
+  if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  if (!['PUBLISHED', 'PAUSED'].includes(existing.status)) { fail(res, 409, 'Only approved listings can confirm availability.', 'INVALID_STATUS'); return }
+  const updated = await prisma.listing.update({ where: { id: existing.id }, data: { lastConfirmedAt: new Date() }, include: listingInclude })
+  ok(res, serializeListing(updated, user))
+}))
+
+router.get('/favorites', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const records = await prisma.favorite.findMany({ where: { userId: user.id, listing: { status: 'PUBLISHED' } }, orderBy: { createdAt: 'desc' }, include: { listing: { include: listingInclude } } })
+  ok(res, { items: records.map(record => serializeListing(record.listing, user)) })
+}))
+
+router.post('/favorites', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const listingId = typeof req.body?.listingId === 'string' ? req.body.listingId : ''
+  const listing = listingId ? await prisma.listing.findUnique({ where: { id: listingId } }) : null
+  if (!listing || listing.status !== 'PUBLISHED') { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  await prisma.favorite.upsert({ where: { userId_listingId: { userId: user.id, listingId } }, create: { userId: user.id, listingId }, update: {} })
+  ok(res, { saved: true })
+}))
+
+router.delete('/favorites', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const listingId = typeof req.body?.listingId === 'string' ? req.body.listingId : ''
+  if (!listingId) { failValidation(res, 'Choose a property to remove from favorites.'); return }
+  await prisma.favorite.deleteMany({ where: { userId: user.id, listingId } })
+  ok(res, { saved: false })
+}))
+
+export default router

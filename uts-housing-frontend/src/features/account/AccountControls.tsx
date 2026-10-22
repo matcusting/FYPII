@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { formatDate, inputClass } from './format'
@@ -18,6 +19,72 @@ interface NotificationPreferences {
   emailInquiryUpdates: boolean
   emailConnectionRequests: boolean
   emailProductUpdates: boolean
+}
+
+interface NotificationItem {
+  id: string
+  type: string
+  payload?: Record<string, unknown>
+  readAt?: string | null
+  createdAt?: string
+}
+
+interface NotificationPage {
+  items: NotificationItem[]
+  pages: number
+  unreadCount: number
+}
+
+function notificationText(item: NotificationItem): { title: string; message: string; to: string } {
+  const titles: Record<string, [string, string, string]> = {
+    INQUIRY_RECEIVED: ['New property inquiry', 'A student asked about your listing.', '/requests'],
+    INQUIRY_REPLY: ['Property inquiry reply', 'You have a new reply.', '/requests'],
+    ROOMMATE_CONNECTION_REQUEST: ['New roommate request', 'A student would like to connect.', '/requests'],
+    ROOMMATE_CONNECTION_RESPONSE: ['Roommate request updated', 'Your connection request has been answered.', '/requests'],
+    ROOMMATE_MESSAGE: ['New roommate message', 'You have a new message.', '/requests'],
+    REVIEW_SUBMITTED: ['New property review', 'A review is awaiting approval.', '/my-listings'],
+    REVIEW_MODERATION: ['Review decision', 'Your review has been reviewed.', '/reviews/mine'],
+    LISTING_MODERATION: ['Listing decision', 'Your listing has been reviewed.', '/my-listings'],
+    STUDENT_VERIFICATION: ['Student verification', 'Your verification request has been reviewed.', '/profile'],
+    STUDENT_VERIFIED: ['Student verified', 'Your student status has been verified.', '/profile'],
+  }
+  const [fallbackTitle, fallbackMessage, to] = titles[item.type] || ['Account update', 'There is an update to your account.', '/profile']
+  const title = typeof item.payload?.title === 'string' ? item.payload.title.slice(0, 120) : fallbackTitle
+  const message = typeof item.payload?.message === 'string' ? item.payload.message.slice(0, 500) : fallbackMessage
+  return { title, message, to }
+}
+
+function NotificationsInbox() {
+  const queryClient = useQueryClient()
+  const [page, setPage] = useState(1)
+  const notifications = useQuery({
+    queryKey: ['notifications', page],
+    queryFn: () => api<NotificationPage>(`/notifications?page=${page}&limit=10`),
+    refetchInterval: 30_000,
+  })
+  const markRead = useMutation({
+    mutationFn: (id: string) => api(`/notifications/${encodeURIComponent(id)}/read`, { method: 'PATCH' }),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['notifications'] }) },
+  })
+  const markAllRead = useMutation({
+    mutationFn: () => api('/notifications/read-all', { method: 'PATCH' }),
+    onSuccess: async () => { await queryClient.invalidateQueries({ queryKey: ['notifications'] }) },
+  })
+  const rows = notifications.data?.items || []
+  const pages = Math.max(1, notifications.data?.pages || 1)
+  return <Panel title="Notifications" action={notifications.data?.unreadCount ? <button type="button" className="text-sm font-semibold text-[#203569] underline" disabled={markAllRead.isPending} onClick={() => markAllRead.mutate()}>Mark all as read ({notifications.data.unreadCount})</button> : undefined}>
+    {notifications.isPending ? <LoadingNotice /> : notifications.isError ? <ErrorNotice error={notifications.error} onRetry={() => void notifications.refetch()} /> : rows.length ? <>
+      <ul className="divide-y divide-slate-100">{rows.map(item => {
+        const content = notificationText(item)
+        return <li key={item.id} className="flex flex-wrap items-start justify-between gap-3 py-4 first:pt-0 last:pb-0">
+          <div className="min-w-0 flex-1"><p className="text-sm font-semibold">{content.title}{!item.readAt && <span className="ml-2 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs text-[#203569]">New</span>}</p><p className="mt-1 break-words text-sm text-slate-600">{content.message}</p><p className="mt-1 text-xs text-slate-500">{formatDate(item.createdAt)}</p></div>
+          <div className="flex items-center gap-3 text-sm"><Link to={content.to} className="font-semibold text-[#203569] underline">View</Link>{!item.readAt && <button type="button" className="font-semibold text-slate-600 underline" disabled={markRead.isPending} onClick={() => markRead.mutate(item.id)}>Mark read</button>}</div>
+        </li>
+      })}</ul>
+      {pages > 1 && <nav className="mt-5 flex items-center justify-end gap-3 text-sm" aria-label="Notification pages"><button type="button" className="font-semibold text-[#203569] disabled:text-slate-400" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page} of {pages}</span><button type="button" className="font-semibold text-[#203569] disabled:text-slate-400" disabled={page >= pages} onClick={() => setPage(value => value + 1)}>Next</button></nav>}
+    </> : <EmptyNotice>No notifications yet.</EmptyNotice>}
+    {(markRead.isError || markAllRead.isError) && <p role="alert" className="mt-3 text-sm text-red-700">{messageOf(markRead.error || markAllRead.error)}</p>}
+  </Panel>
 }
 
 function parseSessions(value: unknown): Session[] {
@@ -119,6 +186,7 @@ function DeletionRequest() {
 
 export function AccountControls() {
   return <div className="space-y-6">
+    <NotificationsInbox />
     <NotificationControls />
     <SessionControls />
     <DeletionRequest />

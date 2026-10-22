@@ -1,6 +1,6 @@
 # UTS Housing & Roommate Finder — frontend
 
-React + TypeScript + Vite frontend for the product described in the supplied `PROJECT_REQUIREMENTS.md`. See [../FRONTEND_STATUS.md](../FRONTEND_STATUS.md) for the original gaps, implemented screens, and outstanding integration work.
+React + TypeScript + Vite frontend for the product described in the user's uploaded `PROJECT_REQUIREMENTS.md`. See [../FRONTEND_STATUS.md](../FRONTEND_STATUS.md) for the original gaps, implemented screens, and remaining environment and acceptance work.
 
 ## Run locally
 
@@ -13,7 +13,9 @@ npm run dev
 
 In the cloud workspace, use `npm ci --cache /workspace/.npm` if the home directory is read-only. Vite serves the frontend and proxies `/api` to `http://127.0.0.1:3001` by default. Copy `.env.example` to a local `.env` only if you need to change the API base path or proxy target. Do not put secrets in `VITE_` variables; Vite exposes them to browser code.
 
-The backend is not present in this repository. Without a running API, public pages show a connection error for live data and login or protected workflows cannot complete. The app does not substitute production mock records. The frontend expects the success envelope `{ "data": ... }`, error envelope `{ "error": { "code": "...", "message": "..." } }`, and HTTP-only cookie sessions from the requirements. It also accepts successful `204 No Content` responses.
+The Express/PostgreSQL backend is in [`../uts-housing-api`](../uts-housing-api). Start PostgreSQL, run the API migration and optional fictional seed, and then start the API before opening the website. See the [repository guide](../README.md) for Windows and Chrome commands. The frontend expects the success envelope `{ "data": ... }`, error envelope `{ "error": { "code": "...", "message": "..." } }`, and HTTP-only cookie sessions. It also accepts successful `204 No Content` responses.
+
+Set `VITE_GOOGLE_MAPS_API_KEY` in a local `.env` to turn on the interactive Google map. Without the key, the landlord can enter coordinates manually and eligible students can open an opted-in exact pin on Google Maps. The backend controls who may receive exact coordinates.
 
 ## Checks
 
@@ -24,7 +26,7 @@ npm test
 npm run build
 ```
 
-The test suite covers selected form, API, listing, roommate privacy and administrator behavior. A passing frontend build does not demonstrate that the missing backend, email delivery, storage or deployment works. End-to-end browser and accessibility reviews are still required with a working API.
+The test suite covers selected form, API, listing, roommate privacy and administrator behavior. Run the API tests and local PostgreSQL integration checks separately. Production email, Google Maps, storage operations, and deployment need environment-specific configuration and review.
 
 ## Project structure
 

@@ -1,12 +1,13 @@
 import type { Listing, PageData } from '../../lib/types'
 import { api, itemsOf } from '../../lib/api'
 
-export interface Campus { id: string; name: string; university?: string }
+export interface Campus { id: string; name: string; university?: string; latitude?: number | null; longitude?: number | null }
 export interface Amenity { id: string; name: string; slug?: string }
 export interface Review {
   id: string
   rating: number
   body: string
+  ownerResponse?: string
   createdAt?: string
   author?: { name?: string }
   authorName?: string

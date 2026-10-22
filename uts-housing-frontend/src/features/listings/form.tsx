@@ -1,8 +1,9 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, messageOf } from '../../lib/api'
 import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
+import { GoogleLocationMap, googleMapsKey, googleMapsUrl, validCoordinates } from '../../components/GoogleLocationMap'
 import { hasRole, useAuth } from '../../lib/auth'
 import { Field, inputClass, Notice, primaryButton, QueryState, secondaryButton } from './components'
 import { getList, propertyTypes, roomTypes, statusNames, type Amenity, type Campus, type ListingDetails } from './model'
@@ -31,11 +32,17 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
   const [files, setFiles] = useState<File[]>([])
   const [removedPhotoIds, setRemovedPhotoIds] = useState<string[]>([])
   const [selectedAmenityIds, setSelectedAmenityIds] = useState<string[]>(initial?.amenityIds || [])
+  const [location, setLocation] = useState({ latitude: initial?.latitude == null ? '' : String(initial.latitude), longitude: initial?.longitude == null ? '' : String(initial.longitude), address: initial?.address || '' })
+  const [showExactLocation, setShowExactLocation] = useState(initial?.showExactLocation === true)
+  const addressInputRef = useRef<HTMLInputElement>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState('')
   const photoCount = (initial?.photos || []).filter(photo => !photo.id || !removedPhotoIds.includes(photo.id)).length + files.length
   const maySubmit = hasRole(user, 'LANDLORD', 'ADMIN') || (!!user?.studentVerified && hasRole(user, 'STUDENT'))
+  const latitude = location.latitude.trim() ? Number(location.latitude) : null
+  const longitude = location.longitude.trim() ? Number(location.longitude) : null
+  const pin = validCoordinates(latitude, longitude) ? { latitude, longitude: longitude!, address: location.address } : null
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -61,6 +68,9 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     if (!/^\d+(\.\d{1,2})?$/.test(rentText) || !/^\d+(\.\d{1,2})?$/.test(depositText) || rent <= 0 || deposit < 0 || rent > 9999999 || deposit > 9999999) { setError('Enter valid monthly rent and deposit amounts with up to two decimal places.'); return }
     const availableFrom = String(form.get('availableFrom') || '').trim()
     if (!isIsoDate(availableFrom)) { setError('Enter a valid available-from date as YYYY-MM-DD.'); return }
+    if ((location.latitude.trim() || location.longitude.trim()) && !pin) { setError('Enter valid latitude and longitude for the exact location.'); return }
+    if (showExactLocation && !pin) { setError('Choose an exact location before sharing it with students.'); return }
+    if (location.address.length > 250) { setError('The exact address must be 250 characters or fewer.'); return }
     const payload: Record<string, unknown> = {
       title,
       description,
@@ -72,6 +82,10 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
       deposit: deposit.toFixed(2),
       availableFrom,
       approximateArea,
+      latitude: pin?.latitude ?? null,
+      longitude: pin?.longitude ?? null,
+      address: pin ? location.address.trim() || null : null,
+      showExactLocation: showExactLocation && !!pin,
       houseRules: String(form.get('houseRules') || '').trim(),
       contactMethod: String(form.get('contactMethod') || 'IN_APP'),
       furnished: form.get('furnished') === 'true',
@@ -109,6 +123,15 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     <div className="grid gap-6 sm:grid-cols-2"><Field label="Campus" required><select className={inputClass} name="campusId" required defaultValue={initial?.campusId || ''}><option value="" disabled>Select campus</option>{campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.name}{campus.university ? ` · ${campus.university}` : ''}</option>)}</select></Field><Field label="Room Type" required><select className={inputClass} name="roomType" required defaultValue={initial?.roomType || ''}><option value="" disabled>Select room type</option>{roomTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field></div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label="Property Type" required><select className={inputClass} name="propertyType" required defaultValue={initial?.propertyType || ''}><option value="" disabled>Select property type</option>{propertyTypes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field><div className="space-y-1.5 text-[13px] font-bold text-[#374151]"><label htmlFor="available-from">Available From <span className="text-rose-700" aria-hidden="true">*</span></label><EnglishDateInput id="available-from" className={inputClass} name="availableFrom" required defaultValue={initial?.availableFrom?.slice(0, 10) || ''} /></div></div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label="Approximate Area" required hint="Only the general area is shown publicly."><input className={inputClass} name="approximateArea" required minLength={3} maxLength={120} defaultValue={initial?.approximateArea || ''} placeholder="e.g., Sibu Jaya" /></Field><Field label="Furnishing"><select className={inputClass} name="furnished" defaultValue={String(initial?.furnished ?? false)}><option value="false">Unfurnished</option><option value="true">Furnished</option></select></Field></div>
+    <section className="space-y-3 rounded-lg border border-gray-200 bg-[#fcfcfd] p-4 sm:p-5" aria-labelledby="exact-location-heading">
+      <div><h2 id="exact-location-heading" className="text-[13px] font-bold text-[#374151]">Exact Property Location</h2><p className="mt-1 text-xs font-normal text-gray-600">Place a pin on Google Maps or enter coordinates. Students see the exact pin only if you allow it below.</p></div>
+      <Field label="Street Address (optional)"><input ref={addressInputRef} className={inputClass} maxLength={250} autoComplete="street-address" value={location.address} onChange={event => setLocation(previous => ({ ...previous, address: event.currentTarget.value, ...(googleMapsKey ? { latitude: '', longitude: '' } : {}) }))} placeholder="Search for a place or enter the address" /></Field>
+      {googleMapsKey ? <GoogleLocationMap pin={pin} searchInputRef={addressInputRef} onPick={chosen => setLocation({ latitude: String(chosen.latitude), longitude: String(chosen.longitude), address: chosen.address || '' })} /> : <p className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-xs text-[#203569]">Interactive Google Maps is unavailable right now. Enter coordinates below or <a className="font-semibold underline" href="https://www.google.com/maps/" target="_blank" rel="noopener noreferrer">find the property on Google Maps</a>.</p>}
+      <div className="grid gap-4 sm:grid-cols-2"><Field label="Latitude"><input className={inputClass} type="number" inputMode="decimal" step="any" min="-90" max="90" value={location.latitude} onChange={event => setLocation(previous => ({ ...previous, latitude: event.currentTarget.value, address: googleMapsKey ? '' : previous.address }))} placeholder="e.g., 2.286000" /></Field><Field label="Longitude"><input className={inputClass} type="number" inputMode="decimal" step="any" min="-180" max="180" value={location.longitude} onChange={event => setLocation(previous => ({ ...previous, longitude: event.currentTarget.value, address: googleMapsKey ? '' : previous.address }))} placeholder="e.g., 111.835000" /></Field></div>
+      {pin && <a href={googleMapsUrl(pin.latitude, pin.longitude)} target="_blank" rel="noopener noreferrer" className="inline-block text-xs font-semibold text-[#203569] underline">Check this pin in Google Maps ↗</a>}
+      <label className="flex cursor-pointer items-start gap-3 border-t border-gray-200 pt-3 text-sm font-medium text-[#374151]"><input type="checkbox" className="mt-1 accent-[#203569]" checked={showExactLocation} onChange={event => setShowExactLocation(event.currentTarget.checked)} /><span>Show the exact pin and address to students after this listing is approved.</span></label>
+      {!showExactLocation && <p className="text-xs text-gray-500">The exact location stays private. Students will see only the approximate area.</p>}
+    </section>
     <Field label="Property Description" required><textarea className={inputClass} name="description" required minLength={30} maxLength={5000} rows={4} defaultValue={initial?.description || ''} placeholder="Describe the room, furniture, transport and included costs" /></Field>
     <div><p className="mb-3 text-[13px] font-bold text-[#374151]">Included Facilities (Select all that apply)</p>{amenities.length ? <div className="flex flex-wrap gap-2">{amenities.map(amenity => { const selected = selectedAmenityIds.includes(amenity.id); return <label key={amenity.id} className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-bold transition ${selected ? 'border-[#203569] bg-[#203569] text-white' : 'border-gray-200 bg-[#f1f3f5] text-[#64748b] hover:border-[#203569]'}`}><input type="checkbox" className="sr-only" checked={selected} onChange={() => setSelectedAmenityIds(value => value.includes(amenity.id) ? value.filter(id => id !== amenity.id) : [...value, amenity.id])} />{selected ? '✓ ' : '+ '}{amenity.name}</label> })}</div> : <p className="text-sm text-gray-500">Facilities are temporarily unavailable. You can still save your listing.</p>}</div>
     <Field label="House Rules"><textarea className={inputClass} name="houseRules" rows={3} maxLength={2000} defaultValue={initial?.houseRules || ''} placeholder="e.g., No smoking, visitor hours" /></Field>

@@ -7,16 +7,18 @@ import type { Listing } from '../../lib/types'
 import { Field, inputClass, ListingCard, primaryButton, QueryState, secondaryButton } from './components'
 import { getList, propertyTypes, roomTypes, type Campus } from './model'
 
-const filterNames = ['q', 'area', 'university', 'campusId', 'minRent', 'maxRent', 'maxDeposit', 'availableBy', 'maxDistanceKm', 'propertyType', 'roomType', 'amenities', 'furnished', 'sort'] as const
+const filterNames = ['q', 'area', 'university', 'campusId', 'minRent', 'maxRent', 'minDeposit', 'maxDeposit', 'availableBy', 'maxDistanceKm', 'propertyType', 'roomType', 'amenities', 'furnished', 'sort'] as const
 
 export function ListingsPage() {
   const [params, setParams] = useSearchParams()
   const [filterError, setFilterError] = useState('')
+  const [campusId, setCampusId] = useState(params.get('campusId') || '')
   const page = Math.max(1, Number(params.get('page')) || 1)
   const limit = 12
   const searchQuery = query(Object.fromEntries([...filterNames.map(name => [name, params.get(name) || undefined]), ['page', page], ['limit', limit]]))
   const listings = useQuery({ queryKey: ['listings', searchQuery], queryFn: () => getList<Listing>(`/listings${searchQuery}`) })
   const campuses = useQuery({ queryKey: ['campuses'], queryFn: () => getList<Campus>('/campuses'), retry: false })
+  const selectedCampus = campuses.data?.items.find(campus => campus.id === campusId)
   const records = listings.data?.items || []
   const totalPages = listings.data?.pages || (listings.data?.total ? Math.ceil(listings.data.total / limit) : undefined)
   const canNext = totalPages ? page < totalPages : records.length >= limit
@@ -45,6 +47,14 @@ export function ListingsPage() {
       setFilterError('Maximum rent cannot be lower than minimum rent.')
       return
     }
+    if (next.has('minDeposit') && next.has('maxDeposit') && Number(next.get('minDeposit')) > Number(next.get('maxDeposit'))) {
+      setFilterError('Maximum deposit cannot be lower than minimum deposit.')
+      return
+    }
+    if ((next.has('maxDistanceKm') || next.get('sort') === 'distance') && !next.has('campusId')) {
+      setFilterError('Choose a campus to filter or sort by distance.')
+      return
+    }
     setFilterError('')
     next.set('page', '1')
     setParams(next)
@@ -63,14 +73,15 @@ export function ListingsPage() {
         <h1 className="mb-8 text-xl font-bold text-[#1f2937]">Filters</h1>
         <form key={params.toString()} noValidate className="flex flex-1 flex-col gap-6" onSubmit={event => { event.preventDefault(); submit(event.currentTarget) }}>
           <div><label htmlFor="rent-slider" className="mb-4 block text-[11px] font-bold uppercase tracking-wider text-[#475569]">Max Rent (RM)</label><input id="rent-slider" aria-label="Max Rent slider" className="w-full cursor-pointer accent-[#e11d48]" type="range" min="0" max="2000" step="50" defaultValue={params.get('maxRent') || '2000'} onInput={event => { const form = event.currentTarget.form; const value = event.currentTarget.value; const number = form?.querySelector<HTMLInputElement>('[name="maxRent"]'); const output = form?.querySelector<HTMLOutputElement>('#rent-output'); if (number) number.value = value; if (output) output.value = `RM ${value}` }} /><output id="rent-output" className="mt-1 block text-right text-sm text-[#475569]">{params.get('maxRent') ? `RM ${params.get('maxRent')}` : 'Any rent'}</output><input className="sr-only" aria-label="Maximum rent amount (RM)" type="number" name="maxRent" min="0" step="1" defaultValue={params.get('maxRent') || ''} onInput={event => { event.currentTarget.setCustomValidity(''); const form = event.currentTarget.form; const slider = form?.querySelector<HTMLInputElement>('#rent-slider'); const output = form?.querySelector<HTMLOutputElement>('#rent-output'); if (slider) slider.value = event.currentTarget.value; if (output) output.value = event.currentTarget.value ? `RM ${event.currentTarget.value}` : 'Any rent' }} /></div>
-          <Field label="Distance to UTS"><select className={inputClass} name="maxDistanceKm" defaultValue={params.get('maxDistanceKm') || ''}><option value="">Any Distance</option><option value="5">Less than 5 km</option><option value="2">Less than 2 km</option></select></Field>
-          <Field label="Campus"><select aria-label="Campus" className={inputClass} name="campusId" defaultValue={params.get('campusId') || ''}><option value="">All Campuses</option>{(campuses.data?.items || []).map(campus => <option value={campus.id} key={campus.id}>{campus.name}</option>)}</select></Field>
+          <Field label={selectedCampus ? `Distance to ${selectedCampus.name}` : 'Distance to Campus'}><select className={inputClass} name="maxDistanceKm" defaultValue={params.get('maxDistanceKm') || ''}><option value="">Any Distance</option><option value="5">Less than 5 km</option><option value="2">Less than 2 km</option></select></Field>
+          <Field label="Campus"><select aria-label="Campus" className={inputClass} name="campusId" value={campusId} onChange={event => setCampusId(event.currentTarget.value)}><option value="">All Campuses</option>{(campuses.data?.items || []).map(campus => <option value={campus.id} key={campus.id}>{campus.name}</option>)}</select></Field>
           {campuses.isError && <p className="text-xs text-amber-800" role="status">Campus filters are temporarily unavailable.</p>}
           <details className="border-t border-gray-200 pt-5 text-sm text-gray-600"><summary className="cursor-pointer font-bold text-[#203569]">More Filters</summary><div className="mt-5 space-y-4">
             <Field label="Keyword"><input className={inputClass} type="search" name="q" defaultValue={params.get('q') || ''} placeholder="Title or description" /></Field>
             <Field label="Area"><input className={inputClass} name="area" defaultValue={params.get('area') || ''} placeholder="e.g. Sibu Jaya" /></Field>
             <Field label="University"><input className={inputClass} name="university" defaultValue={params.get('university') || ''} /></Field>
             <Field label="Min Rent (RM)"><input className={inputClass} type="number" name="minRent" min="0" step="1" defaultValue={params.get('minRent') || ''} /></Field>
+            <Field label="Min Deposit (RM)"><input className={inputClass} type="number" name="minDeposit" min="0" step="1" defaultValue={params.get('minDeposit') || ''} /></Field>
             <Field label="Max Deposit (RM)"><input className={inputClass} type="number" name="maxDeposit" min="0" step="1" defaultValue={params.get('maxDeposit') || ''} /></Field>
             <div className="space-y-1.5 text-[13px] font-bold text-[#374151]"><label htmlFor="available-by">Available By</label><EnglishDateInput id="available-by" className={inputClass} name="availableBy" defaultValue={params.get('availableBy') || ''} /></div>
             <Field label="Property Type"><select className={inputClass} name="propertyType" defaultValue={params.get('propertyType') || ''}><option value="">All Types</option>{propertyTypes.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></Field>
@@ -79,7 +90,7 @@ export function ListingsPage() {
             <Field label="Furnished"><select className={inputClass} name="furnished" defaultValue={params.get('furnished') || ''}><option value="">Any</option><option value="true">Yes</option><option value="false">No</option></select></Field>
             <Field label="Sort By"><select className={inputClass} name="sort" defaultValue={params.get('sort') || 'newest'}><option value="newest">Newest</option><option value="rent_asc">Rent: Low to High</option><option value="rent_desc">Rent: High to Low</option><option value="distance">Closest to Campus</option></select></Field>
           </div></details>
-          <div className="mt-auto space-y-2 border-t border-gray-100 pt-5">{filterError && <p role="alert" className="text-xs text-red-700">{filterError}</p>}<button type="submit" aria-label="Apply filters" className={`${primaryButton} w-full`}>Apply Filters</button><button type="button" className="w-full py-1 text-xs font-semibold text-gray-500 hover:text-[#203569]" onClick={() => { setFilterError(''); setParams({}) }}>Reset Filters</button></div>
+          <div className="mt-auto space-y-2 border-t border-gray-100 pt-5">{filterError && <p role="alert" className="text-xs text-red-700">{filterError}</p>}<button type="submit" aria-label="Apply filters" className={`${primaryButton} w-full`}>Apply Filters</button><button type="button" className="w-full py-1 text-xs font-semibold text-gray-500 hover:text-[#203569]" onClick={() => { setFilterError(''); setCampusId(''); setParams({}) }}>Reset Filters</button></div>
         </form>
       </aside>
       <section aria-label="Housing search results" className="min-w-0 flex-1 bg-white p-6 md:p-8"><h2 className="mb-6 text-xl font-bold text-[#203569]" role="status">{listings.isPending ? 'Loading...' : `${listings.data?.total ?? records.length} Verified Listings`}</h2>

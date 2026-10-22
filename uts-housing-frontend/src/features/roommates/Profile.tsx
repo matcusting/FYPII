@@ -159,10 +159,27 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
   </form>
 }
 
+function BlockedStudents() {
+  const queryClient = useQueryClient()
+  const [page, setPage] = useState(1)
+  const blocks = useQuery({ queryKey: ['roommates', 'blocks', page], queryFn: () => api<{ items: Array<{ userId: string; displayName: string; blockedAt: string }>; pages: number }>(`/roommates/blocks?page=${page}&limit=20`) })
+  const unblock = useMutation({
+    mutationFn: (id: string) => api(`/roommates/blocks/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    onSuccess: async () => { await Promise.all([queryClient.invalidateQueries({ queryKey: ['roommates', 'blocks'] }), queryClient.invalidateQueries({ queryKey: ['roommates', 'matches'] })]) },
+  })
+  return <section className="mt-6 rounded-xl border border-gray-100 bg-white p-5 shadow-[0_2px_10px_rgba(0,0,0,0.04)] sm:p-6" aria-labelledby="blocked-students-heading">
+    <h2 id="blocked-students-heading" className="text-lg font-bold text-[#1f2937]">Blocked Students</h2>
+    <p className="mt-1 text-sm text-gray-600">Blocked students cannot see you in matching or send you messages. Unblocking may make profiles visible again when discovery is on.</p>
+    {blocks.isPending ? <p role="status" className="mt-4 text-sm text-gray-600">Loading blocked students…</p> : blocks.isError ? <div className="mt-4"><Notice tone="error">Could not load blocked students: {messageOf(blocks.error)}</Notice><button type="button" className={secondaryButtonClass + ' mt-3'} onClick={() => void blocks.refetch()}>Retry</button></div> : blocks.data?.items.length ? <ul className="mt-4 divide-y divide-gray-100">{blocks.data.items.map(item => <li key={item.userId} className="flex flex-wrap items-center justify-between gap-3 py-3"><span className="font-medium text-[#1f2937]">{item.displayName || 'Student'}</span><button type="button" className={secondaryButtonClass} disabled={unblock.isPending} onClick={() => unblock.mutate(item.userId)}>Unblock</button></li>)}</ul> : <p className="mt-4 text-sm text-gray-500">You have not blocked any students.</p>}
+    {!!blocks.data?.pages && blocks.data.pages > 1 && <nav className="mt-4 flex items-center justify-end gap-3 text-sm" aria-label="Blocked students pages"><button type="button" className={secondaryButtonClass} disabled={page <= 1} onClick={() => setPage(value => value - 1)}>Previous</button><span>Page {page} of {blocks.data.pages}</span><button type="button" className={secondaryButtonClass} disabled={page >= blocks.data.pages} onClick={() => setPage(value => value + 1)}>Next</button></nav>}
+    {unblock.isError && <div className="mt-3"><Notice tone="error">Could not unblock this student: {messageOf(unblock.error)}</Notice></div>}
+  </section>
+}
+
 function ProfileContent() {
   const profile = useQuery({ queryKey: ['roommates', 'profile'], queryFn: () => api<unknown>('/roommates/profile').then(profileOf) })
   return <RoommateShell title="My Lifestyle Profile" description="Set your lifestyle and roommate preferences, and decide whether to join matching.">
-    {profile.isPending ? <p role="status">Loading your roommate profile…</p> : profile.isError ? <div className="space-y-4"><Notice tone="error">Could not load your roommate profile: {messageOf(profile.error)}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void profile.refetch()}>Retry</button></div> : <ProfileEditor initial={profile.data} />}
+    {profile.isPending ? <p role="status">Loading your roommate profile…</p> : profile.isError ? <div className="space-y-4"><Notice tone="error">Could not load your roommate profile: {messageOf(profile.error)}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void profile.refetch()}>Retry</button></div> : <><ProfileEditor initial={profile.data} /><BlockedStudents /></>}
   </RoommateShell>
 }
 

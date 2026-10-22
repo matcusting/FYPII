@@ -1,7 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, messageOf } from '../../lib/api'
+import { GoogleLocationMap, googleMapsUrl, visibleExactPin } from '../../components/GoogleLocationMap'
 import { hasRole, useAuth } from '../../lib/auth'
 import { money } from '../../lib/types'
 import { FavoriteButton, Field, inputClass, Notice, primaryButton, QueryState, secondaryButton } from './components'
@@ -11,8 +12,21 @@ function Reviews({ listingId }: { listingId: string }) {
   const { user } = useAuth()
   const client = useQueryClient()
   const [validationError, setValidationError] = useState('')
-  const reviews = useQuery({ queryKey: ['listing-reviews', listingId], queryFn: () => getList<Review>(`/listings/${encodeURIComponent(listingId)}/reviews`) })
-  const mutation = useMutation({ mutationFn: (payload: { rating: number; body: string; experienceDescription: string }) => api(`/listings/${encodeURIComponent(listingId)}/reviews`, { method: 'POST', body: JSON.stringify(payload) }), onSuccess: async () => { await client.invalidateQueries({ queryKey: ['listing-reviews', listingId] }) } })
+  const [proofFile, setProofFile] = useState<File | null>(null)
+  const reviews = useInfiniteQuery({
+    queryKey: ['listing-reviews', listingId, 'public'],
+    queryFn: ({ pageParam }) => getList<Review>(`/listings/${encodeURIComponent(listingId)}/reviews?page=${pageParam}&limit=10`),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => last.pages && pages.length < last.pages ? pages.length + 1 : undefined,
+  })
+  const reviewItems = reviews.data?.pages.flatMap(page => page.items) || []
+  const mutation = useMutation({ mutationFn: async (payload: { rating: number; body: string; experienceDescription: string; proof: File }) => {
+    const signed = await api<{ uploadUrl: string; objectKey: string; headers?: Record<string, string> }>('/uploads/sign', { method: 'POST', body: JSON.stringify({ fileName: payload.proof.name, contentType: payload.proof.type, size: payload.proof.size, purpose: 'REVIEW_EVIDENCE' }) })
+    if (!signed.uploadUrl || !signed.objectKey) throw new Error('The server did not provide a valid proof upload URL.')
+    const uploaded = await fetch(signed.uploadUrl, { method: 'PUT', headers: { 'Content-Type': payload.proof.type, ...signed.headers }, body: payload.proof })
+    if (!uploaded.ok) throw new Error('Could not upload the rental proof. Please try again.')
+    return api(`/listings/${encodeURIComponent(listingId)}/reviews`, { method: 'POST', body: JSON.stringify({ rating: payload.rating, body: payload.body, experienceDescription: payload.experienceDescription, experienceProofKey: signed.objectKey }) })
+  }, onSuccess: async () => { setProofFile(null); await client.invalidateQueries({ queryKey: ['listing-reviews', listingId] }) } })
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
@@ -23,20 +37,51 @@ function Reviews({ listingId }: { listingId: string }) {
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) { setValidationError('Select a rating from 1 to 5.'); return }
     if (body.length < 20 || body.length > 2000) { setValidationError('Write a review between 20 and 2,000 characters.'); return }
     if (experienceDescription.length < 10 || experienceDescription.length > 500) { setValidationError('Describe your rental experience in 10 to 500 characters.'); return }
+    if (!proofFile) { setValidationError('Attach a private document showing your rental experience.'); return }
+    if (!['application/pdf', 'image/jpeg', 'image/png'].includes(proofFile.type) || proofFile.size > 5_000_000) { setValidationError('Choose a PDF, JPG or PNG proof file no larger than 5 MB.'); return }
     setValidationError('')
-    mutation.mutate({ rating, body, experienceDescription }, { onSuccess: () => form.reset() })
+    mutation.mutate({ rating, body, experienceDescription, proof: proofFile }, { onSuccess: () => form.reset() })
   }
   return <section className="space-y-5" aria-labelledby="reviews-heading">
     <div><h2 id="reviews-heading" className="text-lg font-bold text-[#0f172a]">Student Reviews</h2><p className="mt-1 text-sm text-gray-600">Only approved reviews are shown. Students must verify their rental experience before posting.</p></div>
-    {reviews.isPending ? <p role="status" className="text-gray-500">Loading reviews…</p> : reviews.isError ? <Notice tone="error">{messageOf(reviews.error)}</Notice> : reviews.data?.items.length ? <div className="space-y-3">{reviews.data.items.map(review => <article key={review.id} className="rounded-xl border border-gray-200 bg-white p-5"><div className="flex flex-wrap items-center justify-between gap-2"><strong>{review.author?.name || review.authorName || 'Student'}</strong><span className="text-sm text-gray-500">{formatDate(review.createdAt)}</span></div><p aria-label={`${review.rating} out of 5 stars`} className="mt-1 text-amber-700">{'★'.repeat(Math.max(0, Math.min(5, Number(review.rating) || 0)))}{'☆'.repeat(5 - Math.max(0, Math.min(5, Number(review.rating) || 0)))}</p><p className="mt-2 whitespace-pre-wrap text-gray-700">{review.body}</p></article>)}</div> : <Notice>No approved reviews yet.</Notice>}
+    {reviews.isPending ? <p role="status" className="text-gray-500">Loading reviews…</p> : reviews.isError ? <Notice tone="error">{messageOf(reviews.error)}</Notice> : reviewItems.length ? <div className="space-y-3">{reviewItems.map(review => <article key={review.id} className="rounded-xl border border-gray-200 bg-white p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2"><strong>{review.author?.name || review.authorName || 'Student'}</strong><span className="text-sm text-gray-500">{formatDate(review.createdAt)}</span></div>
+      <p aria-label={`${review.rating} out of 5 stars`} className="mt-1 text-amber-700">{'★'.repeat(Math.max(0, Math.min(5, Number(review.rating) || 0)))}{'☆'.repeat(5 - Math.max(0, Math.min(5, Number(review.rating) || 0)))}</p>
+      <p className="mt-2 whitespace-pre-wrap text-gray-700">{review.body}</p>
+      {review.ownerResponse && <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-[#203569]"><strong>Landlord response</strong><p className="mt-1 whitespace-pre-wrap">{review.ownerResponse}</p></div>}
+      <ReportReview reviewId={review.id} />
+    </article>)}</div> : <Notice>No approved reviews yet.</Notice>}
+    {reviews.hasNextPage && <div className="text-center"><button type="button" className={secondaryButton} disabled={reviews.isFetchingNextPage} onClick={() => void reviews.fetchNextPage()}>{reviews.isFetchingNextPage ? 'Loading…' : 'Load more reviews'}</button></div>}
     {!user ? <p className="text-sm text-gray-600"><Link to={`/login?next=${encodeURIComponent(`/listings/${listingId}`)}`} className="font-semibold text-[#203569] underline">Log in</Link> to request a review.</p> : !hasRole(user, 'STUDENT') || !user.studentVerified ? <Notice>Only verified students with a rental experience can submit a review.</Notice> : <form onSubmit={submit} noValidate className="space-y-4 rounded-xl border border-gray-200 bg-white p-5">
       <h3 className="text-lg font-semibold">Write a Review</h3><Field label="Rating" required><select className={inputClass} name="rating" required defaultValue=""><option value="" disabled>Select a rating</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} / 5</option>)}</select></Field>
       <Field label="Your Review" required><textarea className={inputClass} name="body" minLength={20} maxLength={2000} rows={4} required placeholder="Describe your rental experience accurately" /></Field>
       <Field label="Rental Experience" required hint="Briefly describe when you stayed here. Do not include private contact or identity details."><textarea className={inputClass} name="experienceDescription" minLength={10} maxLength={500} rows={3} required /></Field>
+      <div><span id="review-proof-label" className="block text-[13px] font-bold text-[#374151]">Proof of Rental Experience <span className="text-rose-700" aria-hidden="true">*</span></span><label className="mt-1.5 flex min-h-11 cursor-pointer flex-wrap items-center gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-[#203569]"><input type="file" className="sr-only" aria-labelledby="review-proof-label" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => { setProofFile(event.currentTarget.files?.[0] || null); setValidationError('') }} /><span aria-hidden="true" className="rounded-md bg-[#203569] px-3 py-1.5 text-xs font-semibold text-white">Choose file</span><span className="min-w-0 flex-1 truncate text-sm text-gray-600">{proofFile?.name || 'No file selected'}</span></label><p className="mt-1 text-xs text-gray-500">PDF, JPG or PNG up to 5 MB. The document is private and is used only to check review eligibility.</p></div>
       {validationError && <Notice tone="error">{validationError}</Notice>}{mutation.isError && <Notice tone="error">{messageOf(mutation.error)}</Notice>}{mutation.isSuccess && <Notice tone="success">Review submitted. It will appear after approval.</Notice>}
       <button className={primaryButton} disabled={mutation.isPending}>{mutation.isPending ? 'Submitting…' : 'Submit for Review'}</button>
     </form>}
   </section>
+}
+
+function ReportReview({ reviewId }: { reviewId: string }) {
+  const { user } = useAuth()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [category, setCategory] = useState('FABRICATED')
+  const [validation, setValidation] = useState('')
+  const report = useMutation({
+    mutationFn: () => api('/reports', { method: 'POST', body: JSON.stringify({ targetType: 'REVIEW', targetId: reviewId, category, reason: reason.trim() }) }),
+  })
+  if (!user) return null
+  return <div className="mt-4 border-t border-gray-100 pt-3 text-sm">
+    <button type="button" className="font-medium text-rose-700 underline" aria-expanded={open} onClick={() => setOpen(value => !value)}>Report review</button>
+    {open && <form className="mt-3 space-y-3 rounded-lg border border-gray-200 bg-[#f8f9fa] p-4" onSubmit={event => { event.preventDefault(); if (reason.trim().length < 10 || reason.trim().length > 1000) { setValidation('Describe the issue in 10 to 1,000 characters.'); return } setValidation(''); report.mutate() }} noValidate>
+      <Field label="Reason"><select className={inputClass} value={category} onChange={event => setCategory(event.target.value)}><option value="FABRICATED">Possibly fabricated</option><option value="HARASSMENT">Harassment</option><option value="PERSONAL_DATA">Private information</option><option value="OTHER">Other concern</option></select></Field>
+      <Field label="Details" required><textarea className={inputClass} value={reason} onChange={event => setReason(event.target.value)} rows={3} maxLength={1000} required /></Field>
+      {validation && <Notice tone="error">{validation}</Notice>}{report.isError && <Notice tone="error">{messageOf(report.error)}</Notice>}{report.isSuccess && <Notice tone="success">This review was reported for moderation.</Notice>}
+      <button type="submit" className={secondaryButton} disabled={report.isPending || report.isSuccess}>{report.isPending ? 'Sending…' : 'Submit report'}</button>
+    </form>}
+  </div>
 }
 
 function Inquiry({ listingId, ownerId }: { listingId: string; ownerId?: string }) {
@@ -64,6 +109,7 @@ export function ListingDetailPage() {
   const [photoIndex, setPhotoIndex] = useState(0)
   const listing = useQuery({ queryKey: ['listing', id], queryFn: () => api<ListingDetails>(`/listings/${encodeURIComponent(id)}`), enabled: !!id })
   const record = listing.data
+  const exactPin = visibleExactPin(record)
   const photos = record?.photos || []
   const activePhoto = photos[Math.min(photoIndex, photos.length - 1)]
   return <div className="mx-auto max-w-[1000px] px-4 py-8 sm:px-0">
@@ -73,14 +119,14 @@ export function ListingDetailPage() {
         <section aria-label="Property photos" className="relative h-[220px] bg-[#cbd5e1] sm:h-[300px]">{activePhoto?.url ? <img src={activePhoto.url} alt={activePhoto.alt || `${record.title} photo ${photoIndex + 1}`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-lg font-bold text-gray-500">Property Image Gallery</div>}<span className="absolute bottom-4 left-6 rounded-md bg-[#203569] px-3 py-1.5 text-xs font-bold text-white shadow-sm">{labelOf(roomTypes, record.roomType)}</span></section>
         {photos.length > 1 && <div className="flex gap-2 overflow-x-auto border-b border-gray-100 px-6 py-3">{photos.map((photo, index) => <button key={photo.id || index} type="button" className={`shrink-0 rounded-lg outline-none focus:ring-2 focus:ring-[#203569] ${index === photoIndex ? 'ring-2 ring-[#203569]' : ''}`} aria-label={`View photo ${index + 1}`} aria-pressed={index === photoIndex} onClick={() => setPhotoIndex(index)}><img src={photo.url} alt="" className="h-16 w-24 rounded-lg object-cover" /></button>)}</div>}
         <div className="p-5 sm:p-8">
-          <header className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 pb-5"><div><p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#203569]">{labelOf(propertyTypes, record.propertyType)} · {labelOf(roomTypes, record.roomType)}</p><h1 className="text-2xl font-bold text-[#1f2937]">{record.title}</h1><p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500"><span>Posted by <strong className="text-gray-800">{record.owner?.name || 'Landlord'}</strong></span>{record.status === 'PUBLISHED' && <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">✓ Published</span>}{typeof record.distanceKm === 'number' && <span>· {record.distanceKm.toFixed(1)} km to UTS</span>}</p><p className="mt-1 text-sm text-gray-500">{record.approximateArea || record.campusName || 'Area not provided'}</p></div><div className="flex flex-col items-end gap-2"><div className="text-2xl font-bold text-[#16a34a]">{money(record.rent, record.currency)}<span className="text-sm font-normal text-gray-500">/mo</span></div><p className="text-xs font-medium text-gray-400">Deposit: {money(record.deposit, record.currency)}</p><FavoriteButton listingId={id} /></div></header>
+          <header className="mb-6 flex flex-wrap items-start justify-between gap-4 border-b border-gray-100 pb-5"><div><p className="mb-1 text-xs font-bold uppercase tracking-wider text-[#203569]">{labelOf(propertyTypes, record.propertyType)} · {labelOf(roomTypes, record.roomType)}</p><h1 className="text-2xl font-bold text-[#1f2937]">{record.title}</h1><p className="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500"><span>Posted by <strong className="text-gray-800">{record.owner?.name || 'Landlord'}</strong></span>{record.status === 'PUBLISHED' && <span className="rounded bg-[#dcfce7] px-2 py-0.5 text-[10px] font-bold text-[#15803d]">✓ Published</span>}{typeof record.distanceKm === 'number' && <span>· {record.distanceKm.toFixed(1)} km to {record.campusName || 'campus'}</span>}</p><p className="mt-1 text-sm text-gray-500">{record.approximateArea || record.campusName || 'Area not provided'}</p></div><div className="flex flex-col items-end gap-2"><div className="text-2xl font-bold text-[#16a34a]">{money(record.rent, record.currency)}<span className="text-sm font-normal text-gray-500">/mo</span></div><p className="text-xs font-medium text-gray-400">Deposit: {money(record.deposit, record.currency)}</p><FavoriteButton listingId={id} /></div></header>
           {record.status && record.status !== 'PUBLISHED' && <div className="mb-5"><Notice>This listing is not currently public. Only authorized users can preview it.</Notice></div>}
           <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_280px]"><div className="min-w-0 space-y-8">
             <section><h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">About this property</h2><p className="whitespace-pre-wrap text-sm leading-7 text-gray-600">{record.description || 'The landlord has not added a description yet.'}</p></section>
-            <section><h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">Property Details</h2><dl className="grid gap-4 rounded-lg bg-[#f8f9fa] p-4 sm:grid-cols-2"><div><dt className="text-xs text-gray-500">Monthly Rent</dt><dd className="font-semibold text-gray-800">{money(record.rent, record.currency)}</dd></div><div><dt className="text-xs text-gray-500">Security Deposit</dt><dd className="font-semibold text-gray-800">{money(record.deposit, record.currency)}</dd></div><div><dt className="text-xs text-gray-500">Available From</dt><dd className="font-semibold text-gray-800">{formatDate(record.availableFrom)}</dd></div><div><dt className="text-xs text-gray-500">Furnishing</dt><dd className="font-semibold text-gray-800">{record.furnished == null ? 'Not provided' : record.furnished ? 'Furnished' : 'Unfurnished'}</dd></div><div><dt className="text-xs text-gray-500">Last Availability Confirmation</dt><dd className="font-semibold text-gray-800">{formatDate(record.lastConfirmedAt)}</dd></div><div><dt className="text-xs text-gray-500">Distance to UTS</dt><dd className="font-semibold text-gray-800">{typeof record.distanceKm === 'number' ? `${record.distanceKm.toFixed(1)} km (straight line)` : 'Not provided'}</dd></div></dl></section>
+            <section><h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">Property Details</h2><dl className="grid gap-4 rounded-lg bg-[#f8f9fa] p-4 sm:grid-cols-2"><div><dt className="text-xs text-gray-500">Monthly Rent</dt><dd className="font-semibold text-gray-800">{money(record.rent, record.currency)}</dd></div><div><dt className="text-xs text-gray-500">Security Deposit</dt><dd className="font-semibold text-gray-800">{money(record.deposit, record.currency)}</dd></div><div><dt className="text-xs text-gray-500">Available From</dt><dd className="font-semibold text-gray-800">{formatDate(record.availableFrom)}</dd></div><div><dt className="text-xs text-gray-500">Furnishing</dt><dd className="font-semibold text-gray-800">{record.furnished == null ? 'Not provided' : record.furnished ? 'Furnished' : 'Unfurnished'}</dd></div><div><dt className="text-xs text-gray-500">Last Availability Confirmation</dt><dd className="font-semibold text-gray-800">{formatDate(record.lastConfirmedAt)}</dd></div><div><dt className="text-xs text-gray-500">Distance to Campus</dt><dd className="font-semibold text-gray-800">{typeof record.distanceKm === 'number' ? `${record.distanceKm.toFixed(1)} km (straight line)` : 'Not provided'}</dd></div></dl></section>
             {record.amenities?.length ? <section><h2 className="mb-3 text-xs font-bold uppercase tracking-wider text-gray-400">Included Facilities</h2><ul className="flex flex-wrap gap-2.5">{record.amenities.map(amenity => <li key={amenity} className="rounded-full bg-[#f0f4f8] px-3.5 py-1.5 text-xs font-bold text-[#203569]">✓ {amenity}</li>)}</ul></section> : null}
             {record.houseRules && <section><h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">House Rules</h2><p className="whitespace-pre-wrap text-sm leading-6 text-gray-600">{record.houseRules}</p></section>}
-            <section><h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">Approximate Location</h2><p className="text-sm text-gray-600">{record.approximateArea || 'Area not provided'}</p><p className="mt-1 text-xs text-gray-400">The exact address is shared only with the landlord's consent.</p></section>
+            <section><h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">{exactPin ? 'Exact Location' : 'Approximate Location'}</h2><p className="text-sm text-gray-600">{exactPin?.address || record.approximateArea || 'Area not provided'}</p>{exactPin ? <><GoogleLocationMap pin={exactPin} className="mt-3" /><a href={googleMapsUrl(exactPin.latitude, exactPin.longitude)} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-sm font-semibold text-[#203569] underline">Open exact pin in Google Maps ↗</a><p className="mt-1 text-xs text-gray-500">Location provided by the listing owner. Confirm the address before visiting.</p></> : <p className="mt-1 text-xs text-gray-400">The landlord has not shared an exact pin. Ask about the location before arranging a viewing.</p>}</section>
             <Reviews listingId={id} /><ReportListing listingId={id} />
           </div><aside className="space-y-4 lg:self-start"><Inquiry listingId={id} ownerId={record.ownerId || record.owner?.id} />{record.reviewCount != null && <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">{record.reviewCount} approved reviews{record.rating != null ? ` · ${Number(record.rating).toFixed(1)} / 5` : ''}</div>}<p className="text-xs text-gray-400">Availability is provided by the landlord and may change.</p></aside></div>
         </div>

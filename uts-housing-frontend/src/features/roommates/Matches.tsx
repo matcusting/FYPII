@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { api, itemsOf, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
@@ -197,11 +197,14 @@ function MatchesContent() {
   const [showMatches, setShowMatches] = useState(false)
   const profile = useQuery({ queryKey: ['roommates', 'profile'], queryFn: () => api<unknown>('/roommates/profile').then(profileOf) })
   const matchesVisible = showMatches || profile.data?.discoverable === true
-  const matches = useQuery({
+  const matches = useInfiniteQuery({
     queryKey: ['roommates', 'matches'],
-    queryFn: async () => itemsOf<unknown>(await api<unknown>('/roommates/matches')).map(matchOf).filter((match): match is Match => match !== null),
+    queryFn: ({ pageParam }) => api<{ items: unknown[]; page?: number; pages?: number }>(`/roommates/matches?page=${pageParam}&limit=20`),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) => last.pages && pages.length < last.pages ? pages.length + 1 : undefined,
     enabled: matchesVisible,
   })
+  const visibleMatches = matches.data?.pages.flatMap(page => itemsOf<unknown>(page).map(matchOf).filter((match): match is Match => match !== null)) || []
   return <RoommateShell>
     <section className={originalCardClass}>
       <div className="bg-[#15803d] px-8 py-5 text-white">
@@ -223,21 +226,21 @@ function MatchesContent() {
           <p className="mt-2 text-sm leading-6 text-gray-600">Explore profiles shared by verified students and decide who you would like to meet.</p>
         </div>
         <div className="flex flex-wrap items-center gap-4 text-sm font-bold">
-          {matches.isSuccess && <span className="rounded-full bg-[#e2f5e9] px-3 py-1.5 text-[#168a48]">{matches.data.length} {matches.data.length === 1 ? 'match' : 'matches'}</span>}
+          {matches.isSuccess && <span className="rounded-full bg-[#e2f5e9] px-3 py-1.5 text-[#168a48]">{visibleMatches.length} {visibleMatches.length === 1 ? 'match' : 'matches'}</span>}
           <button type="button" onClick={() => void matches.refetch()} disabled={matches.isFetching} className="text-[#203569] underline-offset-4 hover:underline disabled:opacity-50">{matches.isFetching ? 'Refreshing…' : 'Refresh matches'}</button>
           <Link to="/roommates/profile" className="text-[#203569] underline-offset-4 hover:underline">Edit my profile</Link>
         </div>
       </div>
       {matches.isPending ? <p role="status">Finding compatible roommates…</p>
         : matches.isError ? <div className="space-y-4"><Notice tone="error">Could not load matches: {messageOf(matches.error)}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void matches.refetch()}>Retry</button></div>
-          : matches.data.length === 0 ? <div className="rounded-xl border border-gray-200 bg-[#f8f9fa] p-8 text-center"><h3 className="text-lg font-bold">No matches yet</h3><p className="mt-2 text-sm text-gray-600">Add more lifestyle details or check again later when more students join.</p><Link to="/roommates/profile" className="mt-4 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">Complete my profile →</Link></div>
-            : <div className={matches.data.length === 1 ? 'grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(270px,0.85fr)]' : 'grid gap-6 md:grid-cols-2'}>
-              {matches.data.map(match => <article key={match.id} className="relative mt-2 min-w-0 rounded-xl border border-gray-200 bg-white p-6 transition-colors hover:border-[#a7d8b3]">
+          : visibleMatches.length === 0 ? <div className="rounded-xl border border-gray-200 bg-[#f8f9fa] p-8 text-center"><h3 className="text-lg font-bold">No matches yet</h3><p className="mt-2 text-sm text-gray-600">Add more lifestyle details or check again later when more students join.</p><Link to="/roommates/profile" className="mt-4 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">Complete my profile →</Link></div>
+            : <div className={visibleMatches.length === 1 ? 'grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(270px,0.85fr)]' : 'grid gap-6 md:grid-cols-2'}>
+              {visibleMatches.map(match => <article key={match.id} className="relative mt-2 min-w-0 rounded-xl border border-gray-200 bg-white p-6 transition-colors hover:border-[#a7d8b3]">
                 <MatchDetails match={match} />
                 <Link to={'/roommates/' + encodeURIComponent(match.id)} className="mb-5 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">View public profile</Link>
                 <CandidateActions match={match} />
               </article>)}
-              {matches.data.length === 1 && <aside aria-label="Matching guide" className="self-start rounded-xl border border-[#d7eddd] bg-[#f6fbf7] p-5 sm:p-6">
+              {visibleMatches.length === 1 && <aside aria-label="Matching guide" className="self-start rounded-xl border border-[#d7eddd] bg-[#f6fbf7] p-5 sm:p-6">
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">After you match</p>
                 <h3 className="mt-2 text-lg font-bold text-[#1f2937]">Get to know your potential roommate</h3>
                 <ol className="mt-5 space-y-5">
@@ -249,7 +252,8 @@ function MatchesContent() {
                 <Link to="/student/messages" className="mt-4 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">View messages &amp; requests →</Link>
               </aside>}
             </div>}
-      {matches.isSuccess && matches.data.length > 1 && <p className="mt-6 text-xs text-gray-500">Match scores are a guide, not a guarantee of a good living arrangement. Contact details should only be shared with mutual consent.</p>}
+      {matches.hasNextPage && <div className="mt-6 text-center"><button type="button" className={secondaryButtonClass} disabled={matches.isFetchingNextPage} onClick={() => void matches.fetchNextPage()}>{matches.isFetchingNextPage ? 'Loading…' : 'Show more roommates'}</button></div>}
+      {matches.isSuccess && visibleMatches.length > 1 && <p className="mt-6 text-xs text-gray-500">Match scores are a guide, not a guarantee of a good living arrangement. Contact details should only be shared with mutual consent.</p>}
     </section>}
   </RoommateShell>
 }

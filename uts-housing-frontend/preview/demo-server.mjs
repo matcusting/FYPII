@@ -61,6 +61,9 @@ const roommateProfiles = new Map([
 const favorites = new Map([['student-demo', new Set(['demo-listing-1'])]])
 const inquiries = [{ id: 'demo-inquiry-1', listingId: 'demo-listing-1', senderId: 'student-demo', recipientId: 'landlord-demo', sender: { id: 'student-demo', name: 'Demo Student' }, recipient: { id: 'landlord-demo', name: 'Demo Landlord' }, listing: { id: 'demo-listing-1', title: 'Room Near UTS (Demo)' }, message: 'Hello, when can I view this demo property?', status: 'OPEN', createdAt: seedDate }]
 const roommateRequests = [{ id: 'demo-request-1', senderId: 'student-candidate', recipientId: 'student-demo', sender: { id: 'student-candidate', name: 'Demo Roommate' }, recipient: { id: 'student-demo', name: 'Demo Student' }, status: 'PENDING', createdAt: seedDate }]
+const inquiryMessages = new Map([['demo-inquiry-1', [{ id: 'demo-inquiry-message-1', senderId: 'student-demo', body: inquiries[0].message, createdAt: seedDate }]]])
+const roommateMessages = new Map()
+const notifications = []
 const reviews = [{ id: 'demo-review-1', listingId: 'demo-listing-1', listing: { id: 'demo-listing-1', title: 'Room Near UTS (Demo)' }, authorId: 'student-candidate', author: { name: 'Demo Roommate' }, rating: 4, body: 'Demo review: A convenient location and a student-friendly room. This is not based on a real stay.', status: 'APPROVED', moderationStatus: 'APPROVED', createdAt: seedDate }]
 const reports = [{ id: 'demo-report-1', targetType: 'LISTING', targetId: 'demo-listing-2', category: 'INACCURATE', reason: 'Demo report: Please check that the photos match the description.', reporter: { name: 'Demo Student' }, status: 'OPEN', createdAt: seedDate }]
 const verifications = [{ id: 'demo-verification-1', userId: 'student-candidate', student: { name: 'Demo Roommate', email: 'candidate@demo.local' }, university: 'University of Technology Sarawak', verificationMethod: 'EMAIL_DOMAIN', status: 'PENDING', createdAt: seedDate }]
@@ -110,8 +113,43 @@ function paginate(items, url, fallbackLimit = 20) {
   const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get('limit') || String(fallbackLimit), 10) || fallbackLimit))
   return { items: items.slice((page - 1) * limit, page * limit), total: items.length, page, pages: Math.max(1, Math.ceil(items.length / limit)) }
 }
+function messagePage(messages, url) {
+  const latestFirst = [...messages].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const page = paginate(latestFirst, url)
+  page.items.reverse()
+  return page
+}
+function notify(userId, type, payload = {}) {
+  notifications.unshift({ id: id('notification'), userId, type, payload, readAt: null, createdAt: now() })
+}
 function ownerOf(item) { return users.find(user => user.id === item.ownerId) }
-function decorateListing(item) { return { ...item, campusName: campuses.find(c => c.id === item.campusId)?.name || item.campusName, owner: item.owner || (ownerOf(item) ? { id: item.ownerId, name: ownerOf(item).name } : undefined) } }
+function maySeeExactLocation(item, viewer) {
+  return viewer?.id === item.ownerId || viewer?.roles.includes('ADMIN') || (item.showExactLocation === true && viewer?.roles.includes('STUDENT'))
+}
+function distanceToCampus(item, campusId = item.campusId, viewer) {
+  const campus = campuses.find(entry => entry.id === campusId)
+  if (!campus) return undefined
+  if (Number.isFinite(item.latitude) && Number.isFinite(item.longitude)) {
+    const latitude = maySeeExactLocation(item, viewer) ? item.latitude : Math.round(item.latitude / 0.02) * 0.02
+    const longitude = maySeeExactLocation(item, viewer) ? item.longitude : Math.round(item.longitude / 0.02) * 0.02
+    const radians = degrees => degrees * Math.PI / 180
+    const latitudeDelta = radians(campus.latitude - latitude)
+    const longitudeDelta = radians(campus.longitude - longitude)
+    const arc = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(latitude)) * Math.cos(radians(campus.latitude)) * Math.sin(longitudeDelta / 2) ** 2
+    return 6371 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc))
+  }
+  return item.campusId === campusId && Number.isFinite(item.distanceKm) ? item.distanceKm : undefined
+}
+function decorateListing(item, viewer, campusId = item.campusId) {
+  const result = { ...item, campusName: campuses.find(c => c.id === item.campusId)?.name || item.campusName, owner: item.owner || (ownerOf(item) ? { id: item.ownerId, name: ownerOf(item).name } : undefined), distanceKm: distanceToCampus(item, campusId, viewer) }
+  if (!maySeeExactLocation(item, viewer)) {
+    delete result.latitude
+    delete result.longitude
+    delete result.address
+    result.showExactLocation = false
+  }
+  return result
+}
 function matchesFor(user) {
   const blocked = user?.blockedUsers || []
   return [...roommateProfiles.entries()].filter(([personId, profile]) => personId !== user.id && profile.discoverable && users.find(item => item.id === personId)?.studentVerified && !blocked.includes(personId)).map(([personId, profile]) => ({
@@ -160,15 +198,16 @@ async function api(req, res, url) {
     if (search('furnished')) items = items.filter(item => String(item.furnished) === search('furnished'))
     if (search('minRent')) items = items.filter(item => Number(item.rent) >= Number(search('minRent')))
     if (search('maxRent')) items = items.filter(item => Number(item.rent) <= Number(search('maxRent')))
+    if (search('minDeposit')) items = items.filter(item => Number(item.deposit) >= Number(search('minDeposit')))
     if (search('maxDeposit')) items = items.filter(item => Number(item.deposit) <= Number(search('maxDeposit')))
-    if (search('maxDistanceKm')) items = items.filter(item => Number(item.distanceKm || 0) <= Number(search('maxDistanceKm')))
+    if (search('maxDistanceKm')) items = items.filter(item => { const distance = distanceToCampus(item, search('campusId') || item.campusId, user); return distance !== undefined && distance <= Number(search('maxDistanceKm')) })
     if (search('availableBy')) items = items.filter(item => item.availableFrom <= search('availableBy'))
     if (search('amenities')) items = items.filter(item => search('amenities').split(',').every(term => item.amenities?.some(amenity => amenity.toLowerCase().includes(term.trim()))))
     if (search('sort') === 'rent_asc') items.sort((a, b) => Number(a.rent) - Number(b.rent))
     if (search('sort') === 'rent_desc') items.sort((a, b) => Number(b.rent) - Number(a.rent))
-    if (search('sort') === 'distance') items.sort((a, b) => Number(a.distanceKm || 0) - Number(b.distanceKm || 0))
+    if (search('sort') === 'distance') items.sort((a, b) => (distanceToCampus(a, search('campusId') || a.campusId, user) ?? Infinity) - (distanceToCampus(b, search('campusId') || b.campusId, user) ?? Infinity))
     if (search('sort') === 'newest' || !search('sort')) items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    return json(res, 200, paginate(items.map(decorateListing), url, 12))
+    return json(res, 200, paginate(items.map(item => decorateListing(item, user, search('campusId') || item.campusId)), url, 12))
   }
   if (path === '/listings' && method === 'POST') {
     if (!required(res, user)) return
@@ -178,6 +217,30 @@ async function api(req, res, url) {
     listings.unshift(item)
     return json(res, 201, item)
   }
+  const ownerReplyMatch = path.match(/^\/listings\/([^/]+)\/reviews\/([^/]+)\/response$/)
+  if (ownerReplyMatch && method === 'POST') {
+    if (!required(res, user)) return
+    const review = reviews.find(entry => entry.id === ownerReplyMatch[2] && entry.listingId === ownerReplyMatch[1])
+    const ownedListing = listings.find(entry => entry.id === ownerReplyMatch[1] && entry.ownerId === user.id)
+    if (!review || !ownedListing) return fail(res, 404, 'This review could not be found on your listing.')
+    if (review.ownerResponse) return fail(res, 409, 'You have already replied to this review.')
+    review.ownerResponse = String(body.body || '').trim()
+    return json(res, 200, review)
+  }
+  const reviewEditMatch = path.match(/^\/listings\/([^/]+)\/reviews\/([^/]+)$/)
+  if (reviewEditMatch && method === 'PATCH') {
+    if (!required(res, user, 'STUDENT')) return
+    const review = reviews.find(entry => entry.id === reviewEditMatch[2] && entry.listingId === reviewEditMatch[1] && entry.authorId === user.id)
+    if (!review) return fail(res, 404, 'This demo review could not be found.')
+    const proof = uploads.get(body.experienceProofKey)
+    if (proof?.purpose !== 'REVIEW_EVIDENCE' || proof.ownerId !== user.id || !proof.uploaded) return fail(res, 400, 'Upload a new private rental proof before editing your review.')
+    const text = String(body.body || '').trim()
+    const experience = String(body.experienceDescription || '').trim()
+    if (text.length < 20 || text.length > 2000 || experience.length < 10 || experience.length > 500 || !Number.isInteger(body.rating) || body.rating < 1 || body.rating > 5) return fail(res, 400, 'Check the review and rental experience details.')
+    Object.assign(review, { rating: body.rating, body: text, experienceDescription: experience, status: 'PENDING', moderationStatus: 'PENDING', ownerResponse: null, revision: (review.revision || 1) + 1, updatedAt: now() })
+    uploads.delete(body.experienceProofKey)
+    return json(res, 200, review)
+  }
   const listingMatch = path.match(/^\/listings\/([^/]+)(?:\/(reviews|inquiries|submit|availability))?$/)
   if (listingMatch) {
     const [, listingId, action] = listingMatch
@@ -185,20 +248,28 @@ async function api(req, res, url) {
     if (!item) return fail(res, 404, 'This demo listing could not be found.', 'NOT_FOUND')
     if (!action && method === 'GET') {
       if (item.status !== 'PUBLISHED' && !(user && (user.id === item.ownerId || user.roles.includes('ADMIN')))) return fail(res, 404, 'This public listing could not be found.', 'NOT_FOUND')
-      return json(res, 200, decorateListing(item))
+      return json(res, 200, decorateListing(item, user))
     }
     if (action === 'reviews' && method === 'GET') return json(res, 200, paginate(reviews.filter(review => review.listingId === item.id && review.status === 'APPROVED'), url))
     if (action === 'reviews' && method === 'POST') {
       if (!required(res, user, 'STUDENT')) return
       if (!user.studentVerified) return fail(res, 403, 'Student verification is required.')
-      const record = { id: id('review'), listingId: item.id, listing: { id: item.id, title: item.title }, authorId: user.id, author: { name: user.name }, rating: Number(body.rating), body: String(body.body || ''), status: 'PENDING', moderationStatus: 'PENDING', createdAt: now() }
+      const proof = uploads.get(body.experienceProofKey)
+      if (proof?.purpose !== 'REVIEW_EVIDENCE' || proof.ownerId !== user.id || !proof.uploaded) return fail(res, 400, 'Upload a private rental-experience proof before submitting your review.')
+      const experienceDescription = String(body.experienceDescription || '').trim()
+      if (experienceDescription.length < 10 || experienceDescription.length > 500) return fail(res, 400, 'Describe your rental experience in 10 to 500 characters.')
+      const record = { id: id('review'), listingId: item.id, listing: { id: item.id, title: item.title }, authorId: user.id, author: { name: user.name }, rating: Number(body.rating), body: String(body.body || ''), experienceDescription, status: 'PENDING', moderationStatus: 'PENDING', createdAt: now() }
       reviews.unshift(record)
+      uploads.delete(body.experienceProofKey)
+      notify(item.ownerId, 'REVIEW_SUBMITTED', { listingId: item.id, reviewId: record.id })
       return json(res, 201, record)
     }
     if (action === 'inquiries' && method === 'POST') {
       if (!required(res, user, 'STUDENT')) return
       const record = { id: id('inquiry'), listingId: item.id, listing: { id: item.id, title: item.title }, senderId: user.id, recipientId: item.ownerId, sender: { id: user.id, name: user.name }, recipient: { id: item.ownerId, name: ownerOf(item)?.name || 'Demo Landlord' }, message: String(body.message || ''), status: 'OPEN', createdAt: now() }
       inquiries.unshift(record)
+      inquiryMessages.set(record.id, [{ id: id('inquiry-message'), senderId: user.id, body: record.message, createdAt: now() }])
+      notify(item.ownerId, 'INQUIRY_RECEIVED', { inquiryId: record.id, listingId: item.id })
       return json(res, 201, record)
     }
     if (!required(res, user)) return
@@ -221,23 +292,27 @@ async function api(req, res, url) {
 
   if (path === '/uploads/sign' && method === 'POST') {
     if (!required(res, user)) return
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(body.contentType) || Number(body.size) > 5_000_000) return fail(res, 400, 'Only demo JPEG, PNG, or WebP images up to 5 MB are accepted.')
-    const key = id('photo')
-    uploads.set(key, { type: body.contentType, buffer: null })
+    const purpose = body.purpose === 'REVIEW_EVIDENCE' ? 'REVIEW_EVIDENCE' : 'LISTING_PHOTO'
+    const allowedTypes = purpose === 'REVIEW_EVIDENCE' ? ['application/pdf', 'image/jpeg', 'image/png'] : ['image/jpeg', 'image/png', 'image/webp']
+    if (!allowedTypes.includes(body.contentType) || !Number.isInteger(body.size) || body.size < 1 || body.size > 5_000_000) return fail(res, 400, 'Choose an allowed file type up to 5 MB.')
+    const key = id(purpose === 'REVIEW_EVIDENCE' ? 'evidence' : 'photo')
+    uploads.set(key, { type: body.contentType, buffer: null, purpose, ownerId: user.id, uploaded: false })
     return json(res, 200, { uploadUrl: `/api/v1/demo-uploads/${key}`, objectKey: key, headers: {} })
   }
   if (path.startsWith('/demo-uploads/') && method === 'PUT') {
     if (!required(res, user)) return
     const key = path.split('/')[2]
     const upload = uploads.get(key)
-    if (!upload || upload.type !== req.headers['content-type']) return fail(res, 400, 'The demo upload URL or file type is invalid.')
+    if (!upload || upload.ownerId !== user.id || upload.type !== req.headers['content-type']) return fail(res, 400, 'The demo upload URL or file type is invalid.')
     const input = await bodyOf(req, 5_000_000)
-    if (!input.buffer) return fail(res, 400, 'No image content was received.')
-    upload.buffer = input.buffer
+    if (!input.buffer) return fail(res, 400, 'No file content was received.')
+    // Evidence is validated in this UI preview but never retained or served back.
+    if (upload.purpose !== 'REVIEW_EVIDENCE') upload.buffer = input.buffer
+    upload.uploaded = true
     return json(res, 200, { uploaded: true })
   }
 
-  if (path === '/favorites' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, { items: listings.filter(item => favorites.get(user.id)?.has(item.id) && item.status === 'PUBLISHED').map(decorateListing) }) }
+  if (path === '/favorites' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, { items: listings.filter(item => favorites.get(user.id)?.has(item.id) && item.status === 'PUBLISHED').map(item => decorateListing(item, user)) }) }
   if (path === '/favorites' && ['POST', 'DELETE'].includes(method)) {
     if (!required(res, user)) return
     if (!favorites.has(user.id)) favorites.set(user.id, new Set())
@@ -245,7 +320,24 @@ async function api(req, res, url) {
     else favorites.get(user.id).delete(String(body.listingId))
     return json(res, 200, { saved: method === 'POST' })
   }
-  if (path === '/inquiries' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, { items: inquiries.filter(item => item.senderId === user.id || item.recipientId === user.id) }) }
+  if (path === '/inquiries' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, paginate(inquiries.filter(item => item.senderId === user.id || item.recipientId === user.id), url)) }
+  const inquiryMessageMatch = path.match(/^\/inquiries\/([^/]+)\/messages$/)
+  if (inquiryMessageMatch) {
+    if (!required(res, user)) return
+    const inquiry = inquiries.find(item => item.id === inquiryMessageMatch[1] && (item.senderId === user.id || item.recipientId === user.id))
+    if (!inquiry) return fail(res, 404, 'This demo inquiry could not be found.')
+    const messages = inquiryMessages.get(inquiry.id) || []
+    if (method === 'GET') return json(res, 200, messagePage(messages, url))
+    if (method === 'POST') {
+      const text = String(body.body || '').trim()
+      if (!text || text.length > 2000) return fail(res, 400, 'Enter a reply up to 2,000 characters.')
+      const message = { id: id('inquiry-message'), senderId: user.id, body: text, createdAt: now() }
+      messages.push(message)
+      inquiryMessages.set(inquiry.id, messages)
+      notify(user.id === inquiry.senderId ? inquiry.recipientId : inquiry.senderId, 'INQUIRY_REPLY', { inquiryId: inquiry.id, messageId: message.id })
+      return json(res, 201, message)
+    }
+  }
   if (path === '/reviews/mine' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, { items: reviews.filter(item => item.authorId === user.id) }) }
   if (path === '/reports' && method === 'POST') { if (!required(res, user)) return; const record = { id: id('report'), ...body, reporter: { id: user.id, name: user.name }, status: 'OPEN', createdAt: now() }; reports.unshift(record); return json(res, 201, record) }
   if (path === '/profile' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, profiles.get(user.id)) }
@@ -266,23 +358,43 @@ async function api(req, res, url) {
   if (path === '/roommates/profile' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, roommateProfiles.get(user.id) || {}) }
   if (path === '/roommates/profile' && method === 'PATCH') { if (!required(res, user, 'STUDENT')) return; const profile = { ...roommateProfiles.get(user.id), ...body }; roommateProfiles.set(user.id, profile); return json(res, 200, profile) }
   if (path === '/roommates/profile' && method === 'DELETE') { if (!required(res, user, 'STUDENT')) return; roommateProfiles.delete(user.id); return json(res, 200, { deleted: true }) }
-  if (path === '/roommates/matches' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; if (!user.studentVerified) return fail(res, 403, 'Student verification is required.'); return json(res, 200, { items: matchesFor(user) }) }
-  if (path === '/roommates/requests' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, { items: roommateRequests.filter(item => item.senderId === user.id || item.recipientId === user.id) }) }
+  if (path === '/roommates/matches' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; if (!user.studentVerified) return fail(res, 403, 'Student verification is required.'); return json(res, 200, paginate(matchesFor(user), url)) }
+  if (path === '/roommates/requests' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, paginate(roommateRequests.filter(item => item.senderId === user.id || item.recipientId === user.id), url)) }
   if (path === '/roommates/requests' && method === 'POST') {
     if (!required(res, user, 'STUDENT')) return
     const recipient = users.find(item => item.id === body.recipientId)
     if (!recipient) return fail(res, 404, 'This demo roommate could not be found.')
     const record = { id: id('request'), senderId: user.id, recipientId: recipient.id, sender: { id: user.id, name: user.name }, recipient: { id: recipient.id, name: recipient.name }, status: 'PENDING', createdAt: now() }
-    roommateRequests.unshift(record); return json(res, 201, record)
+    roommateRequests.unshift(record); notify(recipient.id, 'ROOMMATE_CONNECTION_REQUEST', { requestId: record.id }); return json(res, 201, record)
+  }
+  const roommateMessageMatch = path.match(/^\/roommates\/requests\/([^/]+)\/messages$/)
+  if (roommateMessageMatch) {
+    if (!required(res, user, 'STUDENT')) return
+    const request = roommateRequests.find(item => item.id === roommateMessageMatch[1] && item.status === 'ACCEPTED' && (item.senderId === user.id || item.recipientId === user.id))
+    if (!request) return fail(res, 404, 'An accepted demo roommate connection is required.')
+    const messages = roommateMessages.get(request.id) || []
+    if (method === 'GET') return json(res, 200, messagePage(messages, url))
+    if (method === 'POST') {
+      const text = String(body.body || '').trim()
+      if (!text || text.length > 2000) return fail(res, 400, 'Enter a message up to 2,000 characters.')
+      const message = { id: id('roommate-message'), senderId: user.id, body: text, createdAt: now() }
+      messages.push(message)
+      roommateMessages.set(request.id, messages)
+      notify(user.id === request.senderId ? request.recipientId : request.senderId, 'ROOMMATE_MESSAGE', { requestId: request.id, messageId: message.id })
+      return json(res, 201, message)
+    }
   }
   const requestMatch = path.match(/^\/roommates\/requests\/([^/]+)$/)
   if (requestMatch && method === 'PATCH') {
     if (!required(res, user, 'STUDENT')) return
     const record = roommateRequests.find(item => item.id === requestMatch[1] && item.recipientId === user.id)
     if (!record) return fail(res, 404, 'The incoming request could not be found.')
-    record.status = body.status; return json(res, 200, record)
+    record.status = body.status; notify(record.senderId, 'ROOMMATE_CONNECTION_RESPONSE', { requestId: record.id, status: record.status }); return json(res, 200, record)
   }
+  if (path === '/roommates/blocks' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, paginate((user.blockedUsers || []).map(personId => ({ userId: personId, displayName: roommateProfiles.get(personId)?.displayName || 'Student', blockedAt: now() })), url)) }
   if (path === '/roommates/blocks' && method === 'POST') { if (!required(res, user, 'STUDENT')) return; user.blockedUsers = [...new Set([...(user.blockedUsers || []), String(body.blockedUserId)])]; return json(res, 201, { blocked: true }) }
+  const unblockMatch = path.match(/^\/roommates\/blocks\/([^/]+)$/)
+  if (unblockMatch && method === 'DELETE') { if (!required(res, user, 'STUDENT')) return; user.blockedUsers = (user.blockedUsers || []).filter(personId => personId !== unblockMatch[1]); return json(res, 200, { unblocked: true }) }
   const roommateMatch = path.match(/^\/roommates\/([^/]+)$/)
   if (roommateMatch && method === 'GET') {
     if (!required(res, user, 'STUDENT')) return
@@ -292,6 +404,10 @@ async function api(req, res, url) {
 
   if (path === '/notifications/preferences' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, preferences.get(user.id) || { emailInquiryUpdates: true, emailConnectionRequests: true, emailProductUpdates: false }) }
   if (path === '/notifications/preferences' && method === 'PATCH') { if (!required(res, user)) return; const next = { emailInquiryUpdates: true, emailConnectionRequests: true, emailProductUpdates: false, ...preferences.get(user.id), ...body }; preferences.set(user.id, next); return json(res, 200, next) }
+  if (path === '/notifications' && method === 'GET') { if (!required(res, user)) return; const own = notifications.filter(item => item.userId === user.id); return json(res, 200, { ...paginate(own, url), unreadCount: own.filter(item => !item.readAt).length }) }
+  if (path === '/notifications/read-all' && method === 'PATCH') { if (!required(res, user)) return; let updated = 0; for (const item of notifications) if (item.userId === user.id && !item.readAt) { item.readAt = now(); updated++ } return json(res, 200, { updated }) }
+  const notificationMatch = path.match(/^\/notifications\/([^/]+)\/read$/)
+  if (notificationMatch && method === 'PATCH') { if (!required(res, user)) return; const item = notifications.find(entry => entry.id === notificationMatch[1] && entry.userId === user.id); if (!item) return fail(res, 404, 'This demo notification could not be found.'); item.readAt ||= now(); return json(res, 200, item) }
   if (path === '/auth/sessions' && method === 'GET') { if (!required(res, user)) return; const current = currentSession(req); return json(res, 200, { items: [...sessions.values()].filter(item => item.userId === user.id).map(item => ({ id: item.id, device: 'Local Chrome demo session', createdAt: item.createdAt, lastActiveAt: now(), current: item.id === current?.id })) }) }
   const sessionMatch = path.match(/^\/auth\/sessions\/([^/]+)$/)
   if (sessionMatch && method === 'DELETE') { if (!required(res, user)) return; for (const [token, value] of sessions) if (value.id === sessionMatch[1] && value.userId === user.id) sessions.delete(token); return json(res, 200, { ended: true }) }
@@ -321,10 +437,10 @@ async function api(req, res, url) {
     if (moderationMatch) {
       const [, kind, itemId] = moderationMatch
       const collection = { verifications, listings, reviews, reports, accounts: users }[kind]
-      if (!itemId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status')).map(item => kind === 'listings' ? decorateListing(item) : item), url))
+      if (!itemId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status')).map(item => kind === 'listings' ? decorateListing(item, user) : item), url))
       const item = collection.find(entry => entry.id === itemId)
       if (!item) return fail(res, 404, 'The demo moderation record could not be found.')
-      if (itemId && method === 'GET') return json(res, 200, kind === 'listings' ? decorateListing(item) : item)
+      if (itemId && method === 'GET') return json(res, 200, kind === 'listings' ? decorateListing(item, user) : item)
       if (itemId && method === 'PATCH') {
         item.status = body.status; item.moderationReason = String(body.reason || ''); item.moderatedAt = now(); item.moderatedBy = { name: user.name }
         if (kind === 'verifications') {

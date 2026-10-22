@@ -132,6 +132,8 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Rating', value: firstText(row, 'rating') },
       { label: 'Listing', value: nestedText(row, 'listing', 'title') || firstText(row, 'listingId') },
       { label: 'Reviewer', value: nestedText(row, 'author', 'name', 'email') || nestedText(row, 'user', 'name', 'email') },
+      { label: 'Rental experience', value: firstText(row, 'experienceDescription') },
+      { label: 'Evidence status', value: firstText(row, 'experienceProofStatus', 'proofStatus') },
     )
   } else {
     details.push(
@@ -144,7 +146,7 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
 
   const photoSources = kind === 'listings' && Array.isArray(row.photos) ? row.photos : []
   const photos = photoSources.map(item => safeDocumentUrl(typeof item === 'string' ? item : asRecord(item)?.url)).filter((url): url is string => Boolean(url))
-  const proofUrl = kind === 'verifications' ? safeDocumentUrl(row.documentUrl ?? row.proofUrl ?? asRecord(row.document)?.url) : null
+  const proofUrl = kind === 'verifications' || kind === 'reviews' ? safeDocumentUrl(row.proofUrl ?? row.documentUrl ?? asRecord(row.document)?.url) : null
   const evidenceUrl = kind === 'reports' ? safeDocumentUrl(row.evidenceUrl) : null
 
   return (
@@ -154,7 +156,7 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
         {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{item.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
       </dl>
       {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">Listing photos</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={`Listing photo ${index + 1}`} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
-      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">View verification document (review only)</a></p>}
+      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{kind === 'reviews' ? 'View rental evidence (review only)' : 'View verification document (review only)'}</a></p>}
       {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">View report evidence</a></p>}
     </div>
   )

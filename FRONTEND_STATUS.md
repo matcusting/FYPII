@@ -1,6 +1,6 @@
 # 前端缺口与实现状态
 
-评估依据：用户提供的 `PROJECT_REQUIREMENTS.md`，尤其是 FR-01～FR-09、6.1 路由清单、6.3 用户体验要求和第 10 节 API 契约。该文件是项目规划，不是已完成证明。本记录仅评估 `uts-housing-frontend`，不将后端工作算作前端成果。
+评估依据：用户上传的 `PROJECT_REQUIREMENTS.md`，尤其是 FR-01～FR-09、6.1 路由清单、6.3 用户体验要求和第 10 节 API 契约。该文件是项目规划，不是已完成证明。前端历史缺口与页面成果仅评估 `uts-housing-frontend`；下方另记录目前的 API 联调状态。
 
 ## 本次修改前尚未完成的前端
 
@@ -28,13 +28,18 @@
 
 网站界面现已改为英文，包括公开页面、学生与房东页面、管理员后台、表单提示、错误消息及 Windows 预览包中的演示数据。页面布局和原版视觉设计保持不变。
 
-## 仍需完成，才能称为完整系统
+## 当前端到端状态
 
-1. **后端和数据库：** 仓库目前没有第 10 节所述 API、数据库迁移或服务端会话。因此注册、登录、发布、匹配、评价、审核等前端操作尚不能端到端完成。前端会显示真实连接错误，不会伪报成功。
-2. **补全接口契约：** 需求文档未定义部分页面所需的读取及管理接口。前端暂按如下路径调用，后端实施时需统一字段、状态码、分页与权限：`GET /campuses`、`GET /amenities`、`GET /listings?mine=true`、`GET /roommates/:id`、`DELETE /roommates/profile`、`POST /roommates/blocks`、`GET /roommates/requests`、`GET /reviews/mine`、`GET /admin/{verifications,listings,reviews,reports,accounts}`、`PATCH /admin/accounts/:id`、`GET/DELETE /auth/sessions[/:id]`、`POST /account/deletion-requests`、`GET/PATCH /notifications/preferences`。账户页面的字段约定见 `uts-housing-frontend/src/features/account/API_CONTRACT.md`。
-3. **确认已有接口的细节：** `/listings` 筛选字段与分页响应、`/favorites` 的删除请求、`/uploads/sign` 返回与照片关联、学生认证证明文件的安全上传、审核状态与审计记录、`/auth/me` 的 `roles` 和 `studentVerified` 字段都需要与后端一致。服务端必须验证上传文件、用户角色、房源所有权和 CSRF，不能依赖前端判断。
-4. **内容和验收：** 学校/校区及邮箱域名、正式隐私与使用条款、响应式实机检查、WCAG 2.2 AA 人工审核、浏览器端到端测试和真实后端联调仍需完成。没有这些证据，不声称项目已上线或业务已完整交付。
+仓库现含 `uts-housing-api` Express/PostgreSQL 服务、SQL 迁移与会话认证。前端已接入真实 API，覆盖注册与验证、房源和照片、室友匹配、双向消息、评价及证明、举报、通知、管理员审核。后端执行角色、所有权与 CSRF 检查；具体本地启动步骤见根目录 `README.md`。旧的 `preview` 服务器仍是内存演示，不等同于真实 API。
+
+房屋位置可由房东填写并单独选择是否公开精确位置。公开后，仅登录的学生、房东本人和管理员可看到精确坐标；访客看到概略区域。Google Maps 内嵌地图的代码和环境变量已就位，仍需项目负责人配置带 HTTP referrer 限制的浏览器 API key 才能启用。未配置 key 时，可手填坐标，符合权限的用户可在 Google Maps 新标签页查看。
+
+## 尚需项目环境与正式验收
+
+1. **真实资料和服务：** 正式校区、校方邮箱域名、隐私政策及使用条款须由项目负责人确认；对外邮件投递需要 SMTP 服务。无 SMTP 时，本地邮件 worker 只写入开发 outbox。
+2. **上线运维：** 网站尚未部署；正式环境仍需 Google Maps key/计费、域名与 HTTPS、备份、监控和密钥管理。
+3. **人工验收：** 仍需在目标手机和浏览器检查响应式布局、完成 WCAG 2.2 AA 人工审核，并在正式环境做端到端验收。现有自动化检查和本地联调不能代替这些验收。
 
 ## 本地验证
 
-在 `uts-housing-frontend` 运行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`。这些命令验证前端代码与隔离的测试用例；不能代替后端联调或部署验收。
+在 `uts-housing-frontend` 运行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`；在 `uts-housing-api` 运行 `npm ci`、`npm run db:generate`、`npm run db:deploy`、`npm run typecheck`、`npm test`、`npm run build`。API 集成测试可用 `TEST_DATABASE_URL` 指向一次性 PostgreSQL 数据库。部署和真实 Google Maps key 仍需另行验证。
