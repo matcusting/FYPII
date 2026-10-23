@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, itemsOf, messageOf } from '../../lib/api'
+import { useI18n } from '../../lib/i18n'
 import { EmptyNotice, ErrorNotice, LoadingNotice } from './shared'
 import { formatDate, labelForStatus } from './format'
 
@@ -23,6 +24,7 @@ interface Review {
 interface ReviewPage { items: Review[]; pages?: number }
 
 export function ReviewsMinePage() {
+  const { t } = useI18n()
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<string | null>(null)
@@ -79,34 +81,34 @@ export function ReviewsMinePage() {
 
   return <div className="min-h-screen bg-[#f8f9fa] px-4 pb-20 pt-8 text-[#1f2937] sm:px-6">
     <div className="mx-auto max-w-[1000px]">
-      <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-gray-200 pb-4"><div><h1 className="text-[1.4rem] font-bold">My Reviews</h1><p className="mt-1 text-sm text-gray-500">Review your submitted ratings and moderation status.</p></div><Link to="/listings" className="text-sm font-bold text-[#203569] hover:underline">Browse Housing →</Link></div>
-      {notice && <p role="status" className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{notice}</p>}
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-gray-200 pb-4"><div><h1 className="text-[1.4rem] font-bold">{t('My Reviews')}</h1><p className="mt-1 text-sm text-gray-500">{t('Review your submitted ratings and moderation status.')}</p></div><Link to="/listings" className="text-sm font-bold text-[#203569] hover:underline">{t('Browse Housing →')}</Link></div>
+      {notice && <p role="status" className="mb-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{t(notice)}</p>}
       {reviews.isPending ? <LoadingNotice /> : reviews.isError ? <ErrorNotice error={reviews.error} onRetry={() => void reviews.refetch()} /> : ownReviews.length ? <ul className="space-y-5">
         {ownReviews.map(review => {
           const listingId = review.listingId || review.listing?.id
           const score = Number(review.rating)
           return <li key={review.id} className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-              <div className="flex items-center gap-4"><span aria-hidden="true" className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-lg font-bold text-blue-600">★</span><div><h2 className="text-[15px] font-bold">{listingId ? <Link className="hover:text-[#203569] hover:underline" to={`/listings/${encodeURIComponent(listingId)}`}>{review.listing?.title || 'View Property'}</Link> : review.listing?.title || 'Property Review'}</h2><p className="mt-0.5 text-xs font-medium text-gray-500">Submitted {formatDate(review.createdAt)} · {labelForStatus(review.moderationStatus || review.status)}</p></div></div>
-              <p className="text-lg tracking-widest text-[#eab308]" aria-label={`Rating ${Number.isFinite(score) ? score : 'unknown'} out of 5`}>{Number.isFinite(score) && score >= 1 && score <= 5 ? <>{'★'.repeat(Math.round(score))}<span className="text-gray-300">{'★'.repeat(5 - Math.round(score))}</span></> : '—'}</p>
+              <div className="flex items-center gap-4"><span aria-hidden="true" className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-lg font-bold text-blue-600">★</span><div><h2 className="text-[15px] font-bold">{listingId ? <Link className="hover:text-[#203569] hover:underline" to={`/listings/${encodeURIComponent(listingId)}`}>{review.listing?.title || t('View Property')}</Link> : review.listing?.title || t('Property Review')}</h2><p className="mt-0.5 text-xs font-medium text-gray-500">{t('Submitted')} {formatDate(review.createdAt)} · {labelForStatus(review.moderationStatus || review.status)}</p></div></div>
+              <p className="text-lg tracking-widest text-[#eab308]" aria-label={t('Rating {score} out of 5', { score: Number.isFinite(score) ? score : t('unknown') })}>{Number.isFinite(score) && score >= 1 && score <= 5 ? <>{'★'.repeat(Math.round(score))}<span className="text-gray-300">{'★'.repeat(5 - Math.round(score))}</span></> : '—'}</p>
             </div>
             {review.body && <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-gray-600">{review.body}</p>}
-            {review.experienceProofStatus && <p className="mt-3 text-xs text-gray-500">Rental proof: {labelForStatus(review.experienceProofStatus)}{review.revision && review.revision > 1 ? ` · Revision ${review.revision}` : ''}</p>}
-            {review.ownerResponse && <div className="mt-4 rounded-r-lg border-l-4 border-[#203569] bg-[#f8f9fa] p-3.5 text-xs text-gray-600"><strong className="mb-1 block text-[#203569]">Landlord response:</strong>{review.ownerResponse}</div>}
-            {review.updatedAt && review.updatedAt !== review.createdAt && <p className="mt-3 text-xs text-gray-500">Updated {formatDate(review.updatedAt)}</p>}
+            {review.experienceProofStatus && <p className="mt-3 text-xs text-gray-500">{t('Rental proof:')} {labelForStatus(review.experienceProofStatus)}{review.revision && review.revision > 1 ? ` · ${t('Revision')} ${review.revision}` : ''}</p>}
+            {review.ownerResponse && <div className="mt-4 rounded-r-lg border-l-4 border-[#203569] bg-[#f8f9fa] p-3.5 text-xs text-gray-600"><strong className="mb-1 block text-[#203569]">{t('Landlord response:')}</strong>{review.ownerResponse}</div>}
+            {review.updatedAt && review.updatedAt !== review.createdAt && <p className="mt-3 text-xs text-gray-500">{t('Updated')} {formatDate(review.updatedAt)}</p>}
             {listingId && (editing === review.id ? <form onSubmit={event => submit(event, review)} className="mt-5 space-y-3 border-t border-gray-100 pt-5" noValidate>
-              <h3 className="text-sm font-bold text-[#203569]">Edit review</h3><p className="text-xs text-gray-600">Editing sends the review back for approval. Attach your rental proof again; it stays private.</p>
-              <label className="block text-sm font-medium">Rating<select value={rating} onChange={event => setRating(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5"><option value="">Select rating</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} / 5</option>)}</select></label>
-              <label className="block text-sm font-medium">Your review<textarea value={body} onChange={event => setBody(event.target.value)} rows={4} maxLength={2000} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5" /></label>
-              <label className="block text-sm font-medium">Rental experience<textarea value={experienceDescription} onChange={event => setExperienceDescription(event.target.value)} rows={3} maxLength={500} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5" /></label>
-              <label className="block text-sm font-medium">Private proof (PDF, JPG or PNG, up to 5 MB)<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => setProofFile(event.currentTarget.files?.[0] || null)} className="mt-1 block w-full text-sm" /></label>
-              {validation && <p role="alert" className="text-sm text-red-700">{validation}</p>}{update.isError && <p role="alert" className="text-sm text-red-700">{messageOf(update.error)}</p>}
-              <div className="flex flex-wrap gap-3"><button type="submit" disabled={update.isPending} className="rounded-lg bg-[#203569] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{update.isPending ? 'Saving…' : 'Submit updated review'}</button><button type="button" className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold" onClick={() => { setEditing(null); setValidation('') }}>Cancel</button></div>
-            </form> : <button type="button" className="mt-4 text-sm font-semibold text-[#203569] underline" onClick={() => beginEdit(review)}>Edit review</button>)}
+              <h3 className="text-sm font-bold text-[#203569]">{t('Edit review')}</h3><p className="text-xs text-gray-600">{t('Editing sends the review back for approval. Attach your rental proof again; it stays private.')}</p>
+              <label className="block text-sm font-medium">{t('Rating')}<select value={rating} onChange={event => setRating(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5"><option value="">{t('Select rating')}</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} / 5</option>)}</select></label>
+              <label className="block text-sm font-medium">{t('Your review')}<textarea value={body} onChange={event => setBody(event.target.value)} rows={4} maxLength={2000} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5" /></label>
+              <label className="block text-sm font-medium">{t('Rental experience')}<textarea value={experienceDescription} onChange={event => setExperienceDescription(event.target.value)} rows={3} maxLength={500} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5" /></label>
+              <label className="block text-sm font-medium">{t('Private proof (PDF, JPG or PNG, up to 5 MB)')}<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => setProofFile(event.currentTarget.files?.[0] || null)} className="mt-1 block w-full text-sm" /></label>
+              {validation && <p role="alert" className="text-sm text-red-700">{t(validation)}</p>}{update.isError && <p role="alert" className="text-sm text-red-700">{t(messageOf(update.error))}</p>}
+              <div className="flex flex-wrap gap-3"><button type="submit" disabled={update.isPending} className="rounded-lg bg-[#203569] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{update.isPending ? t('Saving…') : t('Submit updated review')}</button><button type="button" className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold" onClick={() => { setEditing(null); setValidation('') }}>{t('Cancel')}</button></div>
+            </form> : <button type="button" className="mt-4 text-sm font-semibold text-[#203569] underline" onClick={() => beginEdit(review)}>{t('Edit review')}</button>)}
           </li>
         })}
-      </ul> : <EmptyNotice>You have not submitted any reviews yet. Verified students with an eligible rental experience can review a property.</EmptyNotice>}
-      {pages > 1 && <nav aria-label="My reviews pages" className="mt-5 flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => { setPage(value => value - 1); setEditing(null) }} className="font-semibold text-[#203569] disabled:text-gray-400">Previous</button><span>Page {page} of {pages}</span><button type="button" disabled={page >= pages} onClick={() => { setPage(value => value + 1); setEditing(null) }} className="font-semibold text-[#203569] disabled:text-gray-400">Next</button></nav>}
+      </ul> : <EmptyNotice>{t('You have not submitted any reviews yet. Verified students with an eligible rental experience can review a property.')}</EmptyNotice>}
+      {pages > 1 && <nav aria-label={t('My reviews pages')} className="mt-5 flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => { setPage(value => value - 1); setEditing(null) }} className="font-semibold text-[#203569] disabled:text-gray-400">{t('Previous')}</button><span>{t('Page {page} of {pages}', { page, pages })}</span><button type="button" disabled={page >= pages} onClick={() => { setPage(value => value + 1); setEditing(null) }} className="font-semibold text-[#203569] disabled:text-gray-400">{t('Next')}</button></nav>}
     </div>
   </div>
 }

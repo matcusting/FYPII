@@ -1,5 +1,6 @@
 import type { Listing, PageData } from '../../lib/types'
 import { api, itemsOf } from '../../lib/api'
+import { currentLocale, translate } from '../../lib/i18n'
 
 export interface Campus { id: string; name: string; university?: string; latitude?: number | null; longitude?: number | null }
 export interface Amenity { id: string; name: string; slug?: string }
@@ -43,9 +44,10 @@ export function favoriteIds(value: unknown): Set<string> {
 }
 
 export function formatDate(value?: string): string {
-  if (!value) return 'Not provided'
+  if (!value) return translate('Not provided')
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-MY')
+  const locale = currentLocale() === 'zh-CN' ? 'zh-CN' : currentLocale() === 'ms' ? 'ms-MY' : 'en-MY'
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString(locale)
 }
 
 export const propertyTypes = [
@@ -62,5 +64,5 @@ export const statusNames: Record<string, string> = {
 }
 
 export function labelOf(values: readonly (readonly [string, string])[], value?: string): string {
-  return values.find(([key]) => key === value)?.[1] || value || 'Not provided'
+  return translate(values.find(([key]) => key === value)?.[1] || value || 'Not provided')
 }

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, itemsOf, messageOf } from '../../lib/api'
+import { useI18n } from '../../lib/i18n'
 import { AdminShell, Notice, QueryState } from './shared'
 import { asRecord, dateText, firstText, nestedText, type DataRecord } from './data'
 
@@ -67,12 +68,14 @@ function pageCount(value: unknown): number | null {
   return Number.isInteger(number) && number > 0 ? number : null
 }
 
-function rowTitle(row: DataRecord, kind: ModerationKind): string {
-  if (kind === 'accounts') return firstText(row, 'name', 'displayName', 'email') || 'Account name unavailable'
-  if (kind === 'verifications') return nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'studentName', 'name', 'email') || 'Applicant unavailable'
-  if (kind === 'listings') return firstText(row, 'title') || 'Listing title unavailable'
-  if (kind === 'reviews') return firstText(row, 'title', 'content', 'comment', 'body') || 'Review content unavailable'
-  return firstText(row, 'reason', 'description', 'category') || 'Report details unavailable'
+type Translate = (english: string, vars?: Record<string, string | number>) => string
+
+function rowTitle(row: DataRecord, kind: ModerationKind, t: Translate): string {
+  if (kind === 'accounts') return firstText(row, 'name', 'displayName', 'email') || t('Account name unavailable')
+  if (kind === 'verifications') return nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'studentName', 'name', 'email') || t('Applicant unavailable')
+  if (kind === 'listings') return firstText(row, 'title') || t('Listing title unavailable')
+  if (kind === 'reviews') return firstText(row, 'title', 'content', 'comment', 'body') || t('Review content unavailable')
+  return firstText(row, 'reason', 'description', 'category') || t('Report details unavailable')
 }
 
 function rowDetail(row: DataRecord, kind: ModerationKind): string {
@@ -83,12 +86,12 @@ function rowDetail(row: DataRecord, kind: ModerationKind): string {
   return nestedText(row, 'reporter', 'name', 'email') || firstText(row, 'targetType', 'targetId')
 }
 
-function auditInfo(row: DataRecord) {
+function auditInfo(row: DataRecord, t: Translate) {
   const moderator = nestedText(row, 'moderatedBy', 'name', 'email') || nestedText(row, 'reviewedBy', 'name', 'email') || firstText(row, 'moderatorName', 'reviewerName')
   const when = row.moderatedAt ?? row.reviewedAt ?? row.resolvedAt
   const reason = firstText(row, 'moderationReason', 'decisionReason', 'resolutionNote', 'adminReason')
   if (!moderator && !when && !reason) return null
-  return [moderator && `Reviewed by: ${moderator}`, when && `Reviewed at: ${dateText(when)}`, reason && `Note: ${reason}`].filter(Boolean).join(' · ')
+  return [moderator && t('Reviewed by: {name}', { name: moderator }), when && t('Reviewed at: {date}', { date: dateText(when) }), reason && t('Note: {reason}', { reason })].filter(Boolean).join(' · ')
 }
 
 function safeDocumentUrl(value: unknown): string | null {
@@ -103,20 +106,21 @@ function safeDocumentUrl(value: unknown): string | null {
 }
 
 function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecord }) {
+  const { t } = useI18n()
   const details: Array<{ label: string; value: string }> = []
   if (kind === 'accounts') {
     details.push(
       { label: 'Name', value: firstText(row, 'name', 'displayName') },
       { label: 'Email', value: firstText(row, 'email') },
-      { label: 'Roles', value: Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').join(', ') : firstText(row, 'role') },
-      { label: 'Email verification', value: typeof row.emailVerified === 'boolean' ? row.emailVerified ? 'Verified' : 'Unverified' : '' },
+      { label: 'Roles', value: Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').map(role => t(role)).join(', ') : t(firstText(row, 'role')) },
+      { label: 'Email verification', value: typeof row.emailVerified === 'boolean' ? t(row.emailVerified ? 'Verified' : 'Unverified') : '' },
     )
   } else if (kind === 'verifications') {
     details.push(
       { label: 'Applicant', value: nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'name', 'email') },
       { label: 'Email', value: nestedText(row, 'student', 'email') || nestedText(row, 'user', 'email') || firstText(row, 'email') },
       { label: 'University', value: firstText(row, 'university', 'universityName') },
-      { label: 'Verification method', value: firstText(row, 'verificationMethod', 'method') },
+      { label: 'Verification method', value: t(firstText(row, 'verificationMethod', 'method')) },
     )
   } else if (kind === 'listings') {
     details.push(
@@ -133,7 +137,7 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Listing', value: nestedText(row, 'listing', 'title') || firstText(row, 'listingId') },
       { label: 'Reviewer', value: nestedText(row, 'author', 'name', 'email') || nestedText(row, 'user', 'name', 'email') },
       { label: 'Rental experience', value: firstText(row, 'experienceDescription') },
-      { label: 'Evidence status', value: firstText(row, 'experienceProofStatus', 'proofStatus') },
+      { label: 'Evidence status', value: t(firstText(row, 'experienceProofStatus', 'proofStatus')) },
     )
   } else {
     details.push(
@@ -151,18 +155,19 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
 
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
-      <h3 className="font-semibold text-slate-900">Review details</h3>
+      <h3 className="font-semibold text-slate-900">{t('Review details')}</h3>
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-        {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{item.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
+        {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{t(item.label)}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
       </dl>
-      {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">Listing photos</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={`Listing photo ${index + 1}`} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
-      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{kind === 'reviews' ? 'View rental evidence (review only)' : 'View verification document (review only)'}</a></p>}
-      {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">View report evidence</a></p>}
+      {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">{t('Listing photos')}</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={t('Listing photo {number}', { number: index + 1 })} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
+      {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{t(kind === 'reviews' ? 'View rental evidence (review only)' : 'View verification document (review only)')}</a></p>}
+      {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{t('View report evidence')}</a></p>}
     </div>
   )
 }
 
 export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
+  const { t } = useI18n()
   const config = configuration[kind]
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('')
@@ -197,7 +202,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
         queryClient.invalidateQueries({ queryKey: ['admin', kind] }),
         queryClient.invalidateQueries({ queryKey: ['admin', 'overview'] }),
       ])
-      setNotice(`Decision saved for this ${config.singular}.`)
+      setNotice(t('Decision saved for this {item}.', { item: t(config.singular) }))
       setSelectedId(null)
       setReason('')
       setValidation(null)
@@ -234,41 +239,41 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     <AdminShell title={config.title} description={config.description}>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div className="field min-w-48">
-          <label htmlFor={`admin-status-${kind}`}>Filter by status</label>
+          <label htmlFor={`admin-status-${kind}`}>{t('Filter by status')}</label>
           <select id={`admin-status-${kind}`} value={status} onChange={event => { setStatus(event.target.value); setPage(1); setSelectedId(null) }}>
-            <option value="">All statuses</option>
-            {config.statuses.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+            <option value="">{t('All statuses')}</option>
+            {config.statuses.map(item => <option key={item.value} value={item.value}>{t(item.label)}</option>)}
           </select>
         </div>
-        <button type="button" className="button button-secondary" onClick={() => { void list.refetch() }} disabled={list.isFetching}>Refresh queue</button>
+        <button type="button" className="button button-secondary" onClick={() => { void list.refetch() }} disabled={list.isFetching}>{t('Refresh queue')}</button>
       </div>
       <div className="mb-4"><Notice success={notice} error={validation || (mutation.error ? messageOf(mutation.error) : null)} /></div>
-      <QueryState loading={list.isPending} error={list.error ? messageOf(list.error) : null} empty={rows.length === 0} emptyText={`No ${config.singular}s match the current filter.`} onRetry={() => { void list.refetch() }} />
+      <QueryState loading={list.isPending} error={list.error ? messageOf(list.error) : null} empty={rows.length === 0} emptyText={t('No {items} match the current filter.', { items: t({ verifications: 'verification requests', listings: 'listings', reviews: 'reviews', reports: 'reports', accounts: 'accounts' }[kind]) })} onRetry={() => { void list.refetch() }} />
       {!list.isPending && !list.error && rows.length > 0 && (
         <div className="card overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
-            <caption className="sr-only">{config.title} queue</caption>
+            <caption className="sr-only">{t('{title} queue', { title: t(config.title) })}</caption>
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-700">
-              <tr><th scope="col" className="px-4 py-3">Content</th><th scope="col" className="px-4 py-3">Status</th><th scope="col" className="px-4 py-3">Submitted</th><th scope="col" className="px-4 py-3">Review history</th><th scope="col" className="px-4 py-3">Actions</th></tr>
+              <tr><th scope="col" className="px-4 py-3">{t('Content')}</th><th scope="col" className="px-4 py-3">{t('Status')}</th><th scope="col" className="px-4 py-3">{t('Submitted')}</th><th scope="col" className="px-4 py-3">{t('Review history')}</th><th scope="col" className="px-4 py-3">{t('Actions')}</th></tr>
             </thead>
             <tbody>
               {rows.map((row, index) => {
                 const id = firstText(row, 'id')
                 const currentStatus = firstText(row, 'status')
-                const audit = auditInfo(row)
+                const audit = auditInfo(row, t)
                 return (
                   <FragmentRow key={id || index}>
                     <tr className="border-b border-slate-100 align-top">
                       <td className="max-w-xs px-4 py-4">
-                        <strong className="block break-words text-slate-900">{rowTitle(row, kind)}</strong>
+                        <strong className="block break-words text-slate-900">{rowTitle(row, kind, t)}</strong>
                         {rowDetail(row, kind) && <span className="mt-1 block break-words text-slate-600">{rowDetail(row, kind)}</span>}
                         {id && <span className="mt-1 block text-xs text-slate-500">ID: {id}</span>}
                       </td>
-                      <td className="px-4 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-800">{statusLabels[currentStatus] || currentStatus || 'Status unavailable'}</span></td>
+                      <td className="px-4 py-4"><span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-800">{t(statusLabels[currentStatus] || currentStatus || 'Status unavailable')}</span></td>
                       <td className="whitespace-nowrap px-4 py-4 text-slate-700">{dateText(row.submittedAt ?? row.createdAt)}</td>
-                      <td className="max-w-xs px-4 py-4 text-slate-600">{audit || 'No review history yet'}</td>
+                      <td className="max-w-xs px-4 py-4 text-slate-600">{audit || t('No review history yet')}</td>
                       <td className="px-4 py-4">
-                        <button type="button" className="button button-secondary button-small" disabled={!id || mutation.isPending} aria-expanded={selectedId === id} onClick={() => openForm(id, currentStatus)}>{selectedId === id ? 'Close' : 'Review'}</button>
+                        <button type="button" className="button button-secondary button-small" disabled={!id || mutation.isPending} aria-expanded={selectedId === id} onClick={() => openForm(id, currentStatus)}>{t(selectedId === id ? 'Close' : 'Review')}</button>
                       </td>
                     </tr>
                     {id && selectedId === id && (
@@ -279,18 +284,18 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                         </>}
                         <form onSubmit={submit} noValidate className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
                           <div className="field">
-                            <label htmlFor={`decision-${kind}-${id}`}>Decision</label>
+                            <label htmlFor={`decision-${kind}-${id}`}>{t('Decision')}</label>
                             <select id={`decision-${kind}-${id}`} value={decision} onChange={event => { setDecision(event.target.value); setValidation(null) }}>
-                              <option value={config.approve}>{config.approveLabel}</option>
-                              <option value={config.reject}>{config.rejectLabel}</option>
-                              {config.extraAction && <option value={config.extraAction.value}>{config.extraAction.label}</option>}
+                              <option value={config.approve}>{t(config.approveLabel)}</option>
+                              <option value={config.reject}>{t(config.rejectLabel)}</option>
+                              {config.extraAction && <option value={config.extraAction.value}>{t(config.extraAction.label)}</option>}
                             </select>
                           </div>
                           <div className="field">
-                            <label htmlFor={`reason-${kind}-${id}`}>Reason{decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)'}</label>
-                            <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder="Record your review findings and explain any rejection or suspension" />
+                            <label htmlFor={`reason-${kind}-${id}`}>{t('Reason')}{t(decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)')}</label>
+                            <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder={t('Record your review findings and explain any rejection or suspension')} />
                           </div>
-                          <button type="submit" className="button" disabled={mutation.isPending}>{mutation.isPending ? 'Saving…' : 'Save decision'}</button>
+                          <button type="submit" className="button" disabled={mutation.isPending}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
                         </form>
                       </td></tr>
                     )}
@@ -302,13 +307,13 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
         </div>
       )}
       {pages !== null && pages > 1 && !list.error && (
-        <nav aria-label="Review queue pagination" className="mt-5 flex items-center justify-end gap-3">
-          <button type="button" className="button button-secondary button-small" disabled={page <= 1 || list.isFetching} onClick={() => { setPage(value => value - 1); setSelectedId(null) }}>Previous</button>
-          <span className="text-sm text-slate-700">Page {page} of {pages}</span>
-          <button type="button" className="button button-secondary button-small" disabled={page >= pages || list.isFetching} onClick={() => { setPage(value => value + 1); setSelectedId(null) }}>Next</button>
+        <nav aria-label={t('Review queue pagination')} className="mt-5 flex items-center justify-end gap-3">
+          <button type="button" className="button button-secondary button-small" disabled={page <= 1 || list.isFetching} onClick={() => { setPage(value => value - 1); setSelectedId(null) }}>{t('Previous')}</button>
+          <span className="text-sm text-slate-700">{t('Page {page} of {pages}', { page, pages })}</span>
+          <button type="button" className="button button-secondary button-small" disabled={page >= pages || list.isFetching} onClick={() => { setPage(value => value + 1); setSelectedId(null) }}>{t('Next')}</button>
         </nav>
       )}
-      <p className="mt-4 text-xs text-slate-500">Decisions and audit records are based on data saved by the server.</p>
+      <p className="mt-4 text-xs text-slate-500">{t('Decisions and audit records are based on data saved by the server.')}</p>
     </AdminShell>
   )
 }

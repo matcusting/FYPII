@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { useI18n } from '../lib/i18n'
 
 export function isIsoDate(value: string): boolean {
   const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
@@ -40,6 +41,8 @@ interface EnglishDateInputProps {
 }
 
 export function EnglishDateInput({ id, name, value, defaultValue = '', onValueChange, className = '', required = false }: EnglishDateInputProps) {
+  const { t, locale } = useI18n()
+  const dateLocale = locale === 'zh-CN' ? 'zh-CN' : locale === 'ms' ? 'ms-MY' : 'en-US'
   const generatedId = useId()
   const inputId = id || `date-${generatedId}`
   const calendarId = `${inputId}-calendar`
@@ -95,33 +98,33 @@ export function EnglishDateInput({ id, name, value, defaultValue = '', onValueCh
       onChange={event => update(event.currentTarget.value)}
       onBlur={() => setTouched(true)}
       />
-      <button type="button" aria-label="Choose date" aria-expanded={open} aria-controls={open ? calendarId : undefined} onClick={() => {
+      <button type="button" aria-label={t('Choose date')} aria-expanded={open} aria-controls={open ? calendarId : undefined} onClick={() => {
         if (!open) setMonth(selectedMonth(current))
         setOpen(previous => !previous)
       }} className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-[#203569] hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-[#203569]">
         <svg aria-hidden="true" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></svg>
       </button>
     </div>
-    {invalid && <p id={errorId} role="alert" className="mt-1 text-xs font-normal text-red-700">Enter a valid date as YYYY-MM-DD.</p>}
-    {open && <div id={calendarId} role="group" aria-label="English date picker" className="absolute left-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-4 text-sm font-normal text-[#1f2937] shadow-xl">
+    {invalid && <p id={errorId} role="alert" className="mt-1 text-xs font-normal text-red-700">{t('Enter a valid date as YYYY-MM-DD.')}</p>}
+    {open && <div id={calendarId} role="group" aria-label={t('Date picker')} className="absolute left-0 top-full z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-gray-200 bg-white p-4 text-sm font-normal text-[#1f2937] shadow-xl">
       <div className="flex items-center justify-between gap-2">
-        <button type="button" aria-label="Previous month" onClick={() => setMonth(utcDate(year, monthIndex - 1, 1))} className="flex size-9 items-center justify-center rounded-lg hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-[#203569]">‹</button>
-        <span className="font-bold">{new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(month)}</span>
-        <button type="button" aria-label="Next month" onClick={() => setMonth(utcDate(year, monthIndex + 1, 1))} className="flex size-9 items-center justify-center rounded-lg hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-[#203569]">›</button>
+        <button type="button" aria-label={t('Previous month')} onClick={() => setMonth(utcDate(year, monthIndex - 1, 1))} className="flex size-9 items-center justify-center rounded-lg hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-[#203569]">‹</button>
+        <span className="font-bold">{new Intl.DateTimeFormat(dateLocale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(month)}</span>
+        <button type="button" aria-label={t('Next month')} onClick={() => setMonth(utcDate(year, monthIndex + 1, 1))} className="flex size-9 items-center justify-center rounded-lg hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-[#203569]">›</button>
       </div>
-      <div className="mt-3 grid grid-cols-7 gap-1 text-center text-xs font-bold text-gray-500">{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => <span key={day} className="py-1">{day}</span>)}</div>
+      <div className="mt-3 grid grid-cols-7 gap-1 text-center text-xs font-bold text-gray-500">{Array.from({ length: 7 }, (_, index) => <span key={index} className="py-1">{new Intl.DateTimeFormat(dateLocale, { weekday: 'short', timeZone: 'UTC' }).format(utcDate(2026, 2, 1 + index))}</span>)}</div>
       <div className="grid grid-cols-7 gap-1 text-center">
         {Array.from({ length: leadingDays }, (_, index) => <span key={`empty-${index}`} />)}
         {Array.from({ length: dayCount }, (_, index) => {
           const day = index + 1
           const dateValue = isoDate(year, monthIndex, day)
           const date = utcDate(year, monthIndex, day)
-          return <button key={day} type="button" aria-label={new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)} aria-pressed={current === dateValue} onClick={() => { update(dateValue); setTouched(true); setOpen(false) }} className={current === dateValue ? 'flex size-9 items-center justify-center rounded-lg bg-[#203569] font-bold text-white' : 'flex size-9 items-center justify-center rounded-lg hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-[#203569]'}>{day}</button>
+          return <button key={day} type="button" aria-label={new Intl.DateTimeFormat(dateLocale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(date)} aria-pressed={current === dateValue} onClick={() => { update(dateValue); setTouched(true); setOpen(false) }} className={current === dateValue ? 'flex size-9 items-center justify-center rounded-lg bg-[#203569] font-bold text-white' : 'flex size-9 items-center justify-center rounded-lg hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-[#203569]'}>{day}</button>
         })}
       </div>
       <div className="mt-3 flex justify-between border-t border-gray-100 pt-3">
-        <button type="button" onClick={() => { update(''); setTouched(false); setOpen(false) }} className="font-semibold text-gray-600 hover:text-[#203569]">Clear</button>
-        <button type="button" onClick={() => { const today = new Date(); update(isoDate(today.getFullYear(), today.getMonth(), today.getDate())); setTouched(true); setOpen(false) }} className="font-semibold text-[#203569] hover:underline">Today</button>
+        <button type="button" onClick={() => { update(''); setTouched(false); setOpen(false) }} className="font-semibold text-gray-600 hover:text-[#203569]">{t('Clear')}</button>
+        <button type="button" onClick={() => { const today = new Date(); update(isoDate(today.getFullYear(), today.getMonth(), today.getDate())); setTouched(true); setOpen(false) }} className="font-semibold text-[#203569] hover:underline">{t('Today')}</button>
       </div>
     </div>}
   </div>

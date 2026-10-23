@@ -17,6 +17,8 @@ The Express/PostgreSQL backend is in [`../uts-housing-api`](../uts-housing-api).
 
 Set `VITE_GOOGLE_MAPS_API_KEY` in a local `.env` to turn on the interactive Google map. Without the key, the landlord can enter coordinates manually and eligible students can open an opted-in exact pin on Google Maps. The backend controls who may receive exact coordinates.
 
+English is the default interface language. The navigation selector switches the site to Bahasa Melayu or Simplified Chinese and saves the choice in the browser. User-written messages, property titles and addresses are shown as entered. Google Maps labels use the language active when its script first loads; refresh the page after changing language to update those labels. The messaging API verifies `expectedSenderId` against the cookie session so a reply drafted in an old tab cannot silently be sent as another signed-in account.
+
 ## Checks
 
 ```bash

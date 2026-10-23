@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { currentLocale, useI18n } from '../lib/i18n'
 
 export interface LocationPin {
   latitude: number
@@ -44,7 +45,7 @@ function loadGoogleMaps(): Promise<GoogleMaps> {
       mapLoader = null
       reject(new Error('Google Maps could not load. Check your connection and try again.'))
     }
-    const search = new URLSearchParams({ key: googleMapsKey, language: 'en', region: 'MY', v: 'weekly', callback: '__utsHousingGoogleMapsReady' })
+    const search = new URLSearchParams({ key: googleMapsKey, language: currentLocale() === 'zh-CN' ? 'zh-CN' : currentLocale() === 'ms' ? 'ms' : 'en', region: 'MY', v: 'weekly', callback: '__utsHousingGoogleMapsReady' })
     script.src = `https://maps.googleapis.com/maps/api/js?${search}`
     script.async = true
     script.defer = true
@@ -72,6 +73,7 @@ export function GoogleLocationMap({ pin, onPick, searchInputRef, className = '' 
   searchInputRef?: RefObject<HTMLInputElement | null>
   className?: string
 }) {
+  const { t } = useI18n()
   const canvasRef = useRef<HTMLDivElement>(null)
   const mapsRef = useRef<GoogleMaps | null>(null)
   const mapRef = useRef<MapInstance | null>(null)
@@ -146,8 +148,8 @@ export function GoogleLocationMap({ pin, onPick, searchInputRef, className = '' 
 
   if (!googleMapsKey) return null
   return <div className={className}>
-    {onPick && searchInputRef && <button type="button" onClick={findAddress} className="mb-2 rounded-lg border border-[#203569] bg-white px-4 py-2 text-xs font-bold text-[#203569] hover:bg-blue-50">Find address on map</button>}
-    <div ref={canvasRef} role="img" aria-label={onPick ? 'Google Map. Click to choose the exact property location.' : 'Google Map showing the exact property location'} className="h-[260px] w-full rounded-lg bg-[#f1f3f5] sm:h-[320px]" />
-    {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+    {onPick && searchInputRef && <button type="button" onClick={findAddress} className="mb-2 rounded-lg border border-[#203569] bg-white px-4 py-2 text-xs font-bold text-[#203569] hover:bg-blue-50">{t('Find address on map')}</button>}
+    <div ref={canvasRef} role="img" aria-label={onPick ? t('Google Map. Click to choose the exact property location.') : t('Google Map showing the exact property location')} className="h-[260px] w-full rounded-lg bg-[#f1f3f5] sm:h-[320px]" />
+    {error && <p role="alert" className="mt-2 text-sm text-red-700">{t(error)}</p>}
   </div>
 }

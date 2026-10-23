@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { messageOf } from '../../lib/api'
 import { hasRole, useAuth } from '../../lib/auth'
+import { useI18n } from '../../lib/i18n'
 
 export function PageShell({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const { user } = useAuth()
@@ -32,9 +33,10 @@ export function Panel({ title, children, action }: { title?: string; children: R
 }
 
 export function ErrorNotice({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
+  const { t } = useI18n()
   return <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-    <p>{messageOf(error)}</p>
-    {onRetry && <button type="button" onClick={onRetry} className="mt-2 font-semibold underline underline-offset-2">Retry</button>}
+    <p>{t(messageOf(error))}</p>
+    {onRetry && <button type="button" onClick={onRetry} className="mt-2 font-semibold underline underline-offset-2">{t('Retry')}</button>}
   </div>
 }
 
@@ -43,7 +45,8 @@ export function EmptyNotice({ children }: { children: ReactNode }) {
 }
 
 export function LoadingNotice() {
-  return <p role="status" className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-600">Loading…</p>
+  const { t } = useI18n()
+  return <p role="status" className="rounded-lg border border-gray-200 bg-white p-5 text-sm text-gray-600">{t('Loading…')}</p>
 }
 
 export function ActionLink({ to, children }: { to: string; children: ReactNode }) {

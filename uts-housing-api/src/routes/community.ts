@@ -10,7 +10,9 @@ const asyncRoute = (handler: (req: Request, res: Response) => Promise<unknown>) 
   (req: Request, res: Response, next: NextFunction) => { void handler(req, res).catch(next) }
 
 const inquirySchema = z.object({ message: z.string().trim().min(10).max(2000) })
-const messageSchema = z.object({ body: z.string().trim().min(1).max(2000) })
+// The browser sends the identity it showed beside the composer. A session changed
+// in another tab must never silently attribute that draft to a different account.
+const messageSchema = z.object({ body: z.string().trim().min(1).max(2000), expectedSenderId: z.string().min(1) })
 const reviewSchema = z.object({
   rating: z.number().int().min(1).max(5),
   body: z.string().trim().min(20).max(2000),
@@ -134,6 +136,7 @@ router.post('/inquiries/:inquiryId/messages', requireAuth, requireEmailVerified,
   const user = currentUser(req)!
   const parsed = messageSchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Write a message between 1 and 2,000 characters.', 'VALIDATION_ERROR')
+  if (parsed.data.expectedSenderId !== user.id) return fail(res, 409, 'Your signed-in account changed. Refresh this page before sending.', 'SESSION_CHANGED')
   const inquiry = await prisma.inquiry.findUnique({ where: { id: String(req.params.inquiryId) } })
   if (!inquiry || !participant(user.id, inquiry)) return fail(res, 404, 'Conversation not found.', 'NOT_FOUND')
   if (inquiry.status !== 'OPEN') return fail(res, 409, 'This conversation is closed.', 'CONVERSATION_CLOSED')
@@ -173,6 +176,7 @@ router.post('/roommates/requests/:requestId/messages', requireAuth, requireEmail
   const user = currentUser(req)!
   const parsed = messageSchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Write a message between 1 and 2,000 characters.', 'VALIDATION_ERROR')
+  if (parsed.data.expectedSenderId !== user.id) return fail(res, 409, 'Your signed-in account changed. Refresh this page before sending.', 'SESSION_CHANGED')
   const connection = await prisma.connectionRequest.findUnique({ where: { id: String(req.params.requestId) } })
   if (!connection || !participant(user.id, connection)) return fail(res, 404, 'Conversation not found.', 'NOT_FOUND')
   if (connection.status !== 'ACCEPTED') return fail(res, 403, 'Both students must agree before messaging.', 'CONSENT_REQUIRED')

@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom'
-import { AuthGuard, AuthProvider } from './auth'
+import { AuthGuard, AuthProvider, useAuth } from './auth'
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
@@ -12,6 +12,18 @@ function response(status: number, data: unknown) {
 }
 
 describe('protected routes', () => {
+  it('refreshes the visible account when another browser tab changes the session', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(response(200, { data: { id: 'landlord-1', email: 'landlord@example.com', roles: ['LANDLORD'] } }))
+      .mockResolvedValue(response(200, { data: { id: 'student-1', email: 'student@example.com', roles: ['STUDENT'] } }))
+    vi.stubGlobal('fetch', fetcher)
+    function Identity() { const { user } = useAuth(); return <p>{user?.email || 'No account'}</p> }
+    render(<MemoryRouter><AuthProvider><Identity /></AuthProvider></MemoryRouter>)
+    expect(await screen.findByText('landlord@example.com')).toBeTruthy()
+    window.dispatchEvent(new StorageEvent('storage', { key: 'uts-housing-auth-changed', newValue: 'new-session' }))
+    await waitFor(() => expect(screen.getByText('student@example.com')).toBeTruthy())
+    expect(fetcher).toHaveBeenCalledTimes(2)
+  })
+
   it('redirects unauthenticated visitors to login', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(401, { error: { code: 'UNAUTHORIZED', message: 'Please sign in' } })))
     render(<MemoryRouter initialEntries={['/dashboard']}><AuthProvider><Routes>

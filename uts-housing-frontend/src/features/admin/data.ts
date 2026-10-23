@@ -1,3 +1,5 @@
+import { currentLocale } from '../../lib/i18n'
+
 export type DataRecord = Record<string, unknown>
 
 export function asRecord(value: unknown): DataRecord | null {
@@ -30,7 +32,7 @@ export function dateText(value: unknown): string {
   const parsed = new Date(source)
   return Number.isNaN(parsed.valueOf())
     ? source
-    : new Intl.DateTimeFormat('en-MY', {
+    : new Intl.DateTimeFormat(currentLocale() === 'ms' ? 'ms-MY' : currentLocale() === 'zh-CN' ? 'zh-CN' : 'en-MY', {
       dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kuala_Lumpur',
     }).format(parsed)
 }

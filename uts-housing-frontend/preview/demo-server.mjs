@@ -329,6 +329,7 @@ async function api(req, res, url) {
     const messages = inquiryMessages.get(inquiry.id) || []
     if (method === 'GET') return json(res, 200, messagePage(messages, url))
     if (method === 'POST') {
+      if (body.expectedSenderId !== user.id) return fail(res, 409, 'Your signed-in account changed. Reload this page before sending a message.', 'SESSION_CHANGED')
       const text = String(body.body || '').trim()
       if (!text || text.length > 2000) return fail(res, 400, 'Enter a reply up to 2,000 characters.')
       const message = { id: id('inquiry-message'), senderId: user.id, body: text, createdAt: now() }
@@ -375,6 +376,7 @@ async function api(req, res, url) {
     const messages = roommateMessages.get(request.id) || []
     if (method === 'GET') return json(res, 200, messagePage(messages, url))
     if (method === 'POST') {
+      if (body.expectedSenderId !== user.id) return fail(res, 409, 'Your signed-in account changed. Reload this page before sending a message.', 'SESSION_CHANGED')
       const text = String(body.body || '').trim()
       if (!text || text.length > 2000) return fail(res, 400, 'Enter a message up to 2,000 characters.')
       const message = { id: id('roommate-message'), senderId: user.id, body: text, createdAt: now() }

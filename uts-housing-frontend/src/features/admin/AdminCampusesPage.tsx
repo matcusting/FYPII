@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, itemsOf, messageOf } from '../../lib/api'
+import { useI18n } from '../../lib/i18n'
 import { AdminShell, Notice, QueryState } from './shared'
 import { asRecord, dateText, firstText, nestedText, textValue, type DataRecord } from './data'
 
@@ -58,6 +59,7 @@ function validatedPayload(form: CampusForm) {
 }
 
 export function AdminCampusesPage() {
+  const { t } = useI18n()
   const queryClient = useQueryClient()
   const [editingId, setEditingId] = useState<string | null>(null)
   const [form, setForm] = useState<CampusForm>(blankForm)
@@ -114,8 +116,8 @@ export function AdminCampusesPage() {
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(310px,0.8fr)]">
         <section aria-labelledby="campus-list-title">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 id="campus-list-title" className="text-xl font-bold text-slate-950">Existing campuses</h2>
-            <button type="button" className="button button-secondary button-small" onClick={() => { void campuses.refetch() }} disabled={campuses.isFetching}>Refresh</button>
+            <h2 id="campus-list-title" className="text-xl font-bold text-slate-950">{t('Existing campuses')}</h2>
+            <button type="button" className="button button-secondary button-small" onClick={() => { void campuses.refetch() }} disabled={campuses.isFetching}>{t('Refresh')}</button>
           </div>
           <QueryState loading={campuses.isPending} error={campuses.error ? messageOf(campuses.error) : null} empty={rows.length === 0} emptyText="No campuses have been configured." onRetry={() => { void campuses.refetch() }} />
           {!campuses.isPending && !campuses.error && rows.length > 0 && (
@@ -130,17 +132,17 @@ export function AdminCampusesPage() {
                   <li key={id || index} className="card p-5">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-lg font-bold text-slate-950">{firstText(row, 'name', 'campusName') || 'Unnamed campus'}</h3>
-                        <p className="text-sm text-slate-600">{university || 'University unavailable'}</p>
+                        <h3 className="text-lg font-bold text-slate-950">{firstText(row, 'name', 'campusName') || t('Unnamed campus')}</h3>
+                        <p className="text-sm text-slate-600">{university || t('University unavailable')}</p>
                       </div>
-                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active === false ? 'bg-slate-100 text-slate-700' : active === true ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{active === null ? 'Status unavailable' : active ? 'Active' : 'Inactive'}</span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${active === false ? 'bg-slate-100 text-slate-700' : active === true ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{t(active === null ? 'Status unavailable' : active ? 'Active' : 'Inactive')}</span>
                     </div>
                     <dl className="mt-4 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-                      <div><dt className="font-semibold">Coordinates</dt><dd>{textValue(row.latitude ?? asRecord(row.coordinates)?.latitude) || '—'}, {textValue(row.longitude ?? asRecord(row.coordinates)?.longitude) || '—'}</dd></div>
-                      <div><dt className="font-semibold">Verification domains</dt><dd className="break-words">{domains.length ? domains.join(', ') : 'None configured'}</dd></div>
-                      {(row.updatedAt || updatedBy) && <div className="sm:col-span-2"><dt className="font-semibold">Last updated</dt><dd>{updatedBy && `${updatedBy} · `}{dateText(row.updatedAt)}</dd></div>}
+                      <div><dt className="font-semibold">{t('Coordinates')}</dt><dd>{textValue(row.latitude ?? asRecord(row.coordinates)?.latitude) || '—'}, {textValue(row.longitude ?? asRecord(row.coordinates)?.longitude) || '—'}</dd></div>
+                      <div><dt className="font-semibold">{t('Verification domains')}</dt><dd className="break-words">{domains.length ? domains.join(', ') : t('None configured')}</dd></div>
+                      {(row.updatedAt || updatedBy) && <div className="sm:col-span-2"><dt className="font-semibold">{t('Last updated')}</dt><dd>{updatedBy && `${updatedBy} · `}{dateText(row.updatedAt)}</dd></div>}
                     </dl>
-                    <button type="button" className="button button-secondary button-small mt-4" disabled={!id} onClick={() => edit(row)}>Edit campus</button>
+                    <button type="button" className="button button-secondary button-small mt-4" disabled={!id} onClick={() => edit(row)}>{t('Edit campus')}</button>
                   </li>
                 )
               })}
@@ -150,21 +152,21 @@ export function AdminCampusesPage() {
 
         <section id="campus-editor" aria-labelledby="campus-editor-title" className="card p-5 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 id="campus-editor-title" className="text-xl font-bold text-slate-950">{editingId ? 'Edit campus' : 'Add campus'}</h2>
-            {editingId && <button type="button" className="button button-secondary button-small" onClick={() => { setEditingId(null); setForm(blankForm); setValidation(null); save.reset() }}>Cancel editing</button>}
+            <h2 id="campus-editor-title" className="text-xl font-bold text-slate-950">{t(editingId ? 'Edit campus' : 'Add campus')}</h2>
+            {editingId && <button type="button" className="button button-secondary button-small" onClick={() => { setEditingId(null); setForm(blankForm); setValidation(null); save.reset() }}>{t('Cancel editing')}</button>}
           </div>
-          <p className="mt-2 text-sm text-slate-600">Enter one verification domain per line, such as university.edu.my. If no domain is listed, students can still be verified manually.</p>
+          <p className="mt-2 text-sm text-slate-600">{t('Enter one verification domain per line, such as university.edu.my. If no domain is listed, students can still be verified manually.')}</p>
           <form onSubmit={submit} noValidate className="mt-5 grid gap-4">
-            <div className="field"><label htmlFor="campus-name">Campus name</label><input id="campus-name" value={form.name} onChange={event => update('name', event.target.value)} required maxLength={120} autoComplete="off" /></div>
-            <div className="field"><label htmlFor="campus-university">University name</label><input id="campus-university" value={form.university} onChange={event => update('university', event.target.value)} required maxLength={120} autoComplete="organization" /></div>
+            <div className="field"><label htmlFor="campus-name">{t('Campus name')}</label><input id="campus-name" value={form.name} onChange={event => update('name', event.target.value)} required maxLength={120} autoComplete="off" /></div>
+            <div className="field"><label htmlFor="campus-university">{t('University name')}</label><input id="campus-university" value={form.university} onChange={event => update('university', event.target.value)} required maxLength={120} autoComplete="organization" /></div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="field"><label htmlFor="campus-latitude">Latitude</label><input id="campus-latitude" type="number" min="-90" max="90" step="any" value={form.latitude} onChange={event => update('latitude', event.target.value)} required /></div>
-              <div className="field"><label htmlFor="campus-longitude">Longitude</label><input id="campus-longitude" type="number" min="-180" max="180" step="any" value={form.longitude} onChange={event => update('longitude', event.target.value)} required /></div>
+              <div className="field"><label htmlFor="campus-latitude">{t('Latitude')}</label><input id="campus-latitude" type="number" min="-90" max="90" step="any" value={form.latitude} onChange={event => update('latitude', event.target.value)} required /></div>
+              <div className="field"><label htmlFor="campus-longitude">{t('Longitude')}</label><input id="campus-longitude" type="number" min="-180" max="180" step="any" value={form.longitude} onChange={event => update('longitude', event.target.value)} required /></div>
             </div>
-            <div className="field"><label htmlFor="campus-domains">Student verification email domains</label><textarea id="campus-domains" rows={4} value={form.domains} onChange={event => update('domains', event.target.value)} placeholder="university.edu.my" aria-describedby="campus-domains-hint" /><p id="campus-domains-hint" className="text-xs text-slate-600">Enter only the part after @. Put each domain on a separate line.</p></div>
-            <label className="flex items-center gap-3 text-sm font-medium text-slate-800"><input type="checkbox" checked={form.active} onChange={event => update('active', event.target.checked)} className="h-5 w-5" />Enable this campus</label>
+            <div className="field"><label htmlFor="campus-domains">{t('Student verification email domains')}</label><textarea id="campus-domains" rows={4} value={form.domains} onChange={event => update('domains', event.target.value)} placeholder="university.edu.my" aria-describedby="campus-domains-hint" /><p id="campus-domains-hint" className="text-xs text-slate-600">{t('Enter only the part after @. Put each domain on a separate line.')}</p></div>
+            <label className="flex items-center gap-3 text-sm font-medium text-slate-800"><input type="checkbox" checked={form.active} onChange={event => update('active', event.target.checked)} className="h-5 w-5" />{t('Enable this campus')}</label>
             <Notice error={validation || (save.error ? messageOf(save.error) : null)} success={success} />
-            <button type="submit" className="button" disabled={save.isPending}>{save.isPending ? 'Saving…' : editingId ? 'Save changes' : 'Create campus'}</button>
+            <button type="submit" className="button" disabled={save.isPending}>{t(save.isPending ? 'Saving…' : editingId ? 'Save changes' : 'Create campus')}</button>
           </form>
         </section>
       </div>

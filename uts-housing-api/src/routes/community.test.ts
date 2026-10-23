@@ -41,6 +41,16 @@ function call(method: string, path: string, body?: unknown) {
 }
 
 describe('community privacy boundaries', () => {
+  it('rejects inquiry and roommate messages when another tab changed the signed-in account', async () => {
+    for (const path of ['/inquiries/inquiry-1/messages', '/roommates/requests/request-1/messages']) {
+      const response = await call('POST', path, { body: 'Draft typed by the landlord', expectedSenderId: 'landlord-1' })
+      expect(response.status).toBe(409)
+      expect(response.data).toMatchObject({ error: { code: 'SESSION_CHANGED' } })
+    }
+    expect(database.inquiry.findUnique).not.toHaveBeenCalled()
+    expect(database.connectionRequest.findUnique).not.toHaveBeenCalled()
+  })
+
   it('returns approved review content without private rental proof metadata', async () => {
     database.listing.findUnique.mockResolvedValue({ id: 'listing-1', ownerId: 'landlord-1', status: 'PUBLISHED' })
     database.review.findMany.mockResolvedValue([{
