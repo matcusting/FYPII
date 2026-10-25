@@ -16,9 +16,9 @@ const mayPost = (user: User | null) => !!user && user.roles.some(role => role ==
 const queryText = (req: Request, name: string) => typeof req.query[name] === 'string' ? String(req.query[name]).trim() : ''
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime()) && new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value)
 const money = z.union([z.string(), z.number()]).transform(value => Number(value)).pipe(z.number().finite().min(0).max(9_999_999))
-const optionalCoordinate = z.number().finite().nullable().optional()
+const fullAddress = z.string().trim().min(10).max(250)
 
-const listingInput = z.object({
+export const listingInput = z.object({
   title: z.string().trim().min(8).max(120),
   description: z.string().trim().min(30).max(5000),
   campusId: z.string().min(1),
@@ -34,9 +34,7 @@ const listingInput = z.object({
   furnished: z.boolean().default(false),
   amenityIds: z.array(z.string().min(1)).max(30).default([]),
   photoKeys: z.array(z.uuid()).max(8).default([]),
-  latitude: optionalCoordinate,
-  longitude: optionalCoordinate,
-  address: z.string().trim().max(250).nullable().optional(),
+  address: fullAddress,
   showExactLocation: z.boolean().default(false),
 })
 
@@ -48,7 +46,7 @@ const listingPatch = listingInput.omit({ photoKeys: true }).partial().extend({
 
 const listingInclude = {
   owner: { select: { id: true, name: true } },
-  campus: { select: { id: true, name: true, university: true, latitude: true, longitude: true } },
+  campus: { select: { id: true, name: true, university: true } },
   photos: { orderBy: { sortOrder: 'asc' as const } },
   amenities: { include: { amenity: true } },
   reviews: { where: { status: 'APPROVED' as const, active: true }, select: { rating: true } },
@@ -56,40 +54,14 @@ const listingInclude = {
 
 type ListingRecord = Prisma.ListingGetPayload<{ include: typeof listingInclude }>
 
-export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const radians = (degrees: number) => degrees * Math.PI / 180
-  const deltaLat = radians(lat2 - lat1)
-  const deltaLon = radians(lon2 - lon1)
-  const arc = Math.sin(deltaLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(deltaLon / 2) ** 2
-  return 6371.0088 * 2 * Math.asin(Math.min(1, Math.sqrt(arc)))
-}
-
 export function canViewExactLocation(ownerId: string, showExactLocation: boolean, user: Pick<User, 'id' | 'roles'> | null) {
   return !!user && (user.id === ownerId || user.roles.includes('ADMIN') || (showExactLocation && user.roles.includes('STUDENT')))
 }
 
-// A hidden pin must not be recoverable by querying distance to multiple campuses.
-// Public distances use the centre of a roughly 2 km grid cell, never the stored pin.
-export function distanceAnchor(latitude: number, longitude: number, exactLocationVisible: boolean) {
-  const cellSizeDegrees = 0.02
-  return exactLocationVisible
-    ? { latitude, longitude }
-    : { latitude: Math.round(latitude / cellSizeDegrees) * cellSizeDegrees, longitude: Math.round(longitude / cellSizeDegrees) * cellSizeDegrees }
-}
-
-function listingDistance(record: ListingRecord, user: User | null, campus: { latitude: number; longitude: number }) {
-  if (record.latitude == null || record.longitude == null) return null
-  const anchor = distanceAnchor(record.latitude, record.longitude, canViewExactLocation(record.ownerId, record.showExactLocation, user))
-  return haversineKm(anchor.latitude, anchor.longitude, campus.latitude, campus.longitude)
-}
-
-export function serializeListing(record: ListingRecord, user: User | null, distanceCampus?: { latitude: number; longitude: number } | null) {
+export function serializeListing(record: ListingRecord, user: User | null) {
   const privateAccess = !!user && (record.ownerId === user.id || isAdmin(user))
   const exactLocationVisible = canViewExactLocation(record.ownerId, record.showExactLocation, user)
   const { latitude, longitude, address, moderationReason, ...safe } = record
-  const reference = distanceCampus || record.campus
-  const distance = listingDistance(record, user, reference)
-  const distanceKm = distance == null ? undefined : Number(distance.toFixed(exactLocationVisible ? 2 : 1))
   const rating = record.reviews.length ? Number((record.reviews.reduce((sum, review) => sum + review.rating, 0) / record.reviews.length).toFixed(1)) : undefined
   return {
     ...safe,
@@ -105,22 +77,17 @@ export function serializeListing(record: ListingRecord, user: User | null, dista
     amenityIds: record.amenities.map(item => item.amenityId),
     photos: record.photos.map(photo => ({ id: photo.id, objectKey: photo.storageKey, url: photo.url || `/api/v1/media/${photo.storageKey}`, alt: `${record.title} property photo` })),
     reviews: undefined,
-    distanceKm,
     rating,
     reviewCount: record.reviews.length,
     availabilityStale: !record.lastConfirmedAt || Date.now() - record.lastConfirmedAt.getTime() > 30 * 24 * 60 * 60 * 1000,
     rejectionReason: privateAccess ? moderationReason : undefined,
     showExactLocation: privateAccess ? record.showExactLocation : exactLocationVisible,
-    latitude: exactLocationVisible ? latitude : undefined,
-    longitude: exactLocationVisible ? longitude : undefined,
     address: exactLocationVisible ? address : undefined,
   }
 }
 
-function invalidLocation(latitude: number | null | undefined, longitude: number | null | undefined, showExactLocation: boolean) {
-  const hasLat = latitude != null
-  const hasLng = longitude != null
-  return hasLat !== hasLng || (hasLat && (latitude! < -90 || latitude! > 90 || longitude! < -180 || longitude! > 180)) || (showExactLocation && !hasLat)
+function hasFullAddress(address: string | null | undefined) {
+  return fullAddress.safeParse(address).success
 }
 
 async function validAmenities(ids: string[]) {
@@ -146,7 +113,7 @@ function failValidation(res: Response, issue = 'Please check the listing details
 
 router.get('/campuses', withErrors(async (_req, res) => {
   const items = await prisma.campus.findMany({ where: { active: true }, orderBy: { name: 'asc' } })
-  ok(res, { items: items.map(({ id, name, university, latitude, longitude }) => ({ id, name, university, latitude, longitude })) })
+  ok(res, { items: items.map(({ id, name, university }) => ({ id, name, university })) })
 }))
 
 router.get('/amenities', withErrors(async (_req, res) => {
@@ -217,19 +184,19 @@ router.get('/listings', withErrors(async (req, res) => {
   const page = Number(queryText(req, 'page') || 1)
   const limit = Number(queryText(req, 'limit') || 12)
   if (!Number.isInteger(page) || page < 1 || page > 10_000 || !Number.isInteger(limit) || limit < 1 || limit > 100) { failValidation(res, 'Use a valid page and page size.'); return }
-  const numericFilters = ['minRent', 'maxRent', 'minDeposit', 'maxDeposit', 'maxDistanceKm'] as const
+  if (queryText(req, 'maxDistanceKm') || queryText(req, 'sort') === 'distance') { failValidation(res, 'Distance search is unavailable. Search by campus or area instead.'); return }
+  const numericFilters = ['minRent', 'maxRent', 'minDeposit', 'maxDeposit'] as const
   const numbers = Object.fromEntries(numericFilters.map(name => [name, queryText(req, name) ? Number(queryText(req, name)) : null])) as Record<(typeof numericFilters)[number], number | null>
-  if (numericFilters.some(name => numbers[name] != null && (!Number.isFinite(numbers[name]) || numbers[name]! < 0 || numbers[name]! > (name === 'maxDistanceKm' ? 500 : 9_999_999))) ||
+  if (numericFilters.some(name => numbers[name] != null && (!Number.isFinite(numbers[name]) || numbers[name]! < 0 || numbers[name]! > 9_999_999)) ||
     (numbers.minRent != null && numbers.maxRent != null && numbers.minRent > numbers.maxRent) ||
-    (numbers.minDeposit != null && numbers.maxDeposit != null && numbers.minDeposit > numbers.maxDeposit)) { failValidation(res, 'Use valid price and distance ranges.'); return }
+    (numbers.minDeposit != null && numbers.maxDeposit != null && numbers.minDeposit > numbers.maxDeposit)) { failValidation(res, 'Use valid price ranges.'); return }
   const availableBy = queryText(req, 'availableBy')
   if (availableBy && !isoDate.safeParse(availableBy).success) { failValidation(res, 'Enter a valid available-by date as YYYY-MM-DD.'); return }
   const sort = queryText(req, 'sort') || 'newest'
-  if (!['newest', 'rent_asc', 'rent_desc', 'distance'].includes(sort)) { failValidation(res, 'Choose a valid sort order.'); return }
+  if (!['newest', 'rent_asc', 'rent_desc'].includes(sort)) { failValidation(res, 'Choose a valid sort order.'); return }
   const campusId = queryText(req, 'campusId')
-  if ((numbers.maxDistanceKm != null || sort === 'distance') && !campusId) { failValidation(res, 'Choose a campus before filtering or sorting by distance.'); return }
-  const distanceCampus = campusId ? await prisma.campus.findUnique({ where: { id: campusId } }) : null
-  if (campusId && (!distanceCampus || !distanceCampus.active)) { ok(res, { items: [], total: 0, page, pages: 1, limit }); return }
+  const campus = campusId ? await prisma.campus.findUnique({ where: { id: campusId } }) : null
+  if (campusId && (!campus || !campus.active)) { ok(res, { items: [], total: 0, page, pages: 1, limit }); return }
   const terms = queryText(req, 'amenities').toLowerCase().split(',').map(term => term.trim()).filter(Boolean)
   const search = queryText(req, 'q')
   const area = queryText(req, 'area')
@@ -256,22 +223,12 @@ router.get('/listings', withErrors(async (req, res) => {
   if (availableBy) filters.push({ availableFrom: { lte: new Date(`${availableBy}T00:00:00.000Z`) } })
   for (const term of terms) filters.push({ amenities: { some: { OR: [{ amenityId: term }, { amenity: { name: { contains: term, mode: 'insensitive' } } }, { amenity: { slug: { contains: term, mode: 'insensitive' } } }] } } })
   const where: Prisma.ListingWhereInput = { ...(mine ? { ownerId: user!.id } : { status: 'PUBLISHED' }), AND: filters }
-  const distanceQuery = numbers.maxDistanceKm != null || sort === 'distance'
   const orderBy: Prisma.ListingOrderByWithRelationInput[] = sort === 'rent_asc' ? [{ rent: 'asc' }, { createdAt: 'desc' }] : sort === 'rent_desc' ? [{ rent: 'desc' }, { createdAt: 'desc' }] : [{ createdAt: 'desc' }]
-  if (distanceQuery) {
-    const records = await prisma.listing.findMany({ where, include: listingInclude, orderBy })
-    const distance = (item: ListingRecord) => listingDistance(item, user, distanceCampus!) ?? Infinity
-    const filtered = numbers.maxDistanceKm == null ? records : records.filter(item => distance(item) <= numbers.maxDistanceKm!)
-    if (sort === 'distance') filtered.sort((a, b) => distance(a) - distance(b) || b.createdAt.getTime() - a.createdAt.getTime())
-    const total = filtered.length
-    ok(res, { items: filtered.slice((page - 1) * limit, page * limit).map(item => serializeListing(item, user, distanceCampus)), total, page, pages: Math.max(1, Math.ceil(total / limit)), limit })
-    return
-  }
   const [total, records] = await Promise.all([
     prisma.listing.count({ where }),
     prisma.listing.findMany({ where, include: listingInclude, orderBy, skip: (page - 1) * limit, take: limit }),
   ])
-  ok(res, { items: records.map(item => serializeListing(item, user, distanceCampus)), total, page, pages: Math.max(1, Math.ceil(total / limit)), limit })
+  ok(res, { items: records.map(item => serializeListing(item, user)), total, page, pages: Math.max(1, Math.ceil(total / limit)), limit })
 }))
 
 router.get('/listings/:id', withErrors(async (req, res) => {
@@ -287,7 +244,7 @@ router.post('/listings', requireAuth, withErrors(async (req, res) => {
   const parsed = listingInput.safeParse(req.body)
   if (!parsed.success) { failValidation(res); return }
   const value = parsed.data
-  if (invalidLocation(value.latitude, value.longitude, value.showExactLocation) || !await validAmenities(value.amenityIds)) { failValidation(res, 'Choose valid location and facilities.'); return }
+  if (!await validAmenities(value.amenityIds)) { failValidation(res, 'Choose valid facilities.'); return }
   const campus = await prisma.campus.findUnique({ where: { id: value.campusId } })
   if (!campus?.active) { failValidation(res, 'Choose an active campus.'); return }
   const photos = await validPhotoUploads(value.photoKeys, user.id)
@@ -296,7 +253,7 @@ router.post('/listings', requireAuth, withErrors(async (req, res) => {
     const listing = await tx.listing.create({ data: {
       ownerId: user.id, campusId: value.campusId, title: value.title, description: value.description, propertyType: value.propertyType, roomType: value.roomType,
       rent: value.rent.toFixed(2), deposit: value.deposit.toFixed(2), currency: value.currency, availableFrom: new Date(`${value.availableFrom}T00:00:00.000Z`),
-      approximateArea: value.approximateArea, latitude: value.latitude ?? null, longitude: value.longitude ?? null, address: value.address ?? null,
+      approximateArea: value.approximateArea, latitude: null, longitude: null, address: value.address,
       showExactLocation: value.showExactLocation, houseRules: value.houseRules || null, contactMethod: value.contactMethod, furnished: value.furnished, status: 'DRAFT',
     } })
     if (value.amenityIds.length) await tx.listingAmenity.createMany({ data: value.amenityIds.map(amenityId => ({ listingId: listing.id, amenityId })) })
@@ -319,14 +276,13 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (Object.keys(req.body as Record<string, unknown>).some(key => key !== 'status')) { failValidation(res, 'Change listing status separately from its details.'); return }
     const allowed = (existing.status === 'PUBLISHED' && ['PAUSED', 'RENTED'].includes(value.status)) || (existing.status === 'PAUSED' && value.status === 'PUBLISHED')
     if (!allowed) { fail(res, 409, 'This listing status change is not allowed.', 'INVALID_STATUS'); return }
+    if (value.status === 'PUBLISHED' && !hasFullAddress(existing.address)) { failValidation(res, 'Enter the full property address before publishing.'); return }
     // An owner may request republication, but cannot undo an admin pause without review.
     const nextStatus = existing.status === 'PAUSED' && value.status === 'PUBLISHED' && !isAdmin(user) ? 'PENDING_REVIEW' : value.status
     await prisma.listing.update({ where: { id: existing.id }, data: { status: nextStatus, ...(nextStatus === 'PENDING_REVIEW' ? { reviewedAt: null } : {}) } })
   } else {
-    const latitude = value.latitude === undefined ? existing.latitude : value.latitude
-    const longitude = value.longitude === undefined ? existing.longitude : value.longitude
-    const showExactLocation = value.showExactLocation ?? existing.showExactLocation
-    if (invalidLocation(latitude, longitude, showExactLocation) || (value.amenityIds && !await validAmenities(value.amenityIds))) { failValidation(res, 'Choose valid location and facilities.'); return }
+    if (!hasFullAddress(value.address ?? existing.address)) { failValidation(res, 'Enter a full property address between 10 and 250 characters.'); return }
+    if (value.amenityIds && !await validAmenities(value.amenityIds)) { failValidation(res, 'Choose valid facilities.'); return }
     if (value.campusId) {
       const campus = await prisma.campus.findUnique({ where: { id: value.campusId } })
       if (!campus?.active) { failValidation(res, 'Choose an active campus.'); return }
@@ -346,9 +302,7 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (value.deposit !== undefined) update.deposit = value.deposit.toFixed(2)
     if (value.availableFrom !== undefined) update.availableFrom = new Date(`${value.availableFrom}T00:00:00.000Z`)
     if (value.approximateArea !== undefined) update.approximateArea = value.approximateArea
-    if (value.latitude !== undefined) update.latitude = value.latitude
-    if (value.longitude !== undefined) update.longitude = value.longitude
-    if (value.address !== undefined) update.address = value.address
+    if (value.address !== undefined) { update.address = value.address; update.latitude = null; update.longitude = null }
     if (value.showExactLocation !== undefined) update.showExactLocation = value.showExactLocation
     if (value.houseRules !== undefined) update.houseRules = value.houseRules
     if (value.contactMethod !== undefined) update.contactMethod = value.contactMethod
@@ -385,6 +339,7 @@ router.post('/listings/:id/submit', requireAuth, withErrors(async (req, res) => 
   if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
   if (!user.emailVerifiedAt || (user.roles.includes('STUDENT') && !user.studentVerified && !isAdmin(user))) { fail(res, 403, 'Verify your account before submitting a listing.', 'FORBIDDEN'); return }
   if (!['DRAFT', 'REJECTED', 'RENTED'].includes(existing.status) || existing._count.photos < 1) { fail(res, 409, 'Add at least one photo to an eligible draft before submitting.', 'INVALID_STATUS'); return }
+  if (!hasFullAddress(existing.address)) { failValidation(res, 'Enter the full property address before publishing.'); return }
   const updated = await prisma.listing.update({ where: { id: existing.id }, data: { status: 'PENDING_REVIEW', moderationReason: null, lastConfirmedAt: new Date() }, include: listingInclude })
   ok(res, serializeListing(updated, user))
 }))

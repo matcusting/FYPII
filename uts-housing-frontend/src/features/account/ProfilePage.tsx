@@ -12,6 +12,7 @@ import { AccountControls } from './AccountControls'
 interface AccountProfile {
   displayName?: string | null
   name?: string | null
+  phone?: string | null
   university?: string | null
   bio?: string | null
   preferredLocation?: string | null
@@ -23,6 +24,7 @@ interface AccountProfile {
 
 interface ProfileFields {
   displayName: string
+  phone: string
   university: string
   bio: string
   preferredLocation: string
@@ -34,6 +36,7 @@ interface ProfileFields {
 function fieldsFrom(profile: AccountProfile | undefined, fallbackName?: string): ProfileFields {
   return {
     displayName: profile?.displayName || profile?.name || fallbackName || '',
+    phone: profile?.phone || '',
     university: profile?.university || '',
     bio: profile?.bio || '',
     preferredLocation: profile?.preferredLocation || '',
@@ -67,7 +70,10 @@ export function ProfilePage() {
   const save = useMutation({
     mutationFn: (values: ProfileFields) => api<AccountProfile>('/profile', {
       method: 'PATCH',
-      body: JSON.stringify({
+      body: JSON.stringify(isLandlord ? {
+        displayName: values.displayName.trim(),
+        phone: values.phone.trim(),
+      } : {
         displayName: values.displayName.trim(),
         university: values.university.trim() || null,
         bio: values.bio.trim() || null,
@@ -114,6 +120,12 @@ export function ProfilePage() {
   function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!fields.displayName.trim()) { setFormError('Enter your name.'); return }
+    if (isLandlord) {
+      const phone = fields.phone.trim()
+      if (!/^\+?[0-9][0-9 ()-]*$/.test(phone) || phone.replace(/\D/g, '').length < 7 || phone.replace(/\D/g, '').length > 15) { setFormError('Enter a valid phone number.'); return }
+      save.mutate(fields)
+      return
+    }
     if (fields.preferredMoveInDate && !isIsoDate(fields.preferredMoveInDate)) { setFormError('Enter a valid preferred move-in date as YYYY-MM-DD.'); return }
     const min = fields.budgetMin === '' ? null : Number(fields.budgetMin)
     const max = fields.budgetMax === '' ? null : Number(fields.budgetMax)
@@ -141,18 +153,19 @@ export function ProfilePage() {
     <div className="mx-auto max-w-[800px] space-y-6">
       <section className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)]">
         <header className="flex items-center justify-between gap-4 bg-[#203569] px-6 py-6 text-white sm:px-8">
-          <div><h1 className="text-xl font-bold">{isStudent ? t('Student Profile Settings') : t('Profile Settings')}</h1><p className="mt-1 text-sm text-gray-300">{t('Manage your personal information and housing preferences.')}</p></div>
+          <div><h1 className="text-xl font-bold">{isStudent ? t('Student Profile Settings') : t('Profile Settings')}</h1><p className="mt-1 text-sm text-gray-300">{t(isLandlord ? 'Manage your name and contact details.' : 'Manage your personal information and housing preferences.')}</p></div>
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/10 text-xl font-bold" aria-hidden="true">{initials}</span>
         </header>
         {profile.isPending ? <div className="p-8"><LoadingNotice /></div> : profile.isError ? <div className="p-8"><ErrorNotice error={profile.error} onRetry={() => void profile.refetch()} /></div> : <form onSubmit={submitProfile} noValidate className="space-y-6 p-6 sm:p-8">
           {saveMessage && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-4 text-center text-sm font-bold text-green-800">{t('✓ Profile updated successfully!')}</p>}
           <div className="grid gap-6 sm:grid-cols-2">
             <label className="block text-[13px] font-bold text-gray-700">{t('Full Legal Name')} <span aria-hidden="true">*</span><input className={inputClass} value={fields.displayName} onChange={event => updateField('displayName', event.target.value)} maxLength={100} required autoComplete="name" /></label>
-            <label className="block text-[13px] font-bold text-gray-700">{t('University')}<input className={inputClass} value={fields.university} onChange={event => updateField('university', event.target.value)} maxLength={160} autoComplete="organization" /></label>
-            <label className="block text-[13px] font-bold text-gray-700">{t('Preferred Location')}<input className={inputClass} value={fields.preferredLocation} onChange={event => updateField('preferredLocation', event.target.value)} maxLength={160} placeholder={t('Near UTS campus')} /></label>
-            <div className="block text-[13px] font-bold text-gray-700"><label htmlFor="preferred-move-in">{t('Preferred Move-in Date')}</label><EnglishDateInput id="preferred-move-in" className={inputClass} value={fields.preferredMoveInDate} onValueChange={value => updateField('preferredMoveInDate', value)} /></div>
+            {!isLandlord && <label className="block text-[13px] font-bold text-gray-700">{t('University')}<input className={inputClass} value={fields.university} onChange={event => updateField('university', event.target.value)} maxLength={160} autoComplete="organization" /></label>}
+            {!isLandlord && <label className="block text-[13px] font-bold text-gray-700">{t('Preferred Location')}<input className={inputClass} value={fields.preferredLocation} onChange={event => updateField('preferredLocation', event.target.value)} maxLength={160} placeholder={t('Near UTS campus')} /></label>}
+            {!isLandlord && <div className="block text-[13px] font-bold text-gray-700"><label htmlFor="preferred-move-in">{t('Preferred Move-in Date')}</label><EnglishDateInput id="preferred-move-in" className={inputClass} value={fields.preferredMoveInDate} onValueChange={value => updateField('preferredMoveInDate', value)} /></div>}
             <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Account Email')}<input className={`${inputClass} cursor-not-allowed bg-gray-50 text-gray-500`} value={user?.email || ''} readOnly type="email" /></label>
-            <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Personal Bio / Roommate Notes')}<textarea className={inputClass} rows={3} maxLength={1000} value={fields.bio} onChange={event => updateField('bio', event.target.value)} placeholder={t('Tell others a little about yourself.')} /></label>
+            {isLandlord ? <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Phone Number')} <span aria-hidden="true">*</span><input className={inputClass} value={fields.phone} onChange={event => updateField('phone', event.target.value)} maxLength={25} required type="tel" autoComplete="tel" inputMode="tel" placeholder={t('e.g., +60 12-345 6789')} /></label>
+              : <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Personal Bio / Roommate Notes')}<textarea className={inputClass} rows={3} maxLength={1000} value={fields.bio} onChange={event => updateField('bio', event.target.value)} placeholder={t('Tell others a little about yourself.')} /></label>}
           </div>
           {formError && <p role="alert" className="text-sm text-red-700">{t(formError)}</p>}
           {save.isError && <p role="alert" className="text-sm text-red-700">{t(messageOf(save.error))}</p>}
@@ -160,7 +173,7 @@ export function ProfilePage() {
         </form>}
       </section>
 
-      <Panel title={t('Housing Budget')}>
+      {isStudent && <Panel title={t('Housing Budget')}>
         <form onSubmit={submitProfile} noValidate className="space-y-4">
           <p className="text-sm text-gray-600">{t('Set an optional monthly budget range for your housing search.')}</p>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -172,7 +185,7 @@ export function ProfilePage() {
           {saveMessage && <p role="status" className="text-sm text-green-700">{t(saveMessage)}</p>}
           <button type="submit" disabled={save.isPending || profile.isPending || profile.isError} className="min-h-11 rounded-lg bg-[#203569] px-5 py-2 text-sm font-bold text-white hover:bg-[#1a2b56] disabled:opacity-50">{save.isPending ? t('Saving…') : t('Save Budget')}</button>
         </form>
-      </Panel>
+      </Panel>}
 
       {isStudent && <Panel title={t('Student Verification')}>
         <p className="mb-4 text-sm text-gray-600">{t('Current status:')} <strong>{user?.studentVerified ? t('Verified') : labelForStatus(user?.verificationStatus || profile.data?.verificationStatus || 'UNVERIFIED')}</strong></p>

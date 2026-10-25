@@ -139,6 +139,7 @@ model AuthToken {
 model Profile {
   userId              String    @id
   displayName         String
+  phone               String?
   university          String?
   bio                 String?
   preferredLocation   String?

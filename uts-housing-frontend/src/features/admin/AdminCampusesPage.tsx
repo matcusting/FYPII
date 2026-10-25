@@ -112,7 +112,7 @@ export function AdminCampusesPage() {
   }
 
   return (
-    <AdminShell title="Campuses & Verification Domains" description="Manage campus coordinates and email domains for student verification. Listing distances are approximate straight-line distances from campus coordinates.">
+    <AdminShell title="Campuses & Verification Domains" description="Manage campus records and university email domains for student verification.">
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(310px,0.8fr)]">
         <section aria-labelledby="campus-list-title">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">

@@ -15,9 +15,9 @@ In the cloud workspace, use `npm ci --cache /workspace/.npm` if the home directo
 
 The Express/PostgreSQL backend is in [`../uts-housing-api`](../uts-housing-api). Start PostgreSQL, run the API migration and optional fictional seed, and then start the API before opening the website. See the [repository guide](../README.md) for Windows and Chrome commands. The frontend expects the success envelope `{ "data": ... }`, error envelope `{ "error": { "code": "...", "message": "..." } }`, and HTTP-only cookie sessions. It also accepts successful `204 No Content` responses.
 
-Set `VITE_GOOGLE_MAPS_API_KEY` in a local `.env` to turn on the interactive Google map. Without the key, the landlord can enter coordinates manually and eligible students can open an opted-in exact pin on Google Maps. The backend controls who may receive exact coordinates.
+Listing owners enter a complete address; they can separately choose whether signed-in students see it after approval. Guests see only the approximate area. The site does not use an embedded map or ask landlords for coordinates, and address-only listings are not sorted by distance.
 
-English is the default interface language. The navigation selector switches the site to Bahasa Melayu or Simplified Chinese and saves the choice in the browser. User-written messages, property titles and addresses are shown as entered. Google Maps labels use the language active when its script first loads; refresh the page after changing language to update those labels. The messaging API verifies `expectedSenderId` against the cookie session so a reply drafted in an old tab cannot silently be sent as another signed-in account.
+English is the default interface language. The navigation selector switches the site to Bahasa Melayu or Simplified Chinese and saves the choice in the browser. User-written messages, property titles and addresses are shown as entered. The messaging API verifies `expectedSenderId` against the cookie session so a reply drafted in an old tab cannot silently be sent as another signed-in account.
 
 ## Checks
 
@@ -28,7 +28,7 @@ npm test
 npm run build
 ```
 
-The test suite covers selected form, API, listing, roommate privacy and administrator behavior. Run the API tests and local PostgreSQL integration checks separately. Production email, Google Maps, storage operations, and deployment need environment-specific configuration and review.
+The test suite covers selected form, API, listing, roommate privacy and administrator behavior. Run the API tests and local PostgreSQL integration checks separately. Production email, storage operations, and deployment need environment-specific configuration and review.
 
 ## Project structure
 

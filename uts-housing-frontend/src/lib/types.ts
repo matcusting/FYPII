@@ -16,11 +16,8 @@ export interface Listing {
   currency?: string
   deposit?: number | string
   approximateArea?: string
-  latitude?: number | null
-  longitude?: number | null
   address?: string | null
   showExactLocation?: boolean
-  distanceKm?: number
   availableFrom?: string
   lastConfirmedAt?: string
   propertyType?: string

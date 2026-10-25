@@ -30,10 +30,16 @@ const campuses = [
 const amenities = [
   { id: 'wifi', name: 'Wi-Fi', slug: 'wifi' }, { id: 'parking', name: 'Parking', slug: 'parking' },
   { id: 'aircon', name: 'Air Conditioning', slug: 'aircon' }, { id: 'laundry', name: 'Washing Machine', slug: 'laundry' },
+  { id: 'wardrobe', name: 'Wardrobe', slug: 'wardrobe' }, { id: 'refrigerator', name: 'Refrigerator', slug: 'refrigerator' },
+  { id: 'water-heater', name: 'Water Heater', slug: 'water-heater' }, { id: 'private-bathroom', name: 'Private Bathroom', slug: 'private-bathroom' },
+  { id: 'kitchen-access', name: 'Kitchen Access', slug: 'kitchen-access' }, { id: 'study-desk', name: 'Study Desk', slug: 'study-desk' },
+  { id: 'security-cctv', name: 'Security / CCTV', slug: 'security-cctv' }, { id: 'balcony', name: 'Balcony', slug: 'balcony' },
 ]
 const listing = (idValue, title, rent, area, type, room, photo, status = 'PUBLISHED') => ({
   id: idValue, title, description: `${title}. This fictional property is for preview use only and is not available to rent. Explore the layout, amenities, and in-app inquiry flow.`,
-  rent, deposit: rent, currency: 'MYR', approximateArea: area, distanceKm: idValue === 'demo-listing-1' ? 1.3 : 3.1,
+  rent, deposit: rent, currency: 'MYR', approximateArea: area,
+  address: idValue === 'demo-listing-1' ? '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak' : '45 Example Street, 96000 Sibu, Sarawak',
+  showExactLocation: idValue === 'demo-listing-1',
   availableFrom: '2026-11-01', lastConfirmedAt: seedDate, propertyType: type, roomType: room,
   furnished: true, amenityIds: ['wifi', 'aircon'], amenities: ['Wi-Fi', 'Air Conditioning'],
   photos: photo ? [{ id: `${idValue}-photo`, url: `/demo/illustrations/${photo}.svg`, alt: 'Illustration of a demo property' }] : [],
@@ -48,9 +54,13 @@ const listings = [
   listing('demo-listing-4', 'Listing Pending Review (Demo)', 720, 'Sibu Jaya area', 'HOUSE', 'SINGLE', 'room', 'PENDING_REVIEW'),
 ]
 const profiles = new Map(users.map(user => [user.id, {
-  displayName: user.name, university: user.roles.includes('STUDENT') ? 'University of Technology Sarawak' : '',
+  displayName: user.name, name: user.name, email: user.email, phone: null,
+  university: user.roles.includes('STUDENT') ? 'University of Technology Sarawak' : '',
   bio: user.roles.includes('STUDENT') ? 'Looking for a quiet place with an easy commute to campus.' : '',
-  preferredLocation: 'Sibu Jaya', budgetMin: 500, budgetMax: 1000, preferredMoveInDate: '2026-11-01',
+  preferredLocation: user.roles.includes('STUDENT') ? 'Sibu Jaya' : null,
+  budgetMin: user.roles.includes('STUDENT') ? 500 : null,
+  budgetMax: user.roles.includes('STUDENT') ? 1000 : null,
+  preferredMoveInDate: user.roles.includes('STUDENT') ? '2026-11-01' : null,
   verificationStatus: user.verificationStatus || 'UNVERIFIED',
 }]))
 const blankAnswers = { smoking: 'NEVER', studySchedule: 'EVENING', sleepSchedule: 'FLEXIBLE', cleanliness: 'HIGH', noise: 'QUIET', guests: 'RARE', pets: 'NO_PETS' }
@@ -126,22 +136,8 @@ function ownerOf(item) { return users.find(user => user.id === item.ownerId) }
 function maySeeExactLocation(item, viewer) {
   return viewer?.id === item.ownerId || viewer?.roles.includes('ADMIN') || (item.showExactLocation === true && viewer?.roles.includes('STUDENT'))
 }
-function distanceToCampus(item, campusId = item.campusId, viewer) {
-  const campus = campuses.find(entry => entry.id === campusId)
-  if (!campus) return undefined
-  if (Number.isFinite(item.latitude) && Number.isFinite(item.longitude)) {
-    const latitude = maySeeExactLocation(item, viewer) ? item.latitude : Math.round(item.latitude / 0.02) * 0.02
-    const longitude = maySeeExactLocation(item, viewer) ? item.longitude : Math.round(item.longitude / 0.02) * 0.02
-    const radians = degrees => degrees * Math.PI / 180
-    const latitudeDelta = radians(campus.latitude - latitude)
-    const longitudeDelta = radians(campus.longitude - longitude)
-    const arc = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(radians(latitude)) * Math.cos(radians(campus.latitude)) * Math.sin(longitudeDelta / 2) ** 2
-    return 6371 * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc))
-  }
-  return item.campusId === campusId && Number.isFinite(item.distanceKm) ? item.distanceKm : undefined
-}
-function decorateListing(item, viewer, campusId = item.campusId) {
-  const result = { ...item, campusName: campuses.find(c => c.id === item.campusId)?.name || item.campusName, owner: item.owner || (ownerOf(item) ? { id: item.ownerId, name: ownerOf(item).name } : undefined), distanceKm: distanceToCampus(item, campusId, viewer) }
+function decorateListing(item, viewer) {
+  const result = { ...item, campusName: campuses.find(c => c.id === item.campusId)?.name || item.campusName, owner: item.owner || (ownerOf(item) ? { id: item.ownerId, name: ownerOf(item).name } : undefined) }
   if (!maySeeExactLocation(item, viewer)) {
     delete result.latitude
     delete result.longitude
@@ -182,11 +178,12 @@ async function api(req, res, url) {
   if (path === '/auth/register' && method === 'POST') return fail(res, 400, 'This local preview does not send verification emails. Use one of the preset demo accounts.', 'DEMO_ONLY')
   if (['/auth/verify-email', '/auth/forgot-password', '/auth/reset-password'].includes(path) && method === 'POST') return fail(res, 400, 'This local preview does not send email or reset real passwords. Use a preset demo account.', 'DEMO_ONLY')
 
-  if (path === '/campuses' && method === 'GET') return json(res, 200, { items: campuses.filter(campus => campus.active) })
+  if (path === '/campuses' && method === 'GET') return json(res, 200, { items: campuses.filter(campus => campus.active).map(({ id, name, university }) => ({ id, name, university })) })
   if (path === '/amenities' && method === 'GET') return json(res, 200, { items: amenities })
   if (path === '/listings' && method === 'GET') {
     const mine = url.searchParams.get('mine') === 'true'
     if (mine && !required(res, user)) return
+    if (url.searchParams.has('maxDistanceKm') || url.searchParams.get('sort') === 'distance') return fail(res, 400, 'Distance search is unavailable. Search by campus or area instead.', 'VALIDATION_ERROR')
     const search = name => (url.searchParams.get(name) || '').toLowerCase()
     let items = listings.filter(item => mine ? item.ownerId === user.id : item.status === 'PUBLISHED')
     if (search('q')) items = items.filter(item => `${item.title} ${item.description}`.toLowerCase().includes(search('q')))
@@ -200,20 +197,20 @@ async function api(req, res, url) {
     if (search('maxRent')) items = items.filter(item => Number(item.rent) <= Number(search('maxRent')))
     if (search('minDeposit')) items = items.filter(item => Number(item.deposit) >= Number(search('minDeposit')))
     if (search('maxDeposit')) items = items.filter(item => Number(item.deposit) <= Number(search('maxDeposit')))
-    if (search('maxDistanceKm')) items = items.filter(item => { const distance = distanceToCampus(item, search('campusId') || item.campusId, user); return distance !== undefined && distance <= Number(search('maxDistanceKm')) })
     if (search('availableBy')) items = items.filter(item => item.availableFrom <= search('availableBy'))
     if (search('amenities')) items = items.filter(item => search('amenities').split(',').every(term => item.amenities?.some(amenity => amenity.toLowerCase().includes(term.trim()))))
     if (search('sort') === 'rent_asc') items.sort((a, b) => Number(a.rent) - Number(b.rent))
     if (search('sort') === 'rent_desc') items.sort((a, b) => Number(b.rent) - Number(a.rent))
-    if (search('sort') === 'distance') items.sort((a, b) => (distanceToCampus(a, search('campusId') || a.campusId, user) ?? Infinity) - (distanceToCampus(b, search('campusId') || b.campusId, user) ?? Infinity))
     if (search('sort') === 'newest' || !search('sort')) items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    return json(res, 200, paginate(items.map(item => decorateListing(item, user, search('campusId') || item.campusId)), url, 12))
+    return json(res, 200, paginate(items.map(item => decorateListing(item, user)), url, 12))
   }
   if (path === '/listings' && method === 'POST') {
     if (!required(res, user)) return
     if (!user.roles.some(role => ['STUDENT', 'LANDLORD', 'ADMIN'].includes(role))) return fail(res, 403, 'This account cannot create listings.')
+    if (typeof body.address !== 'string' || body.address.trim().length < 10 || body.address.trim().length > 250) return fail(res, 400, 'Enter a full property address between 10 and 250 characters.')
     const item = { ...listing(id('listing'), String(body.title || 'New Demo Listing'), Number(body.rent || 0), String(body.approximateArea || 'Demo area'), String(body.propertyType || 'APARTMENT'), String(body.roomType || 'SINGLE'), null, 'DRAFT'), ...body,
-      id: id('listing'), ownerId: user.id, owner: { id: user.id, name: user.name }, status: 'DRAFT', createdAt: now(), updatedAt: now(), lastConfirmedAt: now(), photos: (body.photoKeys || []).map(key => ({ id: key, url: `/demo/uploads/${encodeURIComponent(key)}`, alt: 'Demo uploaded photo' })) }
+      id: id('listing'), ownerId: user.id, owner: { id: user.id, name: user.name }, address: body.address.trim(), latitude: null, longitude: null,
+      showExactLocation: body.showExactLocation === true, status: 'DRAFT', createdAt: now(), updatedAt: now(), lastConfirmedAt: now(), photos: (body.photoKeys || []).map(key => ({ id: key, url: `/demo/uploads/${encodeURIComponent(key)}`, alt: 'Demo uploaded photo' })) }
     listings.unshift(item)
     return json(res, 201, item)
   }
@@ -275,8 +272,12 @@ async function api(req, res, url) {
     if (!required(res, user)) return
     if (user.id !== item.ownerId && !user.roles.includes('ADMIN')) return fail(res, 403, 'You can only manage your own demo listings.', 'FORBIDDEN')
     if (!action && method === 'PATCH') {
+      if (body.address !== undefined && (typeof body.address !== 'string' || body.address.trim().length < 10 || body.address.trim().length > 250)) return fail(res, 400, 'Enter a full property address between 10 and 250 characters.')
       const { id: ignoredId, ownerId: ignoredOwner, owner: ignoredOwnerObject, photoKeys: ignoredKeys, newPhotoKeys, removePhotoIds, ...changes } = body
       Object.assign(item, changes)
+      if (body.address !== undefined) item.address = body.address.trim()
+      item.latitude = null
+      item.longitude = null
       if (Array.isArray(removePhotoIds)) item.photos = item.photos.filter(photo => !removePhotoIds.includes(photo.id))
       if (Array.isArray(newPhotoKeys)) item.photos.push(...newPhotoKeys.map(key => ({ id: key, url: `/demo/uploads/${encodeURIComponent(key)}`, alt: 'Demo uploaded photo' })))
       item.updatedAt = now()
@@ -344,7 +345,12 @@ async function api(req, res, url) {
   if (path === '/profile' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, profiles.get(user.id)) }
   if (path === '/profile' && method === 'PATCH') {
     if (!required(res, user)) return
-    const profile = { ...profiles.get(user.id), ...body }
+    if (Object.hasOwn(body, 'phone')) {
+      if (!user.roles.includes('LANDLORD')) return fail(res, 403, 'Only landlords can update a contact phone number.', 'FORBIDDEN')
+      if (body.phone !== null && (typeof body.phone !== 'string' || !/^\+?[0-9][0-9 ()-]*$/.test(body.phone.trim()) || body.phone.trim().length > 25 || !/^\d{7,15}$/.test(body.phone.replace(/\D/g, '')))) return fail(res, 400, 'Enter a valid phone number with 7 to 15 digits.', 'VALIDATION_ERROR')
+      body.phone = body.phone?.trim() || null
+    }
+    const profile = { ...profiles.get(user.id), ...body, email: user.email, name: body.displayName || user.name }
     profiles.set(user.id, profile)
     user.name = body.displayName || user.name
     return json(res, 200, profile)

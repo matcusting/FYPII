@@ -83,8 +83,9 @@ function listingOf(row: {
   owner: { id: string; name: string; email: string }; campus: { name: string };
   [key: string]: unknown
 }) {
+  const { latitude: _latitude, longitude: _longitude, ...listing } = row
   return {
-    ...row,
+    ...listing,
     campusName: row.campus.name,
     photos: row.photos.map(photo => ({ id: photo.id, url: `/api/v1/media/${encodeURIComponent(photo.storageKey)}`, alt: 'Property photo' })),
   }
@@ -353,6 +354,7 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
     const permitted = (previous.status === 'PENDING_REVIEW' && ['PUBLISHED', 'REJECTED'].includes(status)) || (previous.status === 'PUBLISHED' && status === 'PAUSED') || (previous.status === 'PAUSED' && status === 'PUBLISHED')
     if (!permitted) return void fail(res, 409, 'Submit the listing for review before changing it to this status.', 'INVALID_TRANSITION')
     if (status === 'PUBLISHED' && !previous.photos.length) return void fail(res, 400, 'A property needs at least one photo before publication.', 'PHOTO_REQUIRED')
+    if (status === 'PUBLISHED' && (!previous.address?.trim() || previous.address.trim().length < 10 || previous.address.trim().length > 250)) return void fail(res, 400, 'Enter the full property address before publishing.', 'ADDRESS_REQUIRED')
     const changed = await atomicDecision(async transaction => {
       const updated = await transaction.listing.updateMany({ where: { id: id.data, status: previous.status }, data: { status: status as ListingStatus, moderationReason: reason || null, reviewedAt: new Date() } })
       if (!updated.count) throw new ModerationConflict()

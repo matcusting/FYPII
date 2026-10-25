@@ -25,9 +25,9 @@ export const adminTranslations: Record<string, { ms: string; zh: string }> = {
   'View details →': { ms: 'Lihat butiran →', zh: '查看详情 →' },
 
   'Campuses & Verification Domains': { ms: 'Kampus dan Domain Pengesahan', zh: '校区与认证域名' },
-  'Manage campus coordinates and email domains for student verification. Listing distances are approximate straight-line distances from campus coordinates.': {
-    ms: 'Urus koordinat kampus dan domain e-mel untuk pengesahan pelajar. Jarak rumah ialah anggaran jarak garis lurus dari koordinat kampus.',
-    zh: '管理校区坐标和学生认证邮箱域名。房源距离是相对校区坐标的直线距离估算。',
+  'Manage campus records and university email domains for student verification.': {
+    ms: 'Urus rekod kampus dan domain e-mel universiti untuk pengesahan pelajar.',
+    zh: '管理校区资料和用于学生认证的大学邮箱域名。',
   },
   'Existing campuses': { ms: 'Kampus sedia ada', zh: '现有校区' },
   'Refresh': { ms: 'Muat semula', zh: '刷新' },

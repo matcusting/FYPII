@@ -76,6 +76,14 @@ try {
     { slug: 'furnished', name: 'Furnished' },
     { slug: 'laundry', name: 'Laundry' },
     { slug: 'parking', name: 'Parking' },
+    { slug: 'wardrobe', name: 'Wardrobe' },
+    { slug: 'refrigerator', name: 'Refrigerator' },
+    { slug: 'water-heater', name: 'Water Heater' },
+    { slug: 'private-bathroom', name: 'Private Bathroom' },
+    { slug: 'kitchen-access', name: 'Kitchen Access' },
+    { slug: 'study-desk', name: 'Study Desk' },
+    { slug: 'security-cctv', name: 'Security / CCTV' },
+    { slug: 'balcony', name: 'Balcony' },
   ]) {
     await prisma.amenity.upsert({ where: { slug: amenity.slug }, update: {}, create: amenity })
   }
@@ -144,8 +152,7 @@ try {
       deposit: 680,
       availableFrom,
       approximateArea: 'Fictional Sibu Jaya demo area',
-      latitude: 2.329,
-      longitude: 111.845,
+      address: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak',
       showExactLocation: false,
       furnished: true,
       status: 'PUBLISHED',
@@ -156,6 +163,10 @@ try {
         { amenity: { connect: { slug: 'furnished' } } },
       ] },
     },
+  })
+  await prisma.listing.updateMany({
+    where: { id: ids.listing, address: null },
+    data: { address: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak', latitude: null, longitude: null },
   })
 
   process.stdout.write('Seeded local fictional demo accounts, campus, amenities and one sample listing.\n')

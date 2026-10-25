@@ -1,5 +1,9 @@
 /** Account, dashboard, review, and notification interface copy. */
 export const accountTranslations: Record<string, { ms: string; zh: string }> = {
+  'Manage your name and contact details.': { ms: 'Urus nama dan maklumat hubungan anda.', zh: '管理你的姓名和联系方式。' },
+  'Phone Number': { ms: 'Nombor Telefon', zh: '电话号码' },
+  'e.g., +60 12-345 6789': { ms: 'cth., +60 12-345 6789', zh: '例如：+60 12-345 6789' },
+  'Enter a valid phone number.': { ms: 'Masukkan nombor telefon yang sah.', zh: '请输入有效的电话号码。' },
   'UTS Housing & Roommate Finder': { ms: 'Pencari Rumah & Rakan Sebilik UTS', zh: 'UTS 住房与室友寻找平台' },
   'Logout': { ms: 'Log keluar', zh: '退出登录' },
   'Welcome back, {name}!': { ms: 'Selamat kembali, {name}!', zh: '欢迎回来，{name}！' },

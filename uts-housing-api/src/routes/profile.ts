@@ -11,8 +11,13 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   return !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === value
 }, 'Enter a valid date.').nullable().optional()
 const amount = z.number().finite().nonnegative().max(1_000_000).nullable().optional()
+const phoneNumber = z.string().trim().min(7).max(25)
+  .regex(/^\+?[0-9][0-9 ()-]*$/, 'Enter a valid phone number.')
+  .refine(value => { const digits = value.replace(/\D/g, '').length; return digits >= 7 && digits <= 15 }, 'Enter a phone number with 7 to 15 digits.')
+  .nullable().optional()
 const profileSchema = z.object({
   displayName: z.string().trim().min(2).max(100).optional(),
+  phone: phoneNumber,
   university: optionalText(160), bio: optionalText(1000), preferredLocation: optionalText(160),
   budgetMin: amount, budgetMax: amount, preferredMoveInDate: isoDate,
 }).strict()
@@ -20,13 +25,14 @@ const preferenceSchema = z.object({
   emailInquiryUpdates: z.boolean().optional(), emailConnectionRequests: z.boolean().optional(), emailProductUpdates: z.boolean().optional(),
 }).strict()
 
-function formatProfile(user: { name: string; verificationStatus: string }, profile: {
-  displayName: string; university: string | null; bio: string | null; preferredLocation: string | null;
+function formatProfile(user: { name: string; email: string; verificationStatus: string }, profile: {
+  displayName: string; phone: string | null; university: string | null; bio: string | null; preferredLocation: string | null;
   budgetMin: { toString(): string } | null; budgetMax: { toString(): string } | null;
   preferredMoveInDate: Date | null
 } | null) {
   return {
-    displayName: profile?.displayName || user.name, name: user.name, university: profile?.university || null,
+    displayName: profile?.displayName || user.name, name: user.name, email: user.email,
+    phone: profile?.phone || null, university: profile?.university || null,
     bio: profile?.bio || null, preferredLocation: profile?.preferredLocation || null,
     budgetMin: profile?.budgetMin?.toString() || null, budgetMax: profile?.budgetMax?.toString() || null,
     preferredMoveInDate: profile?.preferredMoveInDate?.toISOString().slice(0, 10) || null,
@@ -44,6 +50,7 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   const parsed = profileSchema.safeParse(req.body)
   if (!parsed.success || Object.keys(parsed.data || {}).length === 0) return fail(res, 400, 'Enter valid profile details.', 'VALIDATION_ERROR')
   const user = currentUser(req)!
+  if (parsed.data.phone !== undefined && !user.roles.includes('LANDLORD')) return fail(res, 403, 'Only landlords can update a contact phone number.', 'FORBIDDEN')
   const current = await prisma.profile.findUnique({ where: { userId: user.id } })
   const fields = parsed.data
   const min = fields.budgetMin === undefined ? current?.budgetMin == null ? null : Number(current.budgetMin) : fields.budgetMin
@@ -53,6 +60,7 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   }
   const update = {
     ...(fields.displayName !== undefined ? { displayName: fields.displayName } : {}),
+    ...(fields.phone !== undefined ? { phone: fields.phone } : {}),
     ...(fields.university !== undefined ? { university: fields.university } : {}),
     ...(fields.bio !== undefined ? { bio: fields.bio } : {}),
     ...(fields.preferredLocation !== undefined ? { preferredLocation: fields.preferredLocation } : {}),

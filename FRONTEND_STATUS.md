@@ -26,20 +26,20 @@
 
 在保留上述 API 对接和新增功能的前提下，已有页面重新采用最初版本的视觉设计：居中登录卡片、学生首页双入口卡片、学生页面的顶部导航与白色内容卡片、房源左侧筛选栏、绿色室友生活习惯问卷，以及房东后台的深色顶栏和侧边导航。原有的学生与房东路径仍可进入这些页面；新功能页面沿用相同的深蓝、浅灰和白色视觉语言。原始版本的硬编码演示数据没有被带回正式前端。
 
-网站界面现已改为英文，包括公开页面、学生与房东页面、管理员后台、表单提示、错误消息及 Windows 预览包中的演示数据。页面布局和原版视觉设计保持不变。
+网站界面默认英文，并可切换马来文与简体中文。公开页面、学生与房东页面、管理员后台及表单提示都接入语言切换；聊天和用户填写内容保持原文。页面布局和原版视觉设计保持不变。
 
 ## 当前端到端状态
 
 仓库现含 `uts-housing-api` Express/PostgreSQL 服务、SQL 迁移与会话认证。前端已接入真实 API，覆盖注册与验证、房源和照片、室友匹配、双向消息、评价及证明、举报、通知、管理员审核。后端执行角色、所有权与 CSRF 检查；具体本地启动步骤见根目录 `README.md`。旧的 `preview` 服务器仍是内存演示，不等同于真实 API。
 
-房屋位置可由房东填写并单独选择是否公开精确位置。公开后，仅登录的学生、房东本人和管理员可看到精确坐标；访客看到概略区域。Google Maps 内嵌地图的代码和环境变量已就位，仍需项目负责人配置带 HTTP referrer 限制的浏览器 API key 才能启用。未配置 key 时，可手填坐标，符合权限的用户可在 Google Maps 新标签页查看。
+房东须填写完整房屋地址，并可单独决定审核通过后是否向已登录学生公开。房东本人和管理员始终可查看完整地址；访客只看到大致区域。网站已移除地图、坐标输入和距离排序，因此不会将地址推测为未经验证的距离。
 
 ## 尚需项目环境与正式验收
 
 1. **真实资料和服务：** 正式校区、校方邮箱域名、隐私政策及使用条款须由项目负责人确认；对外邮件投递需要 SMTP 服务。无 SMTP 时，本地邮件 worker 只写入开发 outbox。
-2. **上线运维：** 网站尚未部署；正式环境仍需 Google Maps key/计费、域名与 HTTPS、备份、监控和密钥管理。
+2. **上线运维：** 网站尚未部署；正式环境仍需域名与 HTTPS、备份、监控和密钥管理。
 3. **人工验收：** 仍需在目标手机和浏览器检查响应式布局、完成 WCAG 2.2 AA 人工审核，并在正式环境做端到端验收。现有自动化检查和本地联调不能代替这些验收。
 
 ## 本地验证
 
-在 `uts-housing-frontend` 运行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`；在 `uts-housing-api` 运行 `npm ci`、`npm run db:generate`、`npm run db:deploy`、`npm run typecheck`、`npm test`、`npm run build`。API 集成测试可用 `TEST_DATABASE_URL` 指向一次性 PostgreSQL 数据库。部署和真实 Google Maps key 仍需另行验证。
+在 `uts-housing-frontend` 运行 `npm ci`、`npm run typecheck`、`npm run lint`、`npm test`、`npm run build`；在 `uts-housing-api` 运行 `npm ci`、`npm run db:generate`、`npm run db:deploy`、`npm run typecheck`、`npm test`、`npm run build`。API 集成测试可用 `TEST_DATABASE_URL` 指向一次性 PostgreSQL 数据库。部署仍需另行验证。

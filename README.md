@@ -43,20 +43,12 @@ The application uses the real local API and database. The older `uts-housing-fro
 
 The language selector is available in the site navigation and role dashboards. It remembers the choice in this browser. Chat messages and user-entered listing text stay in their original language. If you switch accounts in another browser tab, the message composer resets its draft; reload any older tab before sending a reply. The API checks that the sender shown by the browser is still the signed-in account.
 
-## Google Maps and location privacy
+## Property addresses and location privacy
 
-The landlord can save coordinates and a street address, and can choose whether to share the exact pin. An approved listing's exact pin is shown only to signed-in students after the landlord opts in; its owner and administrators can also view it. Other visitors see an approximate area and distance. If there is no Google Maps API key, the listing form accepts coordinates and eligible viewers can open the pin on Google Maps in a new tab.
-
-To enable the embedded interactive map, create a browser key in Google Cloud, enable **Maps JavaScript API**, enable billing, and restrict the key to your website's HTTP referrers (for local use, `http://localhost:5173/*`). Put it in `uts-housing-frontend/.env`:
-
-```dotenv
-VITE_GOOGLE_MAPS_API_KEY=your_browser_key
-```
-
-The key is browser-visible configuration; do not put server secrets in a `VITE_` variable. Restart Vite after changing the file. A Google key has not been supplied, so the embedded map has not been tested against a live Google account.
+Listing owners enter a full street address when creating or editing a property. They choose whether an approved listing shares that address with signed-in students; the owner and administrators can always view it. Other visitors see only the approximate area. The site has no embedded map, coordinate entry or distance sorting. Existing legacy coordinates are not returned in listing responses, and address-only listings cannot be ranked by campus distance without a future geocoding service.
 
 ## Checks and project files
 
 Run `npm run typecheck`, `npm test`, and `npm run build` in both `uts-housing-api` and `uts-housing-frontend`. Run `npm run lint` in the frontend. API integration tests can use a migrated disposable PostgreSQL database via `TEST_DATABASE_URL`. CI performs these checks and applies the committed SQL migration to its test database.
 
-The [API guide](uts-housing-api/README.md) explains migration, seed, and email behavior. [Frontend guide](uts-housing-frontend/README.md) describes its routes. The user's uploaded `PROJECT_REQUIREMENTS.md` is the product blueprint; its checklist was not evidence of completed work. Deployment, real Google billing/key, provider SMTP, backups, and production monitoring still require environment-specific setup and review.
+The [API guide](uts-housing-api/README.md) explains migration, seed, and email behavior. [Frontend guide](uts-housing-frontend/README.md) describes its routes. The user's uploaded `PROJECT_REQUIREMENTS.md` is the product blueprint; its checklist was not evidence of completed work. Deployment, provider SMTP, backups, and production monitoring still require environment-specific setup and review.

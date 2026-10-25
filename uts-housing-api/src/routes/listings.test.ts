@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../core/db.js', () => ({ prisma: {} }))
 
-import { canViewExactLocation, distanceAnchor, haversineKm, serializeListing } from './listings.js'
+import { canViewExactLocation, listingInput, serializeListing } from './listings.js'
 
 describe('listing location privacy', () => {
   const student = { id: 'student', roles: ['STUDENT'] as const }
@@ -11,7 +11,7 @@ describe('listing location privacy', () => {
   const owner = { id: 'owner', roles: ['LANDLORD'] as const }
   const admin = { id: 'admin', roles: ['ADMIN'] as const }
 
-  it('requires owner consent and a signed-in student for the exact public pin', () => {
+  it('requires owner consent and a signed-in student for the full address', () => {
     expect(canViewExactLocation('owner', false, null)).toBe(false)
     expect(canViewExactLocation('owner', true, null)).toBe(false)
     expect(canViewExactLocation('owner', false, { ...student, roles: [...student.roles] })).toBe(false)
@@ -21,15 +21,7 @@ describe('listing location privacy', () => {
     expect(canViewExactLocation('owner', false, { ...admin, roles: [...admin.roles] })).toBe(true)
   })
 
-  it('uses one coarse cell for nearby hidden pins so distance queries cannot recover them', () => {
-    const first = distanceAnchor(2.286, 111.835, false)
-    const second = distanceAnchor(2.287, 111.834, false)
-    expect(first).toEqual(second)
-    expect(haversineKm(first.latitude, first.longitude, 2.3, 111.84)).toBe(haversineKm(second.latitude, second.longitude, 2.3, 111.84))
-    expect(distanceAnchor(2.286, 111.835, true)).toEqual({ latitude: 2.286, longitude: 111.835 })
-  })
-
-  it('redacts the stored address and pin in listing responses until consent and student sign-in', () => {
+  it('redacts the full address until consent and student sign-in, and never exposes legacy coordinates', () => {
     const record = {
       id: 'property', ownerId: 'owner', status: 'PUBLISHED', showExactLocation: false,
       title: 'Property near UTS', rent: 650, deposit: 650, latitude: 2.286, longitude: 111.835,
@@ -42,15 +34,31 @@ describe('listing location privacy', () => {
     const detail = (userId?: string) => serializeListing(record as unknown as Parameters<typeof serializeListing>[0], userId ? { id: userId, roles: userId === 'student' ? ['STUDENT'] : ['LANDLORD'] } as User : null)
     for (const viewer of [undefined, 'student', 'other-landlord']) {
       const hidden = detail(viewer)
-      expect(hidden.latitude).toBeUndefined()
-      expect(hidden.longitude).toBeUndefined()
+      expect('latitude' in hidden).toBe(false)
+      expect('longitude' in hidden).toBe(false)
+      expect('distanceKm' in hidden).toBe(false)
       expect(hidden.address).toBeUndefined()
       expect(hidden.showExactLocation).toBe(false)
     }
-    expect(detail('owner')).toMatchObject({ latitude: 2.286, longitude: 111.835, address: 'Private street address' })
+    expect(detail('owner').address).toBe('Private street address')
+    expect('latitude' in detail('owner')).toBe(false)
+    expect('longitude' in detail('owner')).toBe(false)
     record.showExactLocation = true
-    expect(detail('student')).toMatchObject({ latitude: 2.286, longitude: 111.835, address: 'Private street address' })
+    expect(detail('student').address).toBe('Private street address')
+    expect('latitude' in detail('student')).toBe(false)
+    expect('longitude' in detail('student')).toBe(false)
     expect(detail('other-landlord').address).toBeUndefined()
-    expect(detail().latitude).toBeUndefined()
+    expect('latitude' in detail()).toBe(false)
+  })
+
+  it('requires a full written address when a landlord creates a listing', () => {
+    const draft = {
+      title: 'Room near campus', description: 'Furnished room in a shared home near campus.', campusId: 'campus',
+      propertyType: 'HOUSE', roomType: 'SINGLE', rent: '650.00', deposit: '650.00',
+      availableFrom: '2026-11-01', approximateArea: 'Sibu Jaya',
+    }
+    expect(listingInput.safeParse({ ...draft, address: 'No. 12, Jalan Example, Sibu' }).success).toBe(true)
+    expect(listingInput.safeParse({ ...draft, address: 'Sibu' }).success).toBe(false)
+    expect(listingInput.safeParse(draft).success).toBe(false)
   })
 })
