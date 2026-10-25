@@ -175,7 +175,7 @@ function RequestsPageForAccount() {
               {inquiries.hasNextPage && <button type="button" disabled={inquiries.isFetchingNextPage} onClick={() => void inquiries.fetchNextPage()} className="rounded-lg border border-[#203569] px-3 py-2 disabled:opacity-50">{inquiries.isFetchingNextPage ? t('Loading…') : t('More inquiries')}</button>}
               {roommateRequests.hasNextPage && <button type="button" disabled={roommateRequests.isFetchingNextPage} onClick={() => void roommateRequests.fetchNextPage()} className="rounded-lg border border-[#203569] px-3 py-2 disabled:opacity-50">{roommateRequests.isFetchingNextPage ? t('Loading…') : t('More roommate requests')}</button>}
             </div>}
-            {isStudent && <div className="flex gap-4 p-5 text-xs font-bold text-[#203569]"><Link to="/listings" className="hover:underline">{t('Browse Housing →')}</Link><Link to="/roommates" className="hover:underline">{t('Find Roommates →')}</Link></div>}
+            {isStudent && <div className="flex gap-4 p-5 text-xs font-bold text-[#203569]"><Link to="/listings" className="hover:underline">{t('Browse Housing →')}</Link><Link to="/roommates/profile" className="hover:underline">{t('Find Roommates →')}</Link></div>}
           </aside>
           <section className={['flex min-w-0 flex-col', isLandlord ? 'min-h-[510px]' : 'min-h-[648px]'].join(' ')} aria-label={t('Conversation details')}>
             {selected ? <>

@@ -65,8 +65,8 @@ const profiles = new Map(users.map(user => [user.id, {
 }]))
 const blankAnswers = { smoking: 'NEVER', studySchedule: 'EVENING', sleepSchedule: 'FLEXIBLE', cleanliness: 'HIGH', noise: 'QUIET', guests: 'RARE', pets: 'NO_PETS' }
 const roommateProfiles = new Map([
-  ['student-demo', { displayName: 'Demo Student', university: 'University of Technology Sarawak', bio: 'Hoping to find a tidy roommate.', preferredLocation: 'Sibu Jaya', budgetMin: 500, budgetMax: 900, moveInDate: '2026-11-01', discoverable: true, lifestyle: { ...blankAnswers }, roommatePreferences: { ...blankAnswers }, importanceWeights: Object.fromEntries(Object.keys(blankAnswers).map(key => [key, 1])), visibility: { university: true, bio: true, preferredLocation: true, budget: true, moveInDate: true, lifestyle: true }, smokeFreeOnly: true, petFreeOnly: false }],
-  ['student-candidate', { displayName: 'Demo Roommate', university: 'University of Technology Sarawak', bio: 'I enjoy quiet study time and a regular routine.', preferredLocation: 'Sibu Jaya', budgetMin: 550, budgetMax: 950, moveInDate: '2026-11-10', discoverable: true, lifestyle: { ...blankAnswers }, visibility: { university: true, bio: true, preferredLocation: true, budget: true, moveInDate: true, lifestyle: true } }],
+  ['student-demo', { displayName: 'Demo Student', university: 'University of Technology Sarawak', bio: 'Hoping to find a tidy roommate.', preferredLocation: 'Sibu Jaya', budgetMin: 500, budgetMax: 900, moveInDate: '2026-11-01', discoverable: true, lifestyle: { ...blankAnswers }, roommatePreferences: { ...blankAnswers }, importanceWeights: Object.fromEntries(Object.keys(blankAnswers).map(key => [key, 1])), visibility: { university: false, bio: true, preferredLocation: true, budget: true, moveInDate: true, lifestyle: true }, smokeFreeOnly: true, petFreeOnly: false }],
+  ['student-candidate', { displayName: 'Demo Roommate', university: 'University of Technology Sarawak', bio: 'I enjoy quiet study time and a regular routine.', preferredLocation: 'Sibu Jaya', budgetMin: 550, budgetMax: 950, moveInDate: '2026-11-10', discoverable: true, lifestyle: { ...blankAnswers }, visibility: { university: false, bio: true, preferredLocation: true, budget: true, moveInDate: true, lifestyle: true } }],
 ])
 const favorites = new Map([['student-demo', new Set(['demo-listing-1'])]])
 const inquiries = [{ id: 'demo-inquiry-1', listingId: 'demo-listing-1', senderId: 'student-demo', recipientId: 'landlord-demo', sender: { id: 'student-demo', name: 'Demo Student' }, recipient: { id: 'landlord-demo', name: 'Demo Landlord' }, listing: { id: 'demo-listing-1', title: 'Room Near UTS (Demo)' }, message: 'Hello, when can I view this demo property?', status: 'OPEN', createdAt: seedDate }]
@@ -149,7 +149,7 @@ function decorateListing(item, viewer) {
 function matchesFor(user) {
   const blocked = user?.blockedUsers || []
   return [...roommateProfiles.entries()].filter(([personId, profile]) => personId !== user.id && profile.discoverable && users.find(item => item.id === personId)?.studentVerified && !blocked.includes(personId)).map(([personId, profile]) => ({
-    id: personId, publicProfile: { userId: personId, displayName: profile.displayName, university: profile.visibility?.university ? profile.university : undefined, bio: profile.visibility?.bio ? profile.bio : undefined, preferredLocation: profile.visibility?.preferredLocation ? profile.preferredLocation : undefined, budgetMin: profile.visibility?.budget ? profile.budgetMin : undefined, budgetMax: profile.visibility?.budget ? profile.budgetMax : undefined, moveInDate: profile.visibility?.moveInDate ? profile.moveInDate : undefined },
+    id: personId, publicProfile: { userId: personId, displayName: profile.displayName, bio: profile.visibility?.bio ? profile.bio : undefined, preferredLocation: profile.visibility?.preferredLocation ? profile.preferredLocation : undefined, budgetMin: profile.visibility?.budget ? profile.budgetMin : undefined, budgetMax: profile.visibility?.budget ? profile.budgetMax : undefined, moveInDate: profile.visibility?.moveInDate ? profile.moveInDate : undefined },
     compatibilityScore: 84, topFactors: ['You both prefer a quiet study environment', 'Your budgets are similar', 'Your move-in dates are close'], explanation: 'This is a demo match; the score is illustrative.',
     requestStatus: roommateRequests.find(request => request.senderId === user.id && request.recipientId === personId)?.status || '',
   }))
@@ -346,7 +346,7 @@ async function api(req, res, url) {
   if (path === '/profile' && method === 'PATCH') {
     if (!required(res, user)) return
     if (Object.hasOwn(body, 'phone')) {
-      if (!user.roles.includes('LANDLORD')) return fail(res, 403, 'Only landlords can update a contact phone number.', 'FORBIDDEN')
+      if (!user.roles.some(role => role === 'STUDENT' || role === 'LANDLORD')) return fail(res, 403, 'Only students and landlords can update a contact phone number.', 'FORBIDDEN')
       if (body.phone !== null && (typeof body.phone !== 'string' || !/^\+?[0-9][0-9 ()-]*$/.test(body.phone.trim()) || body.phone.trim().length > 25 || !/^\d{7,15}$/.test(body.phone.replace(/\D/g, '')))) return fail(res, 400, 'Enter a valid phone number with 7 to 15 digits.', 'VALIDATION_ERROR')
       body.phone = body.phone?.trim() || null
     }
@@ -363,7 +363,7 @@ async function api(req, res, url) {
     return json(res, 201, record)
   }
   if (path === '/roommates/profile' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, roommateProfiles.get(user.id) || {}) }
-  if (path === '/roommates/profile' && method === 'PATCH') { if (!required(res, user, 'STUDENT')) return; const profile = { ...roommateProfiles.get(user.id), ...body }; roommateProfiles.set(user.id, profile); return json(res, 200, profile) }
+  if (path === '/roommates/profile' && method === 'PATCH') { if (!required(res, user, 'STUDENT')) return; const current = roommateProfiles.get(user.id) || {}; const profile = { ...current, ...body, visibility: { ...current.visibility, ...body.visibility, university: false } }; roommateProfiles.set(user.id, profile); return json(res, 200, profile) }
   if (path === '/roommates/profile' && method === 'DELETE') { if (!required(res, user, 'STUDENT')) return; roommateProfiles.delete(user.id); return json(res, 200, { deleted: true }) }
   if (path === '/roommates/matches' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; if (!user.studentVerified) return fail(res, 403, 'Student verification is required.'); return json(res, 200, paginate(matchesFor(user), url)) }
   if (path === '/roommates/requests' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, paginate(roommateRequests.filter(item => item.senderId === user.id || item.recipientId === user.id), url)) }

@@ -19,6 +19,7 @@ import router from './profile.js'
 
 const landlord = { id: 'landlord-1', name: 'Landlord', email: 'landlord@example.test', roles: ['LANDLORD'], verificationStatus: 'UNVERIFIED' }
 const student = { id: 'student-1', name: 'Student', email: 'student@example.test', roles: ['STUDENT'], verificationStatus: 'APPROVED' }
+const admin = { id: 'admin-1', name: 'Admin', email: 'admin@example.test', roles: ['ADMIN'], verificationStatus: 'UNVERIFIED' }
 
 function call(method: string, path: string, authUser: typeof landlord, body?: unknown) {
   const request = { method, url: path, originalUrl: path, authUser, body } as unknown as Request
@@ -39,17 +40,25 @@ beforeEach(() => {
   database.profile.upsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({ ...create, university: null, bio: null, preferredLocation: null, budgetMin: null, budgetMax: null, preferredMoveInDate: null }))
 })
 
-describe('private landlord contact phone', () => {
-  it('saves a valid phone and returns it only in the owner profile response', async () => {
+describe('private account contact phone', () => {
+  it('saves a landlord phone and returns it in the owner profile response', async () => {
     const saved = await call('PATCH', '/profile', landlord, { displayName: 'Updated Landlord', phone: '+60 12-345 6789' })
     expect(saved.status).toBe(200)
     expect(saved.data).toMatchObject({ data: { displayName: 'Updated Landlord', email: landlord.email, phone: '+60 12-345 6789' } })
     expect(database.profile.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: landlord.id }, create: expect.objectContaining({ userId: landlord.id, phone: '+60 12-345 6789' }) }))
   })
 
-  it('rejects invalid phone numbers and student attempts before writing data', async () => {
+  it('lets a student save a private phone in their own account profile', async () => {
+    const saved = await call('PATCH', '/profile', student, { displayName: 'Updated Student', phone: '+60 16-234 5678' })
+    expect(saved.status).toBe(200)
+    expect(saved.data).toMatchObject({ data: { displayName: 'Updated Student', email: student.email, phone: '+60 16-234 5678' } })
+    expect(database.profile.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: student.id }, create: expect.objectContaining({ userId: student.id, phone: '+60 16-234 5678' }) }))
+  })
+
+  it('rejects invalid phone numbers and admin attempts before writing data', async () => {
     expect((await call('PATCH', '/profile', landlord, { phone: 'abc123' })).status).toBe(400)
-    expect((await call('PATCH', '/profile', student, { phone: '+60 12-345 6789' })).status).toBe(403)
+    expect((await call('PATCH', '/profile', student, { phone: '123' })).status).toBe(400)
+    expect((await call('PATCH', '/profile', admin, { phone: '+60 12-345 6789' })).status).toBe(403)
     expect(database.profile.upsert).not.toHaveBeenCalled()
   })
 })

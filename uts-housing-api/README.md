@@ -10,6 +10,8 @@ Database changes are committed as SQL files in `prisma/migrations`. `npm run db:
 
 The listing API requires a full address on creation. It returns that address only to the owner, administrators, and signed-in students when the owner chooses to share it after approval. Public visitors receive an approximate area. The frontend has no map or coordinate entry; legacy coordinates are never included in listing responses.
 
+The account profile API lets students and landlords save a contact phone number. It appears only in their own authenticated profile response. Roommate matches do not disclose university, including for older profiles that previously opted in to sharing it.
+
 Run `npm run typecheck`, `npm test`, and `npm run build` for API checks. The email worker runs separately with `npm run email:worker`; configure SMTP values in `.env` to deliver queued messages. In local development without SMTP, the worker writes email messages to `data/outbox` so verification and reset links can be tested. API transactions do not wait for delivery. Production requires SMTP.
 
 On Windows, install Node.js 24 and Docker Desktop first. In PowerShell, use `Copy-Item .env.example .env` inside this directory before starting the API. Run the API, email worker, and frontend in separate PowerShell windows. The API is available only on your computer until you choose to deploy it.

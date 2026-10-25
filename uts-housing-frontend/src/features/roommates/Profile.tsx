@@ -8,7 +8,6 @@ import { blankProfile, lifestyleFields, profileOf, profilePayload, type Lifestyl
 import { buttonClass, inputClass, Notice, RoommateShell, secondaryButtonClass, StudentGate } from './ui'
 
 const privacyFields: Array<{ key: PrivacyField; label: string }> = [
-  { key: 'university', label: 'University' },
   { key: 'bio', label: 'Bio' },
   { key: 'preferredLocation', label: 'Preferred location' },
   { key: 'budget', label: 'Budget range' },
@@ -103,7 +102,6 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
       <p className="mb-5 mt-1 text-sm text-gray-600">{t('Once discovery is on, verified students can see only the details you choose to share.')}</p>
       <div className="grid gap-5 sm:grid-cols-2">
         <div><label className="block text-sm font-medium" htmlFor="roommate-display-name">{t('Display Name')}</label><input id="roommate-display-name" className={inputClass} maxLength={80} value={form.displayName} onChange={event => update('displayName', event.currentTarget.value)} autoComplete="nickname" /></div>
-        <div><label className="block text-sm font-medium" htmlFor="roommate-university">{t('University')}</label><input id="roommate-university" className={inputClass} maxLength={120} value={form.university} onChange={event => update('university', event.currentTarget.value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-location">{t('Preferred Location')}</label><input id="roommate-location" className={inputClass} maxLength={120} value={form.preferredLocation} onChange={event => update('preferredLocation', event.currentTarget.value)} placeholder={t('e.g. near campus')} /><p className="mt-1 text-xs text-gray-600">{t('Use a general area rather than sharing your exact address.')}</p></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-move-in">{t('Preferred Move-in Date')}</label><EnglishDateInput id="roommate-move-in" className={inputClass} value={form.moveInDate} onValueChange={value => update('moveInDate', value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-budget-min">{t('Minimum Monthly Budget (MYR)')}</label><input id="roommate-budget-min" type="number" min="0" step="1" inputMode="numeric" className={inputClass} value={form.budgetMin} onChange={event => update('budgetMin', event.currentTarget.value)} /></div>

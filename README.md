@@ -43,6 +43,8 @@ The application uses the real local API and database. The older `uts-housing-fro
 
 The language selector is available in the site navigation and role dashboards. It remembers the choice in this browser. Chat messages and user-entered listing text stay in their original language. If you switch accounts in another browser tab, the message composer resets its draft; reload any older tab before sending a reply. The API checks that the sender shown by the browser is still the signed-in account.
 
+Student account settings collect a private phone number alongside the student's name, email, university for verification, and bio. Housing budget, preferred move-in date, and preferred area are edited in **My Lifestyle Profile** instead. The dashboard's **Find a Roommate** action opens that profile directly; university is never shown to roommate matches.
+
 ## Property addresses and location privacy
 
 Listing owners enter a full street address when creating or editing a property. They choose whether an approved listing shares that address with signed-in students; the owner and administrators can always view it. Other visitors see only the approximate area. The site has no embedded map, coordinate entry or distance sorting. Existing legacy coordinates are not returned in listing responses, and address-only listings cannot be ranked by campus distance without a future geocoding service.

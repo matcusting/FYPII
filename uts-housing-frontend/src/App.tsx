@@ -66,7 +66,7 @@ export default function App() {
     <Route path="help" element={<StaticPage kind="help" />} />
     <Route path="student" element={<AuthGuard roles={['STUDENT']}><DashboardPage /></AuthGuard>} />
     <Route path="student/housing" element={<AuthGuard roles={['STUDENT']}><ListingsPage /></AuthGuard>} />
-    <Route path="student/roommates" element={<AuthGuard roles={['STUDENT']} verifiedStudent><RoommatesPage /></AuthGuard>} />
+    <Route path="student/roommates" element={<AuthGuard roles={['STUDENT']}><Navigate to="/roommates/profile" replace /></AuthGuard>} />
     <Route path="student/profile" element={<AuthGuard roles={['STUDENT']}><ProfilePage /></AuthGuard>} />
     <Route path="student/messages" element={<AuthGuard roles={['STUDENT']}><RequestsPage /></AuthGuard>} />
     <Route path="landlord" element={<AuthGuard roles={['LANDLORD']}><DashboardPage /></AuthGuard>} />

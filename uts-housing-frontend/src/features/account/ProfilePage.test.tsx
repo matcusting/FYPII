@@ -53,12 +53,37 @@ describe('landlord profile', () => {
     })))
   })
 
-  it('keeps student housing preferences and budget visible', async () => {
+  it('shows student contact details without housing preferences or budget, and saves the phone', async () => {
     state.user.id = 'student-1'
+    state.user.name = 'Demo Student'
+    state.user.email = 'student@demo.local'
     state.user.roles = ['STUDENT']
     renderPage()
     expect(await screen.findByRole('textbox', { name: 'University' })).toBeTruthy()
-    expect(screen.getByText('Housing Budget')).toBeTruthy()
-    expect(screen.queryByRole('textbox', { name: /Phone Number/ })).toBeNull()
+    expect(screen.getByRole('textbox', { name: /Full Legal Name/ })).toBeTruthy()
+    expect((screen.getByRole('textbox', { name: 'Account Email' }) as HTMLInputElement).readOnly).toBe(true)
+    expect(screen.getByRole('textbox', { name: 'Personal Bio / Roommate Notes' })).toBeTruthy()
+    for (const removed of ['Preferred Location', 'Preferred Move-in Date', 'Housing Budget', 'Monthly Budget From', 'Monthly Budget To']) {
+      expect(screen.queryByText(removed)).toBeNull()
+    }
+    await userEvent.type(screen.getByRole('textbox', { name: /Phone Number/ }), '+60 12-345 6789')
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(state.api).toHaveBeenCalledWith('/profile', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify({ displayName: 'Demo Student', university: null, bio: null, phone: '+60 12-345 6789' }),
+    })))
+  })
+
+  it('lets a student save university details without supplying a phone number', async () => {
+    state.user.id = 'student-1'
+    state.user.name = 'Demo Student'
+    state.user.email = 'student@demo.local'
+    state.user.roles = ['STUDENT']
+    renderPage()
+    await userEvent.type(await screen.findByRole('textbox', { name: 'University' }), 'University of Technology Sarawak')
+    expect((screen.getByRole('textbox', { name: 'Phone Number' }) as HTMLInputElement).required).toBe(false)
+    await userEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(state.api).toHaveBeenCalledWith('/profile', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify({ displayName: 'Demo Student', university: 'University of Technology Sarawak', bio: null, phone: null }),
+    })))
   })
 })

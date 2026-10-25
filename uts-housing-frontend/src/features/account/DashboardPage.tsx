@@ -86,7 +86,7 @@ export function DashboardPage() {
             <span className="mb-2 text-2xl font-bold text-[#203569]">{t('Find Housing')}</span>
             <span className="text-sm text-[#3b82f6]">{t('Browse verified rental listings near UTS campus.')}</span>
           </Link>
-          <Link to="/roommates" className="group flex min-h-[246px] flex-col items-center justify-center rounded-2xl border border-[#dcfce7] bg-[#f0fdf4] p-7 text-center transition-all duration-300 hover:shadow-lg sm:p-10">
+          <Link to="/roommates/profile" className="group flex min-h-[246px] flex-col items-center justify-center rounded-2xl border border-[#dcfce7] bg-[#f0fdf4] p-7 text-center transition-all duration-300 hover:shadow-lg sm:p-10">
             <span className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#15803d] transition-transform group-hover:scale-105"><PeopleIcon /></span>
             <span className="mb-2 text-2xl font-bold text-[#15803d]">{t('Find a Roommate')}</span>
             <span className="text-sm text-[#16a34a]">{t('Match with students based on lifestyle habits.')}</span>

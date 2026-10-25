@@ -2,116 +2,9 @@ import { useState, type FormEvent } from 'react'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from 'react-router-dom'
 import { api, itemsOf, messageOf } from '../../lib/api'
-import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
-import { lifestyleFields, matchOf, profileOf, profilePayload, type Match, type RoommateProfile } from './model'
+import { matchOf, profileOf, type Match } from './model'
 import { buttonClass, inputClass, Notice, originalCardClass, RoommateShell, secondaryButtonClass, StudentGate } from './ui'
-
-const studyOptions = [['EVENING', 'Night Owl (Late)'], ['MORNING', 'Early Bird (Morning)']] as const
-const cleanlinessOptions = [['HIGH', 'Strict (Daily)'], ['MODERATE', 'Moderate (Weekly)'], ['RELAXED', 'Relaxed']] as const
-const smokingOptions = [['NEVER', 'Non-Smoker'], ['NO_PREFERENCE', 'Smoker Ok']] as const
-
-function ChoiceGroup({ label, value, options, onChange }: {
-  label: string
-  value: string
-  options: ReadonlyArray<readonly [string, string]>
-  onChange: (value: string) => void
-}) {
-  const { t } = useI18n()
-  return <fieldset>
-    <legend className="mb-3 text-[15px] font-bold text-[#374151]">{t(label)}</legend>
-    <div className="flex flex-wrap gap-3">
-      {options.map(([optionValue, text]) => <button key={optionValue} type="button" aria-pressed={value === optionValue} onClick={() => onChange(optionValue)}
-        className={value === optionValue
-          ? 'rounded-full border-2 border-[#86efac] bg-[#e2f5e9] px-5 py-2 text-[14px] font-bold leading-5 text-[#168a48] transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#15803d]'
-          : 'rounded-full border border-gray-200 bg-white px-5 py-2 text-[14px] font-medium leading-5 text-gray-600 transition-colors hover:border-gray-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#203569]'}>
-        {t(text)}
-      </button>)}
-    </div>
-  </fieldset>
-}
-
-function QuickProfileEditor({ initial, onSaved }: { initial: RoommateProfile; onSaved: () => void }) {
-  const { user } = useAuth()
-  const { t } = useI18n()
-  const queryClient = useQueryClient()
-  const [study, setStudy] = useState(initial.lifestyle.studySchedule || 'EVENING')
-  const [cleanliness, setCleanliness] = useState(initial.lifestyle.cleanliness || 'MODERATE')
-  const [smoking, setSmoking] = useState(initial.lifestyle.smoking || 'NEVER')
-  const [error, setError] = useState<string | null>(null)
-  const selectedLifestyle = { ...initial.lifestyle, studySchedule: study, cleanliness, smoking }
-  const answeredCount = lifestyleFields.filter(({ key }) => selectedLifestyle[key]).length
-  const quickChoices = [
-    { label: 'Study schedule', value: studyOptions.find(([option]) => option === study)?.[1] || 'Not selected' },
-    { label: 'Cleanliness', value: cleanlinessOptions.find(([option]) => option === cleanliness)?.[1] || 'Not selected' },
-    { label: 'Smoking preference', value: smokingOptions.find(([option]) => option === smoking)?.[1] || 'Not selected' },
-  ]
-  const save = useMutation({
-    mutationFn: (profile: RoommateProfile) => api<unknown>('/roommates/profile', { method: 'PATCH', body: JSON.stringify(profilePayload(profile)) }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['roommates'] })
-      onSaved()
-    },
-  })
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setError(null)
-    const displayName = initial.displayName.trim() || user?.name?.trim() || ''
-    if (!displayName) { setError('Please add your display name in My Lifestyle Profile before finding matches.'); return }
-    save.mutate({
-      ...initial,
-      displayName,
-      discoverable: true,
-      lifestyle: { ...initial.lifestyle, studySchedule: study, cleanliness, smoking },
-    })
-  }
-
-  return <form onSubmit={submit} className="grid gap-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(280px,0.9fr)] lg:gap-10">
-    <div>
-      <div className="mb-8 border-b border-gray-100 pb-5">
-        <span className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">{t('Your daily routine')}</span>
-        <h2 className="mt-2 text-xl font-bold text-[#1f2937]">{t('Select your daily habits')}</h2>
-        <p className="mt-2 max-w-xl text-sm leading-6 text-gray-600">{t('Start with three habits that often shape how comfortable a shared home feels. You can add more details later.')}</p>
-      </div>
-      <div className="space-y-8">
-        <ChoiceGroup label="Study Schedule" value={study} options={studyOptions} onChange={setStudy} />
-        <ChoiceGroup label="Cleanliness Standard" value={cleanliness} options={cleanlinessOptions} onChange={setCleanliness} />
-        <ChoiceGroup label="Smoking Preference" value={smoking} options={smokingOptions} onChange={setSmoking} />
-      </div>
-      <div className="mt-9 flex flex-wrap items-center gap-4">
-        <button className={buttonClass} type="submit" disabled={save.isPending}>{save.isPending ? t('Saving…') : t('Save Profile & Find Matches')}</button>
-        <Link to="/roommates/profile" className="text-sm font-bold text-[#203569] underline-offset-4 hover:underline">{t('More profile & privacy options')}</Link>
-      </div>
-      <p className="mt-4 max-w-xl text-xs leading-5 text-gray-600">{t('Saving turns on roommate discovery. Other verified students can see only the profile details you have chosen to share.')}</p>
-      {error && <div className="mt-5"><Notice tone="error">{t(error)}</Notice></div>}
-      {save.isError && <div className="mt-5"><Notice tone="error">{t('Could not save your profile:')} {t(messageOf(save.error))}</Notice></div>}
-    </div>
-    <aside aria-label={t('Profile snapshot')} className="self-start rounded-xl border border-[#d7eddd] bg-[#f6fbf7] p-5 sm:p-6">
-      <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#15803d]">{t('Your profile snapshot')}</p>
-      <div className="mt-4 flex items-end justify-between gap-3">
-        <h3 className="text-lg font-bold text-[#1f2937]">{t('Lifestyle details')}</h3>
-        <span className="text-sm font-bold text-[#15803d]">{answeredCount} / {lifestyleFields.length}</span>
-      </div>
-      <div role="progressbar" aria-label={t('Lifestyle details selected')} aria-valuenow={answeredCount} aria-valuemin={0} aria-valuemax={lifestyleFields.length} className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#dceee1]">
-        <div className="h-full rounded-full bg-[#15803d] transition-[width]" style={{ width: `${answeredCount / lifestyleFields.length * 100}%` }} />
-      </div>
-      <p className="mt-3 text-xs leading-5 text-gray-600">{t('Progress includes these quick choices and answers in your full profile. Save to refresh your matches.')}</p>
-      <dl className="mt-6 space-y-3 border-t border-[#d7eddd] pt-5">
-        {quickChoices.map(choice => <div key={choice.label} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-sm">
-          <dt className="text-gray-600">{t(choice.label)}</dt><dd className="font-semibold text-[#1f2937]">{t(choice.value)}</dd>
-        </div>)}
-      </dl>
-      <div className="mt-6 rounded-lg border border-[#d7eddd] bg-white p-4">
-        <h4 className="text-sm font-bold text-[#1f2937]">{t('Want a better introduction?')}</h4>
-        <p className="mt-1 text-xs leading-5 text-gray-600">{t(answeredCount === lifestyleFields.length
-          ? 'Your lifestyle answers are complete. Fine-tune roommate preferences, dealbreakers and privacy settings.'
-          : 'Fill in your remaining habits, then fine-tune roommate preferences and privacy settings.')}</p>
-        <Link to="/roommates/profile" className="mt-3 inline-block text-sm font-bold text-[#203569] underline-offset-4 hover:underline">{t('Complete my profile →')}</Link>
-      </div>
-    </aside>
-  </form>
-}
 
 function MatchDetails({ match }: { match: Match }) {
   const { t } = useI18n()
@@ -120,7 +13,7 @@ function MatchDetails({ match }: { match: Match }) {
     {match.score !== undefined && <span className="absolute -top-3.5 right-4 rounded-full border-[3px] border-white bg-[#fbbf24] px-4 py-1.5 text-[13px] font-bold text-[#78350f] shadow-sm">{t('{score}% Match', { score: match.score })}</span>}
     <div className="mb-5 flex items-center gap-4">
       <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[#eff6ff] text-xl font-bold text-[#2563eb]">{initials}</div>
-      <div><h3 className="text-[1.1rem] font-bold text-gray-900">{match.displayName === 'Verified student' ? t('Verified student') : match.displayName}</h3>{match.university && <p className="mt-0.5 text-[13px] text-gray-500">{match.university}</p>}</div>
+      <div><h3 className="text-[1.1rem] font-bold text-gray-900">{match.displayName === 'Verified student' ? t('Verified student') : match.displayName}</h3></div>
     </div>
     <div className="mb-6 border-t border-gray-100 pt-5">
       <h4 className="mb-3 text-[11px] font-bold uppercase tracking-wider text-gray-400">{t('Shared Habits')}</h4>
@@ -200,9 +93,8 @@ function CandidateActions({ match }: { match: Match }) {
 
 function MatchesContent() {
   const { t } = useI18n()
-  const [showMatches, setShowMatches] = useState(false)
   const profile = useQuery({ queryKey: ['roommates', 'profile'], queryFn: () => api<unknown>('/roommates/profile').then(profileOf) })
-  const matchesVisible = showMatches || profile.data?.discoverable === true
+  const matchesVisible = profile.data?.discoverable === true
   const matches = useInfiniteQuery({
     queryKey: ['roommates', 'matches'],
     queryFn: ({ pageParam }) => api<{ items: unknown[]; page?: number; pages?: number }>(`/roommates/matches?page=${pageParam}&limit=20`),
@@ -212,18 +104,18 @@ function MatchesContent() {
   })
   const visibleMatches = matches.data?.pages.flatMap(page => itemsOf<unknown>(page).map(matchOf).filter((match): match is Match => match !== null)) || []
   return <RoommateShell>
-    <section className={originalCardClass}>
+    {!matchesVisible && <section className={originalCardClass}>
       <div className="bg-[#15803d] px-8 py-5 text-white">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-green-100">{t('Find your people')}</p>
-        <h1 className="mt-1 text-xl font-bold tracking-wide">{t('Lifestyle Profile Builder')}</h1>
-        <p className="mt-2 text-sm leading-6 text-green-50">{t('A few everyday habits can help you start a better roommate conversation.')}</p>
+        <h1 className="mt-1 text-xl font-bold tracking-wide">{t('Top Compatible Roommates')}</h1>
+        <p className="mt-2 text-sm leading-6 text-green-50">{t('Explore profiles shared by verified students and decide who you would like to meet.')}</p>
       </div>
       <div className="p-8">
         {profile.isPending ? <p role="status">{t('Loading your lifestyle profile…')}</p>
           : profile.isError ? <div className="space-y-4"><Notice tone="error">{t('Could not load your lifestyle profile:')} {t(messageOf(profile.error))}</Notice><button type="button" className={secondaryButtonClass} onClick={() => void profile.refetch()}>{t('Retry')}</button></div>
-            : <QuickProfileEditor initial={profile.data} onSaved={() => setShowMatches(true)} />}
+            : <div className="space-y-4"><p className="text-sm text-gray-600">{t('Save your lifestyle profile and enable discovery to see matches.')}</p><Link to="/roommates/profile" className={buttonClass}>{t('My Lifestyle Profile')}</Link></div>}
       </div>
-    </section>
+    </section>}
     {matchesVisible && <section className={originalCardClass + ' p-6 sm:p-8'}>
       <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
         <div>

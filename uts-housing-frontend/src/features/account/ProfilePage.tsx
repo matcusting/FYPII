@@ -2,7 +2,6 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
-import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { hasRole, useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
 import { ErrorNotice, LoadingNotice, Panel } from './shared'
@@ -15,10 +14,6 @@ interface AccountProfile {
   phone?: string | null
   university?: string | null
   bio?: string | null
-  preferredLocation?: string | null
-  budgetMin?: number | string | null
-  budgetMax?: number | string | null
-  preferredMoveInDate?: string | null
   verificationStatus?: string | null
 }
 
@@ -27,10 +22,6 @@ interface ProfileFields {
   phone: string
   university: string
   bio: string
-  preferredLocation: string
-  budgetMin: string
-  budgetMax: string
-  preferredMoveInDate: string
 }
 
 function fieldsFrom(profile: AccountProfile | undefined, fallbackName?: string): ProfileFields {
@@ -39,10 +30,6 @@ function fieldsFrom(profile: AccountProfile | undefined, fallbackName?: string):
     phone: profile?.phone || '',
     university: profile?.university || '',
     bio: profile?.bio || '',
-    preferredLocation: profile?.preferredLocation || '',
-    budgetMin: profile?.budgetMin == null ? '' : String(profile.budgetMin),
-    budgetMax: profile?.budgetMax == null ? '' : String(profile.budgetMax),
-    preferredMoveInDate: profile?.preferredMoveInDate?.slice(0, 10) || '',
   }
 }
 
@@ -77,10 +64,7 @@ export function ProfilePage() {
         displayName: values.displayName.trim(),
         university: values.university.trim() || null,
         bio: values.bio.trim() || null,
-        preferredLocation: values.preferredLocation.trim() || null,
-        budgetMin: values.budgetMin === '' ? null : Number(values.budgetMin),
-        budgetMax: values.budgetMax === '' ? null : Number(values.budgetMax),
-        preferredMoveInDate: values.preferredMoveInDate || null,
+        ...(isStudent ? { phone: values.phone.trim() || null } : {}),
       }),
     }),
     onSuccess: async () => {
@@ -120,18 +104,9 @@ export function ProfilePage() {
   function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!fields.displayName.trim()) { setFormError('Enter your name.'); return }
-    if (isLandlord) {
+    if (isLandlord || (isStudent && fields.phone.trim())) {
       const phone = fields.phone.trim()
       if (!/^\+?[0-9][0-9 ()-]*$/.test(phone) || phone.replace(/\D/g, '').length < 7 || phone.replace(/\D/g, '').length > 15) { setFormError('Enter a valid phone number.'); return }
-      save.mutate(fields)
-      return
-    }
-    if (fields.preferredMoveInDate && !isIsoDate(fields.preferredMoveInDate)) { setFormError('Enter a valid preferred move-in date as YYYY-MM-DD.'); return }
-    const min = fields.budgetMin === '' ? null : Number(fields.budgetMin)
-    const max = fields.budgetMax === '' ? null : Number(fields.budgetMax)
-    if ((min !== null && (!Number.isFinite(min) || min < 0)) || (max !== null && (!Number.isFinite(max) || max < 0)) || (min !== null && max !== null && max < min)) {
-      setFormError('Budget amounts must be non-negative, and the maximum cannot be lower than the minimum.')
-      return
     }
     save.mutate(fields)
   }
@@ -153,7 +128,7 @@ export function ProfilePage() {
     <div className="mx-auto max-w-[800px] space-y-6">
       <section className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_2px_10px_rgba(0,0,0,0.04)]">
         <header className="flex items-center justify-between gap-4 bg-[#203569] px-6 py-6 text-white sm:px-8">
-          <div><h1 className="text-xl font-bold">{isStudent ? t('Student Profile Settings') : t('Profile Settings')}</h1><p className="mt-1 text-sm text-gray-300">{t(isLandlord ? 'Manage your name and contact details.' : 'Manage your personal information and housing preferences.')}</p></div>
+          <div><h1 className="text-xl font-bold">{isStudent ? t('Student Profile Settings') : t('Profile Settings')}</h1><p className="mt-1 text-sm text-gray-300">{t(isStudent ? 'Manage your personal information and contact details.' : isLandlord ? 'Manage your name and contact details.' : 'Manage your personal information and housing preferences.')}</p></div>
           <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/10 text-xl font-bold" aria-hidden="true">{initials}</span>
         </header>
         {profile.isPending ? <div className="p-8"><LoadingNotice /></div> : profile.isError ? <div className="p-8"><ErrorNotice error={profile.error} onRetry={() => void profile.refetch()} /></div> : <form onSubmit={submitProfile} noValidate className="space-y-6 p-6 sm:p-8">
@@ -161,31 +136,15 @@ export function ProfilePage() {
           <div className="grid gap-6 sm:grid-cols-2">
             <label className="block text-[13px] font-bold text-gray-700">{t('Full Legal Name')} <span aria-hidden="true">*</span><input className={inputClass} value={fields.displayName} onChange={event => updateField('displayName', event.target.value)} maxLength={100} required autoComplete="name" /></label>
             {!isLandlord && <label className="block text-[13px] font-bold text-gray-700">{t('University')}<input className={inputClass} value={fields.university} onChange={event => updateField('university', event.target.value)} maxLength={160} autoComplete="organization" /></label>}
-            {!isLandlord && <label className="block text-[13px] font-bold text-gray-700">{t('Preferred Location')}<input className={inputClass} value={fields.preferredLocation} onChange={event => updateField('preferredLocation', event.target.value)} maxLength={160} placeholder={t('Near UTS campus')} /></label>}
-            {!isLandlord && <div className="block text-[13px] font-bold text-gray-700"><label htmlFor="preferred-move-in">{t('Preferred Move-in Date')}</label><EnglishDateInput id="preferred-move-in" className={inputClass} value={fields.preferredMoveInDate} onValueChange={value => updateField('preferredMoveInDate', value)} /></div>}
             <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Account Email')}<input className={`${inputClass} cursor-not-allowed bg-gray-50 text-gray-500`} value={user?.email || ''} readOnly type="email" /></label>
-            {isLandlord ? <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Phone Number')} <span aria-hidden="true">*</span><input className={inputClass} value={fields.phone} onChange={event => updateField('phone', event.target.value)} maxLength={25} required type="tel" autoComplete="tel" inputMode="tel" placeholder={t('e.g., +60 12-345 6789')} /></label>
-              : <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Personal Bio / Roommate Notes')}<textarea className={inputClass} rows={3} maxLength={1000} value={fields.bio} onChange={event => updateField('bio', event.target.value)} placeholder={t('Tell others a little about yourself.')} /></label>}
+            {(isLandlord || isStudent) && <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Phone Number')} {isLandlord && <span aria-hidden="true">*</span>}<input className={inputClass} value={fields.phone} onChange={event => updateField('phone', event.target.value)} maxLength={25} required={isLandlord} type="tel" autoComplete="tel" inputMode="tel" placeholder={t('e.g., +60 12-345 6789')} /></label>}
+            {!isLandlord && <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Personal Bio / Roommate Notes')}<textarea className={inputClass} rows={3} maxLength={1000} value={fields.bio} onChange={event => updateField('bio', event.target.value)} placeholder={t('Tell others a little about yourself.')} /></label>}
           </div>
           {formError && <p role="alert" className="text-sm text-red-700">{t(formError)}</p>}
           {save.isError && <p role="alert" className="text-sm text-red-700">{t(messageOf(save.error))}</p>}
           <div className="flex justify-end border-t border-gray-100 pt-4"><button type="submit" disabled={save.isPending} className="min-h-11 rounded-lg bg-[#203569] px-6 py-2 font-bold text-white shadow-sm hover:bg-[#1a2b56] disabled:opacity-60">{save.isPending ? t('Saving…') : t('Save Changes')}</button></div>
         </form>}
       </section>
-
-      {isStudent && <Panel title={t('Housing Budget')}>
-        <form onSubmit={submitProfile} noValidate className="space-y-4">
-          <p className="text-sm text-gray-600">{t('Set an optional monthly budget range for your housing search.')}</p>
-          <div className="grid gap-5 sm:grid-cols-2">
-            <label className="block text-[13px] font-bold text-gray-700">{t('Monthly Budget From')}<input className={inputClass} type="number" min="0" step="0.01" inputMode="decimal" value={fields.budgetMin} onChange={event => updateField('budgetMin', event.target.value)} /></label>
-            <label className="block text-[13px] font-bold text-gray-700">{t('Monthly Budget To')}<input className={inputClass} type="number" min="0" step="0.01" inputMode="decimal" value={fields.budgetMax} onChange={event => updateField('budgetMax', event.target.value)} /></label>
-          </div>
-          {formError && <p role="alert" className="text-sm text-red-700">{t(formError)}</p>}
-          {save.isError && <p role="alert" className="text-sm text-red-700">{t(messageOf(save.error))}</p>}
-          {saveMessage && <p role="status" className="text-sm text-green-700">{t(saveMessage)}</p>}
-          <button type="submit" disabled={save.isPending || profile.isPending || profile.isError} className="min-h-11 rounded-lg bg-[#203569] px-5 py-2 text-sm font-bold text-white hover:bg-[#1a2b56] disabled:opacity-50">{save.isPending ? t('Saving…') : t('Save Budget')}</button>
-        </form>
-      </Panel>}
 
       {isStudent && <Panel title={t('Student Verification')}>
         <p className="mb-4 text-sm text-gray-600">{t('Current status:')} <strong>{user?.studentVerified ? t('Verified') : labelForStatus(user?.verificationStatus || profile.data?.verificationStatus || 'UNVERIFIED')}</strong></p>

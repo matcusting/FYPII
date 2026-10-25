@@ -171,10 +171,6 @@ export const roommatesTranslations: Record<string, { ms: string; zh: string }> =
     "ms": "Pautan profil rakan serumah tidak sah.",
     "zh": "室友资料链接无效。"
   },
-  "Lifestyle Profile Builder": {
-    "ms": "Pembina Profil Gaya Hidup",
-    "zh": "生活习惯资料设置"
-  },
   "Lifestyle details": {
     "ms": "Butiran gaya hidup",
     "zh": "生活习惯详情"
@@ -358,6 +354,10 @@ export const roommatesTranslations: Record<string, { ms: string; zh: string }> =
   "Save Roommate Profile": {
     "ms": "Simpan Profil Rakan Serumah",
     "zh": "保存室友资料"
+  },
+  "Save your lifestyle profile and enable discovery to see matches.": {
+    "ms": "Simpan profil gaya hidup anda dan hidupkan penemuan untuk melihat padanan.",
+    "zh": "保存生活习惯资料并开启发现功能，即可查看匹配对象。"
   },
   "Saving turns on roommate discovery. Other verified students can see only the profile details you have chosen to share.": {
     "ms": "Menyimpan akan menghidupkan penemuan rakan serumah. Pelajar disahkan lain hanya dapat melihat butiran yang anda pilih untuk dikongsi.",

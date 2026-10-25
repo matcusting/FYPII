@@ -6,8 +6,8 @@ The project requirements define `GET/PATCH /api/v1/profile`, `POST /api/v1/verif
 
 | Method and path | Request body | Success `data` |
 | --- | --- | --- |
-| `GET /api/v1/profile` | — | `{displayName, university, bio, preferredLocation, budgetMin, budgetMax, preferredMoveInDate, verificationStatus}` |
-| `PATCH /api/v1/profile` | Any of the editable profile fields above; cleared optional fields are `null` | Updated profile |
+| `GET /api/v1/profile` | — | Own account profile: `{displayName, email, phone, university, bio, preferredLocation, budgetMin, budgetMax, preferredMoveInDate, verificationStatus}`. `phone` is private. |
+| `PATCH /api/v1/profile` | Student and landlord contact form sends `{displayName, phone}`. Student verification may additionally update `university`; legacy optional fields remain accepted for compatibility. Cleared optional fields are `null`. | Updated own profile |
 | `POST /api/v1/verifications` | For university email: JSON `{method:"EMAIL_DOMAIN", university}`. For manual review: multipart fields `method=MANUAL`, `university`, `proof` (PDF/JPG/PNG), optional `note` | Submitted verification record |
 | `GET /api/v1/inquiries` | — | Array or `{items:[...]}` of own inquiries |
 | `GET /api/v1/roommates/requests` | — | Array or `{requests:[...]}` of own sent and received requests, including `recipientId` or `direction` to distinguish incoming requests |

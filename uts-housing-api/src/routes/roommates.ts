@@ -91,13 +91,13 @@ function profileResponse(profile: {
     preferredLocation: profile.preferredLocation || '', budgetMin: budgetNumber(profile.budgetMin) ?? null,
     budgetMax: budgetNumber(profile.budgetMax) ?? null, moveInDate: asDate(profile.moveInDate),
     discoverable: profile.discoverable, lifestyle: profile.lifestyle, roommatePreferences: profile.roommatePreferences,
-    importanceWeights: profile.importanceWeights, visibility: profile.visibility,
+    importanceWeights: profile.importanceWeights, visibility: { ...jsonObject(profile.visibility), university: false },
     smokeFreeOnly: profile.smokeFreeOnly, petFreeOnly: profile.petFreeOnly,
   }
 }
 
 function publicProfile(profile: {
-  userId: string; displayName: string; university: string | null; bio: string | null;
+  userId: string; displayName: string; bio: string | null;
   preferredLocation: string | null; budgetMin: unknown; budgetMax: unknown; moveInDate: Date | null;
   visibility: unknown;
 }) {
@@ -105,7 +105,6 @@ function publicProfile(profile: {
   return {
     userId: profile.userId,
     displayName: profile.displayName,
-    ...(visible.university === true ? { university: profile.university || '' } : {}),
     ...(visible.bio === true ? { bio: profile.bio || '' } : {}),
     ...(visible.preferredLocation === true ? { preferredLocation: profile.preferredLocation || '' } : {}),
     ...(visible.budget === true ? { budgetMin: budgetNumber(profile.budgetMin), budgetMax: budgetNumber(profile.budgetMax) } : {}),
@@ -210,7 +209,7 @@ router.patch('/roommates/profile', studentOnly, route(async (req, res) => {
     lifestyle: { ...currentLifestyle, ...incoming.lifestyle } as Prisma.InputJsonValue,
     roommatePreferences: { ...currentPreferences, ...incoming.roommatePreferences } as Prisma.InputJsonValue,
     importanceWeights: { ...currentWeights, ...incoming.importanceWeights } as Prisma.InputJsonValue,
-    visibility: { ...currentVisibility, ...incoming.visibility } as Prisma.InputJsonValue,
+    visibility: { ...currentVisibility, ...incoming.visibility, university: false } as Prisma.InputJsonValue,
     smokeFreeOnly: incoming.smokeFreeOnly ?? current?.smokeFreeOnly ?? false,
     petFreeOnly: incoming.petFreeOnly ?? current?.petFreeOnly ?? false,
   }

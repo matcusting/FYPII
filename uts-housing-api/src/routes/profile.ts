@@ -50,7 +50,7 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   const parsed = profileSchema.safeParse(req.body)
   if (!parsed.success || Object.keys(parsed.data || {}).length === 0) return fail(res, 400, 'Enter valid profile details.', 'VALIDATION_ERROR')
   const user = currentUser(req)!
-  if (parsed.data.phone !== undefined && !user.roles.includes('LANDLORD')) return fail(res, 403, 'Only landlords can update a contact phone number.', 'FORBIDDEN')
+  if (parsed.data.phone !== undefined && !user.roles.some(role => role === 'STUDENT' || role === 'LANDLORD')) return fail(res, 403, 'Only students and landlords can update a contact phone number.', 'FORBIDDEN')
   const current = await prisma.profile.findUnique({ where: { userId: user.id } })
   const fields = parsed.data
   const min = fields.budgetMin === undefined ? current?.budgetMin == null ? null : Number(current.budgetMin) : fields.budgetMin

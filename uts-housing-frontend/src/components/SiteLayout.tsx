@@ -106,7 +106,7 @@ export default function SiteLayout() {
     { to: '/welcome', label: t('Home') },
     { to: '/listings', label: t('Find Housing') },
     ...(user ? [{ to: '/dashboard', label: t('Dashboard') }, { to: '/favorites', label: t('Favorites') }, { to: '/profile', label: t('Profile') }] : []),
-    ...(hasRole(user, 'STUDENT') ? [{ to: '/roommates', label: t('Find a Roommate') }, { to: '/requests', label: t('Messages') }] : []),
+    ...(hasRole(user, 'STUDENT') ? [{ to: '/roommates/profile', label: t('Find a Roommate') }, { to: '/requests', label: t('Messages') }] : []),
     ...(hasRole(user, 'STUDENT', 'LANDLORD') ? [{ to: '/my-listings', label: t('My Listings') }] : []),
     ...(hasRole(user, 'ADMIN') ? [{ to: '/admin', label: t('Admin') }] : []),
   ]

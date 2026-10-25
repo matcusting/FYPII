@@ -7,9 +7,11 @@ describe('roommate privacy boundary', () => {
       userId: 'student-1', score: 85,
       profile: { displayName: 'Sam', bio: 'Private note', university: 'Private school', budgetMin: 300, moveInDate: '2026-11-01' },
     }
-    expect(matchOf(candidate)).toMatchObject({ id: 'student-1', score: 85, bio: '', university: '', moveInDate: '' })
+    expect(matchOf(candidate)).toMatchObject({ id: 'student-1', score: 85, bio: '', moveInDate: '' })
+    expect(matchOf(candidate)).not.toHaveProperty('university')
     expect(matchOf(candidate)?.budgetMin).toBeUndefined()
     expect(matchOf({ ...candidate, publicProfile: { displayName: 'Sam', bio: 'Public note' } })?.bio).toBe('Public note')
+    expect(matchOf({ ...candidate, publicProfile: { displayName: 'Sam', university: 'Legacy public school' } })).not.toHaveProperty('university')
   })
 
   it('does not invent a score when the server reports insufficient data', () => {
@@ -23,5 +25,12 @@ describe('profile defaults', () => {
     expect(profile.discoverable).toBe(false)
     expect(Object.values(profile.visibility).every(value => value === false)).toBe(true)
     expect(profilePayload(profile).budgetMin).toBeNull()
+  })
+
+  it('clears legacy university details when saving a lifestyle profile', () => {
+    const profile = profileOf({ university: 'Old University', visibility: { university: true, bio: true } })
+    expect(profile).not.toHaveProperty('university')
+    expect(profile.visibility).not.toHaveProperty('university')
+    expect(profilePayload(profile)).toMatchObject({ university: null, visibility: { university: false, bio: true } })
   })
 })

@@ -51,6 +51,7 @@ export const accountTranslations: Record<string, { ms: string; zh: string }> = {
   '{count} pending': { ms: '{count} tertunda', zh: '{count} 项待处理' },
 
   'Student Profile Settings': { ms: 'Tetapan Profil Pelajar', zh: '学生资料设置' },
+  'Manage your personal information and contact details.': { ms: 'Urus maklumat peribadi dan butiran hubungan anda.', zh: '管理个人信息和联系方式。' },
   'Manage your personal information and housing preferences.': { ms: 'Urus maklumat peribadi dan pilihan perumahan anda.', zh: '管理个人信息和住房偏好。' },
   '✓ Profile updated successfully!': { ms: '✓ Profil berjaya dikemas kini!', zh: '✓ 个人资料更新成功！' },
   'Profile saved.': { ms: 'Profil disimpan.', zh: '资料已保存。' },
