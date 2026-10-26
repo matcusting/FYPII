@@ -43,7 +43,13 @@ The application uses the real local API and database. The older `uts-housing-fro
 
 The language selector is available in the site navigation and role dashboards. It remembers the choice in this browser. Chat messages and user-entered listing text stay in their original language. If you switch accounts in another browser tab, the message composer resets its draft; reload any older tab before sending a reply. The API checks that the sender shown by the browser is still the signed-in account.
 
-Student account settings collect a private phone number alongside the student's name, email, university for verification, and bio. Housing budget, preferred move-in date, and preferred area are edited in **My Lifestyle Profile** instead. The dashboard's **Find a Roommate** action opens that profile directly; university is never shown to roommate matches.
+Student account settings collect a private phone number alongside the student's name, email, university and bio. The university shown in the profile does not determine verification: the API uses the verified school email's campus domain. Housing budget, preferred move-in date, and preferred area are edited in **My Lifestyle Profile** instead. The dashboard's **Find a Roommate** action opens that profile directly; university is never shown to roommate matches.
+
+## Student verification
+
+A new student account must use an email address whose **exact domain** appears on an active campus in the admin settings. The fictional UTS campus seed includes `student.uts.edu.my` for testing the domain rule. After registration, the student opens the verification link sent to that address, signs in, then submits **both** a student ID photo (JPG/PNG) and an offer letter (PDF/JPG/PNG) from Profile Settings. Each file may be up to 5 MB. An administrator reviews the two private files and approves or rejects the request; school-email ownership alone does not grant verified-student access. A rejected applicant can submit a new request.
+
+The seeded `student@demo.local` and `candidate@demo.local` accounts are already marked verified for local feature testing; they do not test this new application flow. The local email worker writes links to `uts-housing-api/data/outbox` when SMTP is absent. Use fictional files for local tests, and never add real student IDs or offer letters to Git, the demo seed, or a preview ZIP. Production use needs working SMTP and private-file storage with suitable access controls and retention rules.
 
 ## Property addresses and location privacy
 

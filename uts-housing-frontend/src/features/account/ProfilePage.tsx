@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
@@ -46,13 +46,17 @@ export function ProfilePage() {
   const [edits, setEdits] = useState<Partial<ProfileFields>>({})
   const [formError, setFormError] = useState('')
   const [saveMessage, setSaveMessage] = useState('')
-  const [verificationMethod, setVerificationMethod] = useState<'EMAIL_DOMAIN' | 'MANUAL'>('EMAIL_DOMAIN')
   const [verificationNote, setVerificationNote] = useState('')
-  const [verificationProof, setVerificationProof] = useState<File | null>(null)
+  const [studentIdFile, setStudentIdFile] = useState<File | null>(null)
+  const [offerLetterFile, setOfferLetterFile] = useState<File | null>(null)
   const [verificationMessage, setVerificationMessage] = useState('')
 
-  const profile = useQuery({ queryKey: ['profile'], queryFn: async () => normalizedProfile(await api<AccountProfile>('/profile')), enabled: !!user })
+  const profile = useQuery({ queryKey: ['profile'], queryFn: async () => normalizedProfile(await api<AccountProfile>('/profile')), enabled: !!user, refetchInterval: isStudent ? 30_000 : false })
   const fields = { ...fieldsFrom(profile.data, user?.name), ...edits }
+
+  useEffect(() => {
+    if (isStudent && profile.data?.verificationStatus && profile.data.verificationStatus !== user?.verificationStatus) void refresh()
+  }, [isStudent, profile.data?.verificationStatus, refresh, user?.verificationStatus])
 
   const save = useMutation({
     mutationFn: (values: ProfileFields) => api<AccountProfile>('/profile', {
@@ -76,21 +80,20 @@ export function ProfilePage() {
   })
 
   const verification = useMutation({
-    mutationFn: () => {
-      if (verificationMethod === 'MANUAL') {
-        const body = new FormData()
-        body.set('method', 'MANUAL')
-        body.set('university', fields.university.trim())
-        if (verificationNote.trim()) body.set('note', verificationNote.trim())
-        if (verificationProof) body.set('proof', verificationProof)
-        return api('/verifications', { method: 'POST', body })
-      }
-      return api('/verifications', { method: 'POST', body: JSON.stringify({ method: 'EMAIL_DOMAIN', university: fields.university.trim() }) })
+    mutationFn: ({ studentId, offerLetter, note }: { studentId: File; offerLetter: File; note: string }) => {
+      const body = new FormData()
+      body.set('method', 'DOCUMENTS')
+      body.set('studentId', studentId)
+      body.set('offerLetter', offerLetter)
+      if (note) body.set('note', note)
+      return api('/verifications', { method: 'POST', body })
     },
     onSuccess: async () => {
-      setVerificationMessage('Your student verification request has been submitted. Check your account status for the review result.')
+      setVerificationMessage('')
       setVerificationNote('')
-      setVerificationProof(null)
+      setStudentIdFile(null)
+      setOfferLetterFile(null)
+      await queryClient.invalidateQueries({ queryKey: ['profile'] })
       await refresh()
     },
   })
@@ -111,16 +114,35 @@ export function ProfilePage() {
     save.mutate(fields)
   }
 
+  function chooseDocument(kind: 'studentId' | 'offerLetter', event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] || null
+    setVerificationMessage('')
+    if (kind === 'studentId') setStudentIdFile(null)
+    else setOfferLetterFile(null)
+    if (!file) return
+    const allowed = kind === 'studentId' ? ['image/jpeg', 'image/png'] : ['application/pdf', 'image/jpeg', 'image/png']
+    if (!allowed.includes(file.type) || file.size < 1 || file.size > 5_000_000) {
+      setVerificationMessage(kind === 'studentId' ? 'Select a JPG or PNG Student ID photo no larger than 5 MB.' : 'Select a PDF, JPG or PNG offer letter no larger than 5 MB.')
+      event.currentTarget.value = ''
+      return
+    }
+    if (kind === 'studentId') setStudentIdFile(file)
+    else setOfferLetterFile(file)
+  }
+
   function submitVerification(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setVerificationMessage('')
-    if (!fields.university.trim()) { setVerificationMessage('Enter and save your university before requesting verification.'); return }
-    if (fields.university.trim() !== (profile.data?.university || '').trim()) { setVerificationMessage('Save your updated university before requesting verification.'); return }
-    if (verificationMethod === 'MANUAL' && !verificationProof) { setVerificationMessage('Select a document that proves your student status.'); return }
-    verification.mutate()
+    if (user?.emailVerified !== true) { setVerificationMessage('Verify your university-issued email before submitting documents.'); return }
+    if (!studentIdFile) { setVerificationMessage('Select a Student ID photo.'); return }
+    if (!offerLetterFile) { setVerificationMessage('Select an offer letter file or photo.'); return }
+    verification.mutate({ studentId: studentIdFile, offerLetter: offerLetterFile, note: verificationNote.trim() })
   }
 
-  const pendingVerification = ['PENDING', 'PENDING_REVIEW', 'SUBMITTED'].includes((user?.verificationStatus || profile.data?.verificationStatus || '').toUpperCase())
+  const verificationStatus = (profile.data?.verificationStatus || user?.verificationStatus || 'UNVERIFIED').toUpperCase()
+  const studentVerified = verificationStatus === 'APPROVED' || (!profile.data?.verificationStatus && user?.studentVerified === true)
+  const pendingVerification = ['PENDING', 'PENDING_REVIEW', 'SUBMITTED'].includes(verificationStatus)
+  const rejectedVerification = ['REJECTED', 'DECLINED'].includes(verificationStatus)
 
   const initials = (user?.name || user?.email || 'UT').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()
 
@@ -147,43 +169,39 @@ export function ProfilePage() {
       </section>
 
       {isStudent && <Panel title={t('Student Verification')}>
-        <p className="mb-4 text-sm text-gray-600">{t('Current status:')} <strong>{user?.studentVerified ? t('Verified') : labelForStatus(user?.verificationStatus || profile.data?.verificationStatus || 'UNVERIFIED')}</strong></p>
-        {user?.studentVerified ? <p className="text-sm text-green-700">{t('Your student verification is complete.')}</p> : pendingVerification || verification.isSuccess ? <p className="text-sm text-gray-600">{t('Your application is being reviewed.')}</p> : <form onSubmit={submitVerification} noValidate className="space-y-4 text-sm">
-          <p className="text-gray-600">{t('Save your university above before submitting. Approved university email domains are configured by the administrator.')}</p>
-          <fieldset className="space-y-2"><legend className="font-semibold">{t('Verification method')}</legend>
-            <label className="flex items-start gap-2"><input type="radio" name="verification-method" className="mt-1" checked={verificationMethod === 'EMAIL_DOMAIN'} onChange={() => setVerificationMethod('EMAIL_DOMAIN')} /> {t('Use my verified university email')}</label>
-            <label className="flex items-start gap-2"><input type="radio" name="verification-method" className="mt-1" checked={verificationMethod === 'MANUAL'} onChange={() => setVerificationMethod('MANUAL')} /> {t('Request manual review')}</label>
-          </fieldset>
-          {verificationMethod === 'MANUAL' && <div className="space-y-3">
-            <div>
-              <span id="verification-proof-label" className="block font-semibold">{t('Proof of student status')}</span>
-              <label className="mt-2 flex min-h-11 cursor-pointer flex-wrap items-center gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-[#203569]">
-                <input type="file" className="sr-only" aria-labelledby="verification-proof-label" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => {
-                  const file = event.target.files?.[0] || null
-                  setVerificationMessage('')
-                  setVerificationProof(null)
-                  if (!file) return
-                  if (!['application/pdf', 'image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
-                    setVerificationMessage('Select a PDF, JPG or PNG file no larger than 5 MB.')
-                    event.target.value = ''
-                    return
-                  }
-                  setVerificationProof(file)
-                }} />
-                <span aria-hidden="true" className="rounded-md bg-[#203569] px-3 py-1.5 font-semibold text-white">{t('Choose file')}</span>
-                <span className="min-w-0 flex-1 truncate text-gray-600">{verificationProof?.name || t('No file selected')}</span>
-              </label>
-            </div>
-            <p className="text-xs text-gray-600">{t('PDF, JPG or PNG, up to 5 MB. Cover unrelated personal details before uploading.')}</p>
-            <label className="block font-semibold">{t('Note (optional)')}
-              <textarea className={inputClass} rows={3} maxLength={500} value={verificationNote} onChange={event => setVerificationNote(event.target.value)} placeholder={t('Explain why you need manual review. Do not include ID numbers.')} />
-            </label>
-          </div>}
-          {user?.emailVerified === false && <p className="text-amber-800">{t('Please verify your email first.')}</p>}
-          {verificationMessage && <p role="status" className="text-gray-700">{t(verificationMessage)}</p>}
-          {verification.isError && <p role="alert" className="text-red-700">{t(messageOf(verification.error))}</p>}
-          <button disabled={verification.isPending || user?.emailVerified === false} type="submit" className="min-h-11 rounded-lg bg-[#203569] px-4 py-2 font-semibold text-white hover:bg-[#172b59] disabled:opacity-60">{verification.isPending ? t('Submitting…') : t('Submit Verification')}</button>
-        </form>}
+        <p className="mb-4 text-sm text-gray-600">{t('Current status:')} <strong>{studentVerified ? t('Verified') : labelForStatus(verificationStatus)}</strong></p>
+        {verificationMessage && <p role="alert" className="mb-4 text-sm text-red-700">{t(verificationMessage)}</p>}
+        {studentVerified ? <p className="text-sm text-green-700">{t('Your student verification is complete.')}</p>
+          : pendingVerification || verification.isSuccess ? <p className="text-sm text-gray-600">{t('Your application is being reviewed.')}</p>
+            : user?.emailVerified !== true ? <p className="text-sm text-amber-800">{t('Verify your university-issued email before uploading your Student ID and offer letter.')} <Link to="/verify-email" className="font-semibold underline">{t('Verify Email')}</Link></p>
+              : <form onSubmit={submitVerification} noValidate className="space-y-5 text-sm">
+                {rejectedVerification && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Your previous verification was not approved. You may submit new documents for review.')}</p>}
+                <p className="text-gray-600">{t('Your verified university email and two documents are required. An administrator will review your Student ID photo and offer letter before student access is approved.')}</p>
+                <div>
+                  <span id="student-id-photo-label" className="block font-semibold">{t('Student ID photo')} <span aria-hidden="true">*</span></span>
+                  <label className="mt-2 flex min-h-11 cursor-pointer flex-wrap items-center gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-[#203569]">
+                    <input type="file" className="sr-only" aria-labelledby="student-id-photo-label" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={event => chooseDocument('studentId', event)} />
+                    <span aria-hidden="true" className="rounded-md bg-[#203569] px-3 py-1.5 font-semibold text-white">{t('Choose photo')}</span>
+                    <span className="min-w-0 flex-1 truncate text-gray-600">{studentIdFile?.name || t('No file selected')}</span>
+                  </label>
+                  <p className="mt-1 text-xs text-gray-600">{t('JPG or PNG, up to 5 MB. Make sure your name, photo and student status are readable.')}</p>
+                </div>
+                <div>
+                  <span id="offer-letter-label" className="block font-semibold">{t('Offer letter')} <span aria-hidden="true">*</span></span>
+                  <label className="mt-2 flex min-h-11 cursor-pointer flex-wrap items-center gap-3 rounded-lg border border-gray-300 bg-white px-3 py-2 focus-within:ring-2 focus-within:ring-[#203569]">
+                    <input type="file" className="sr-only" aria-labelledby="offer-letter-label" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => chooseDocument('offerLetter', event)} />
+                    <span aria-hidden="true" className="rounded-md bg-[#203569] px-3 py-1.5 font-semibold text-white">{t('Choose file')}</span>
+                    <span className="min-w-0 flex-1 truncate text-gray-600">{offerLetterFile?.name || t('No file selected')}</span>
+                  </label>
+                  <p className="mt-1 text-xs text-gray-600">{t('PDF, JPG or PNG, up to 5 MB. Upload the page that shows your name and admission details.')}</p>
+                </div>
+                <p className="text-xs text-gray-600">{t('Only authorized reviewers can open these documents. Cover unrelated personal information before uploading.')}</p>
+                <label className="block font-semibold">{t('Note (optional)')}
+                  <textarea className={inputClass} rows={3} maxLength={500} value={verificationNote} onChange={event => setVerificationNote(event.target.value)} placeholder={t('Add context for the reviewer without including ID numbers.')} />
+                </label>
+                {verification.isError && <p role="alert" className="text-red-700">{t(messageOf(verification.error))}</p>}
+                <button disabled={verification.isPending} type="submit" className="min-h-11 rounded-lg bg-[#203569] px-4 py-2 font-semibold text-white hover:bg-[#172b59] disabled:opacity-60">{verification.isPending ? t('Submitting…') : t('Submit Verification')}</button>
+              </form>}
       </Panel>}
       {isStudent && <Panel title={t('Roommate Profile & Privacy')}><p className="mb-4 text-sm text-gray-600">{t('Manage lifestyle habits, matching preferences and visibility.')}</p><Link className="text-sm font-semibold text-[#203569] underline underline-offset-2" to="/roommates/profile">{t('Manage Roommate Profile →')}</Link></Panel>}
       <AccountControls />

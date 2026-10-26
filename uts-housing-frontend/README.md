@@ -19,6 +19,8 @@ Listing owners enter a complete address; they can separately choose whether sign
 
 English is the default interface language. The navigation selector switches the site to Bahasa Melayu or Simplified Chinese and saves the choice in the browser. User-written messages, property titles and addresses are shown as entered. The messaging API verifies `expectedSenderId` against the cookie session so a reply drafted in an old tab cannot silently be sent as another signed-in account.
 
+For a new student account, registration requires a school email domain configured for an active campus (for example, `student.uts.edu.my`). The student verifies ownership through the emailed link, then opens Profile Settings to submit a Student ID photo (JPG/PNG) and offer letter (PDF/JPG/PNG). Both are required, with a 5 MB limit per file. The admin verification queue provides private download links for both documents and an approve/reject decision. The browser's file checks provide early feedback; the API repeats validation and controls access. The seeded `student@demo.local` and `candidate@demo.local` users are already verified demo accounts, so use a new fictional account to exercise the application flow. Do not put real documents in the UI preview or repository.
+
 ## Checks
 
 ```bash

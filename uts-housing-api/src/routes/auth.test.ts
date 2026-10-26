@@ -1,0 +1,72 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { NextFunction, Request, RequestHandler, Response } from 'express'
+
+const database = vi.hoisted(() => ({
+  campus: { findMany: vi.fn() },
+  user: { findUnique: vi.fn(), create: vi.fn() },
+  authToken: { create: vi.fn() },
+  transaction: vi.fn(),
+}))
+const queueEmail = vi.hoisted(() => vi.fn())
+
+vi.mock('express-rate-limit', () => ({ rateLimit: () => ((_req: Request, _res: Response, next: NextFunction) => next()) as RequestHandler }))
+vi.mock('argon2', () => ({ default: { hash: vi.fn().mockResolvedValue('hashed-password') } }))
+vi.mock('../core/db.js', () => ({ prisma: { campus: database.campus, user: database.user, $transaction: database.transaction } }))
+vi.mock('../core/auth.js', () => ({
+  clearSession: vi.fn(), createSession: vi.fn(), currentUser: vi.fn(),
+  requireAuth: ((_req: Request, _res: Response, next: NextFunction) => next()) as RequestHandler,
+  tokenHash: () => 'token-hash',
+}))
+vi.mock('../core/mail.js', () => ({ queueEmail }))
+
+import router from './auth.js'
+
+function register(body: Record<string, unknown>) {
+  const request = { method: 'POST', url: '/register', originalUrl: '/register', body } as unknown as Request
+  return new Promise<{ status: number; data: Record<string, unknown> }>((resolve, reject) => {
+    let statusCode = 200
+    const responseMethods = {
+      status(code: number) { statusCode = code; return responseMethods },
+      json(data: Record<string, unknown>) { resolve({ status: statusCode, data }); return responseMethods },
+    }
+    router(request, responseMethods as unknown as Response, ((error?: unknown) => reject(error || new Error('No route matched'))) as NextFunction)
+  })
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  database.campus.findMany.mockResolvedValue([{ domains: ['student.uts.edu.my'] }])
+  database.user.findUnique.mockResolvedValue(null)
+  database.user.create.mockResolvedValue({ id: 'new-user', name: 'New Student', email: 'bcs123@student.uts.edu.my' })
+  database.authToken.create.mockResolvedValue({ id: 'token' })
+  database.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({ user: database.user, authToken: database.authToken }))
+  queueEmail.mockResolvedValue(undefined)
+})
+
+describe('school email registration', () => {
+  const base = { name: 'New Student', password: 'A-strong-password-123', acceptTerms: true }
+
+  it('rejects a personal email for student registration before creating an account', async () => {
+    const result = await register({ ...base, email: 'new.student@example.com', role: 'STUDENT' })
+    expect(result.status).toBe(400)
+    expect(result.data).toMatchObject({ error: { code: 'STUDENT_EMAIL_REQUIRED' } })
+    expect((await register({ ...base, email: 'new.student@student.uts.edu.my.example.com', role: 'STUDENT' })).status).toBe(400)
+    expect(database.user.create).not.toHaveBeenCalled()
+    expect(queueEmail).not.toHaveBeenCalled()
+  })
+
+  it('accepts an exact active campus domain and normalizes email casing', async () => {
+    const result = await register({ ...base, email: 'BCS123@STUDENT.UTS.EDU.MY', role: 'STUDENT' })
+    expect(result.status).toBe(201)
+    expect(database.campus.findMany).toHaveBeenCalledWith({ where: { active: true }, select: { domains: true } })
+    expect(database.user.findUnique).toHaveBeenCalledWith({ where: { email: 'bcs123@student.uts.edu.my' }, select: { id: true } })
+    expect(database.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ roles: ['STUDENT'], email: 'bcs123@student.uts.edu.my' }) }))
+    expect(queueEmail).toHaveBeenCalledOnce()
+  })
+
+  it('keeps landlord registration available with a personal email', async () => {
+    const result = await register({ ...base, email: 'landlord@example.com', role: 'LANDLORD' })
+    expect(result.status).toBe(201)
+    expect(database.campus.findMany).not.toHaveBeenCalled()
+  })
+})

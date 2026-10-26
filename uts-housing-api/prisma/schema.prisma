@@ -30,6 +30,7 @@ enum VerificationStatus {
 enum VerificationMethod {
   EMAIL_DOMAIN
   MANUAL
+  DOCUMENTS
 }
 
 enum AuthTokenKind {
@@ -156,6 +157,8 @@ model StudentVerification {
   method       VerificationMethod
   university   String
   proofKey     String?
+  studentIdKey String?
+  offerLetterKey String?
   note         String?
   status       VerificationStatus @default(PENDING)
   reason       String?

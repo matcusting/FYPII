@@ -18,6 +18,49 @@ function renderPage(page: React.ReactNode) {
 afterEach(() => { cleanup(); apiMock.mockReset() })
 
 describe('admin moderation', () => {
+  it('shows both student documents only after opening a verification detail', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-docs', status: 'PENDING', student: { name: 'Student A' } }], pages: 1 }
+      if (path === '/admin/verifications/verify-docs') return {
+        id: 'verify-docs', status: 'PENDING', verificationMethod: 'DOCUMENTS', university: 'University A',
+        student: { name: 'Student A', email: 'student@student.uts.edu.my', emailVerified: true },
+        studentIdUrl: '/api/v1/admin/verifications/verify-docs/student-id',
+        offerLetterUrl: '/api/v1/admin/verifications/verify-docs/offer-letter',
+      }
+      throw new Error(`Unexpected API request: ${path}`)
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    expect(await screen.findByText('Student A')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Download student ID (review only)' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    const studentId = await screen.findByRole('link', { name: 'Download student ID (review only)' })
+    const offerLetter = screen.getByRole('link', { name: 'Download offer letter (review only)' })
+    expect(new URL(studentId.getAttribute('href')!).pathname).toBe('/api/v1/admin/verifications/verify-docs/student-id')
+    expect(new URL(offerLetter.getAttribute('href')!).pathname).toBe('/api/v1/admin/verifications/verify-docs/offer-letter')
+    expect(screen.getByText('student@student.uts.edu.my')).toBeTruthy()
+    expect(screen.getByText('Verified')).toBeTruthy()
+  })
+
+  it('rejects an external document link and prevents approval without both private files', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-docs', status: 'PENDING', student: { name: 'Student B' } }] }
+      if (path === '/admin/verifications/verify-docs') return {
+        id: 'verify-docs', verificationMethod: 'DOCUMENTS',
+        studentIdUrl: '/api/v1/admin/verifications/verify-docs/student-id',
+        offerLetterUrl: 'https://outside.example/offer-letter',
+      }
+      throw new Error(`Unexpected API request: ${path}`)
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    await screen.findByText('Student B')
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByRole('link', { name: 'Download student ID (review only)' })
+    expect(screen.queryByRole('link', { name: 'Download offer letter (review only)' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('Both student documents must be available before approval.')
+    expect(apiMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
   it('loads a verification, shows its detail and sends a reason for rejection', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-1', status: 'PENDING', student: { name: 'Student A' }, createdAt: '2026-10-19T00:00:00Z' }], pages: 1 }

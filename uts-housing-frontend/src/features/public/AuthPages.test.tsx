@@ -17,7 +17,8 @@ describe('account forms', () => {
     render(<MemoryRouter><RegisterPage /></MemoryRouter>)
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Name'), 'Student A')
-    await user.type(screen.getByLabelText('Email'), 'student@example.com')
+    expect(screen.getByText(/Use your university-issued student email/)).toBeTruthy()
+    await user.type(screen.getByLabelText('University Student Email'), 'student-test@student.uts.edu.my')
     await user.type(screen.getByLabelText('Password', { exact: true }), 'GoodPass123')
     await user.type(screen.getByLabelText('Confirm Password'), 'WrongPass123')
     await user.click(screen.getByRole('button', { name: 'Create Account' }))
@@ -31,7 +32,7 @@ describe('account forms', () => {
     await user.click(screen.getByRole('button', { name: 'Create Account' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/register', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ name: 'Student A', email: 'student@example.com', password: 'GoodPass123', role: 'STUDENT', acceptTerms: true }),
+      body: JSON.stringify({ name: 'Student A', email: 'student-test@student.uts.edu.my', password: 'GoodPass123', role: 'STUDENT', acceptTerms: true }),
     })))
     expect(await screen.findByText(/Registration submitted/)).toBeTruthy()
   })

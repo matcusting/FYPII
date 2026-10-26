@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, itemsOf, messageOf } from '../../lib/api'
+import { api, apiResourceUrl, itemsOf, messageOf } from '../../lib/api'
 import { useI18n } from '../../lib/i18n'
 import { AdminShell, Notice, QueryState } from './shared'
 import { asRecord, dateText, firstText, nestedText, type DataRecord } from './data'
@@ -105,6 +105,20 @@ function safeDocumentUrl(value: unknown): string | null {
   }
 }
 
+function privateVerificationUrl(row: DataRecord, field: 'studentIdUrl' | 'offerLetterUrl', document: 'student-id' | 'offer-letter'): string | null {
+  const id = firstText(row, 'id')
+  const source = row[field]
+  if (!id || typeof source !== 'string') return null
+  try {
+    const url = new URL(source, window.location.origin)
+    const expected = `/api/v1/admin/verifications/${encodeURIComponent(id)}/${document}`
+    return url.origin === window.location.origin && url.pathname === expected && !url.search && !url.hash
+      ? apiResourceUrl(`/admin/verifications/${encodeURIComponent(id)}/${document}`) : null
+  } catch {
+    return null
+  }
+}
+
 function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecord }) {
   const { t } = useI18n()
   const details: Array<{ label: string; value: string }> = []
@@ -116,9 +130,11 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Email verification', value: typeof row.emailVerified === 'boolean' ? t(row.emailVerified ? 'Verified' : 'Unverified') : '' },
     )
   } else if (kind === 'verifications') {
+    const emailVerified = asRecord(row.student)?.emailVerified ?? row.emailVerified
     details.push(
       { label: 'Applicant', value: nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'name', 'email') },
       { label: 'Email', value: nestedText(row, 'student', 'email') || nestedText(row, 'user', 'email') || firstText(row, 'email') },
+      { label: 'Email verification', value: typeof emailVerified === 'boolean' ? t(emailVerified ? 'Verified' : 'Unverified') : '' },
       { label: 'University', value: firstText(row, 'university', 'universityName') },
       { label: 'Verification method', value: t(firstText(row, 'verificationMethod', 'method')) },
     )
@@ -150,7 +166,10 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
 
   const photoSources = kind === 'listings' && Array.isArray(row.photos) ? row.photos : []
   const photos = photoSources.map(item => safeDocumentUrl(typeof item === 'string' ? item : asRecord(item)?.url)).filter((url): url is string => Boolean(url))
-  const proofUrl = kind === 'verifications' || kind === 'reviews' ? safeDocumentUrl(row.proofUrl ?? row.documentUrl ?? asRecord(row.document)?.url) : null
+  const documentRequest = kind === 'verifications' && firstText(row, 'verificationMethod', 'method') === 'DOCUMENTS'
+  const studentIdUrl = documentRequest ? privateVerificationUrl(row, 'studentIdUrl', 'student-id') : null
+  const offerLetterUrl = documentRequest ? privateVerificationUrl(row, 'offerLetterUrl', 'offer-letter') : null
+  const proofUrl = kind === 'reviews' || (kind === 'verifications' && !documentRequest) ? safeDocumentUrl(row.proofUrl ?? row.documentUrl ?? asRecord(row.document)?.url) : null
   const evidenceUrl = kind === 'reports' ? safeDocumentUrl(row.evidenceUrl) : null
 
   return (
@@ -160,6 +179,10 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
         {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{t(item.label)}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
       </dl>
       {photos.length > 0 && <div className="mt-4"><p className="text-sm font-semibold text-slate-700">{t('Listing photos')}</p><div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <a key={`${url}-${index}`} href={url} target="_blank" rel="noopener noreferrer" className="block rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#203569]"><img src={url} alt={t('Listing photo {number}', { number: index + 1 })} className="h-24 w-32 rounded-lg border border-slate-200 object-cover" /></a>)}</div></div>}
+      {documentRequest && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-sm font-semibold text-slate-700">{t('Student ID photo')}</p>{studentIdUrl ? <a href={studentIdUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-semibold text-[#203569] underline">{t('Download student ID (review only)')}</a> : <p className="mt-2 text-sm text-red-700">{t('Document unavailable')}</p>}</div>
+        <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-sm font-semibold text-slate-700">{t('Offer letter')}</p>{offerLetterUrl ? <a href={offerLetterUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-semibold text-[#203569] underline">{t('Download offer letter (review only)')}</a> : <p className="mt-2 text-sm text-red-700">{t('Document unavailable')}</p>}</div>
+      </div>}
       {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{t(kind === 'reviews' ? 'View rental evidence (review only)' : 'View verification document (review only)')}</a></p>}
       {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{t('View report evidence')}</a></p>}
     </div>
@@ -222,6 +245,12 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const explanation = reason.trim()
+    const selectedVerification = kind === 'verifications' ? asRecord(detail.data) : null
+    if (decision === config.approve && selectedVerification && firstText(selectedVerification, 'verificationMethod', 'method') === 'DOCUMENTS' &&
+      (!privateVerificationUrl(selectedVerification, 'studentIdUrl', 'student-id') || !privateVerificationUrl(selectedVerification, 'offerLetterUrl', 'offer-letter'))) {
+      setValidation('Both student documents must be available before approval.')
+      return
+    }
     if ((decision === config.reject || decision === config.extraAction?.value || kind === 'reports') && explanation.length < 3) {
       setValidation('Please enter a reason of at least 3 characters.')
       return
@@ -295,7 +324,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                             <label htmlFor={`reason-${kind}-${id}`}>{t('Reason')}{t(decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)')}</label>
                             <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder={t('Record your review findings and explain any rejection or suspension')} />
                           </div>
-                          <button type="submit" className="button" disabled={mutation.isPending}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
+                          <button type="submit" className="button" disabled={mutation.isPending || (kind === 'verifications' && (detail.isPending || detail.isError))}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
                         </form>
                       </td></tr>
                     )}

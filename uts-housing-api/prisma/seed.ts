@@ -67,9 +67,17 @@ try {
       university: 'University of Technology Sarawak',
       latitude: 2.322,
       longitude: 111.839,
-      domains: ['uts.edu.my'],
+      domains: ['student.uts.edu.my'],
     },
   })
+  const demoCampus = await prisma.campus.findUniqueOrThrow({ where: { id: ids.campus }, select: { domains: true } })
+  const configuredDomains = demoCampus.domains.map(domain => domain.trim().toLowerCase())
+  const legacyDemoDomains = configuredDomains.every(domain => domain === 'uts.edu.my' || domain === 'student.uts.edu.my')
+  if (legacyDemoDomains && (configuredDomains.length !== 1 || configuredDomains[0] !== 'student.uts.edu.my')) {
+    await prisma.campus.update({ where: { id: ids.campus }, data: { domains: ['student.uts.edu.my'] } })
+  } else if (!configuredDomains.includes('student.uts.edu.my')) {
+    await prisma.campus.update({ where: { id: ids.campus }, data: { domains: [...demoCampus.domains, 'student.uts.edu.my'] } })
+  }
   for (const amenity of [
     { slug: 'wifi', name: 'Wi-Fi' },
     { slug: 'air-conditioning', name: 'Air Conditioning' },

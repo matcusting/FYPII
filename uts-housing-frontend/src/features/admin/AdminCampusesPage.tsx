@@ -53,7 +53,7 @@ function validatedPayload(form: CampusForm) {
     throw new Error('Enter valid coordinates: latitude must be between -90 and 90, and longitude between -180 and 180.')
   }
   if (domains.some(domain => !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(domain) || domain.includes('..'))) {
-    throw new Error('Invalid verification domain. Enter one domain per line, such as university.edu.my.')
+    throw new Error('Invalid verification domain. Enter one domain per line, such as student.uts.edu.my.')
   }
   return { name, university, latitude, longitude, domains, active: form.active }
 }
@@ -155,7 +155,7 @@ export function AdminCampusesPage() {
             <h2 id="campus-editor-title" className="text-xl font-bold text-slate-950">{t(editingId ? 'Edit campus' : 'Add campus')}</h2>
             {editingId && <button type="button" className="button button-secondary button-small" onClick={() => { setEditingId(null); setForm(blankForm); setValidation(null); save.reset() }}>{t('Cancel editing')}</button>}
           </div>
-          <p className="mt-2 text-sm text-slate-600">{t('Enter one verification domain per line, such as university.edu.my. If no domain is listed, students can still be verified manually.')}</p>
+          <p className="mt-2 text-sm text-slate-600">{t('Add each school-issued student email domain on its own line, such as student.uts.edu.my. An active domain is required for student registration.')}</p>
           <form onSubmit={submit} noValidate className="mt-5 grid gap-4">
             <div className="field"><label htmlFor="campus-name">{t('Campus name')}</label><input id="campus-name" value={form.name} onChange={event => update('name', event.target.value)} required maxLength={120} autoComplete="off" /></div>
             <div className="field"><label htmlFor="campus-university">{t('University name')}</label><input id="campus-university" value={form.university} onChange={event => update('university', event.target.value)} required maxLength={120} autoComplete="organization" /></div>
@@ -163,7 +163,7 @@ export function AdminCampusesPage() {
               <div className="field"><label htmlFor="campus-latitude">{t('Latitude')}</label><input id="campus-latitude" type="number" min="-90" max="90" step="any" value={form.latitude} onChange={event => update('latitude', event.target.value)} required /></div>
               <div className="field"><label htmlFor="campus-longitude">{t('Longitude')}</label><input id="campus-longitude" type="number" min="-180" max="180" step="any" value={form.longitude} onChange={event => update('longitude', event.target.value)} required /></div>
             </div>
-            <div className="field"><label htmlFor="campus-domains">{t('Student verification email domains')}</label><textarea id="campus-domains" rows={4} value={form.domains} onChange={event => update('domains', event.target.value)} placeholder="university.edu.my" aria-describedby="campus-domains-hint" /><p id="campus-domains-hint" className="text-xs text-slate-600">{t('Enter only the part after @. Put each domain on a separate line.')}</p></div>
+            <div className="field"><label htmlFor="campus-domains">{t('Student verification email domains')}</label><textarea id="campus-domains" rows={4} value={form.domains} onChange={event => update('domains', event.target.value)} placeholder="student.uts.edu.my" aria-describedby="campus-domains-hint" /><p id="campus-domains-hint" className="text-xs text-slate-600">{t('Enter only the part after @. Put each domain on a separate line.')}</p></div>
             <label className="flex items-center gap-3 text-sm font-medium text-slate-800"><input type="checkbox" checked={form.active} onChange={event => update('active', event.target.checked)} className="h-5 w-5" />{t('Enable this campus')}</label>
             <Notice error={validation || (save.error ? messageOf(save.error) : null)} success={success} />
             <button type="submit" className="button" disabled={save.isPending}>{t(save.isPending ? 'Saving…' : editingId ? 'Save changes' : 'Create campus')}</button>

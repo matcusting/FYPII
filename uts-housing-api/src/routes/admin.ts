@@ -8,7 +8,7 @@ import { prisma } from '../core/db.js'
 import { currentUser, requireRole } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
 import { uploadMetadata } from '../storage/listings.js'
-import { verificationProofDirectory } from './verifications.js'
+import { removeStoredVerificationDocuments, verificationProofDirectory, verificationProofMime } from './verifications.js'
 
 const router = Router()
 router.use(requireRole('ADMIN'))
@@ -33,6 +33,7 @@ const queueStatuses: Record<ModerationKind, readonly string[]> = {
 }
 const accountSelect = { id: true, name: true, email: true, roles: true, emailVerifiedAt: true, studentVerified: true, verificationStatus: true, status: true, createdAt: true, updatedAt: true } as const
 const personSelect = { id: true, name: true, email: true } as const
+const verificationPersonSelect = { ...personSelect, emailVerifiedAt: true } as const
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => { void handler(req, res).catch(next) }
@@ -68,14 +69,29 @@ function accountOf(row: {
 function verificationOf(row: {
   id: string; userId: string; method: unknown; university: string; note: string | null; status: unknown;
   reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date;
-  proofKey: string | null; user: { id: string; name: string; email: string }
+  proofKey: string | null; studentIdKey: string | null; offerLetterKey: string | null;
+  user: { id: string; name: string; email: string; emailVerifiedAt: Date | null }
 }, detail = false) {
   return {
-    id: row.id, userId: row.userId, student: row.user, university: row.university,
+    id: row.id, userId: row.userId,
+    student: { id: row.user.id, name: row.user.name, email: row.user.email, emailVerified: Boolean(row.user.emailVerifiedAt) },
+    university: row.university,
     verificationMethod: row.method, note: row.note, status: row.status, moderationReason: row.reason,
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt,
     ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/verifications/${row.id}/proof` } : {}),
+    ...(detail && row.studentIdKey ? { studentIdUrl: `/api/v1/admin/verifications/${row.id}/student-id` } : {}),
+    ...(detail && row.offerLetterKey ? { offerLetterUrl: `/api/v1/admin/verifications/${row.id}/offer-letter` } : {}),
   }
+}
+
+async function storedVerificationDocument(storageKey: string | null, ownerId: string, allowedMimeTypes: readonly string[]) {
+  if (!storageKey || !/^[0-9a-f-]{36}\.(?:pdf|jpg|png)$/.test(storageKey)) return null
+  const upload = await prisma.mediaUpload.findUnique({ where: { storageKey } })
+  if (!upload || upload.ownerId !== ownerId || upload.purpose !== 'VERIFICATION' || upload.status !== 'READY' || !allowedMimeTypes.includes(upload.mimeType) || upload.size < 1 || upload.size > 5_000_000) return null
+  const stored = await stat(resolve(verificationProofDirectory(), storageKey)).catch(() => null)
+  if (!stored?.isFile() || stored.size !== upload.size) return null
+  const bytes = await readFile(resolve(verificationProofDirectory(), storageKey)).catch(() => null)
+  return bytes && verificationProofMime(bytes, upload.mimeType) === upload.mimeType ? { upload, bytes } : null
 }
 
 function listingOf(row: {
@@ -191,6 +207,25 @@ router.get('/verifications/:id/proof', asyncRoute(async (req, res) => {
   res.send(bytes)
 }))
 
+router.get('/verifications/:id/:document', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  const document = z.enum(['student-id', 'offer-letter']).safeParse(req.params.document)
+  if (!id.success || !document.success) return void fail(res, 404, 'This verification document is unavailable.', 'NOT_FOUND')
+  const verification = await prisma.studentVerification.findUnique({ where: { id: id.data }, select: { userId: true, method: true, studentIdKey: true, offerLetterKey: true } })
+  if (!verification || verification.method !== 'DOCUMENTS') return void fail(res, 404, 'This verification document is unavailable.', 'NOT_FOUND')
+  const studentId = document.data === 'student-id'
+  const storageKey = studentId ? verification.studentIdKey : verification.offerLetterKey
+  const documentFile = await storedVerificationDocument(storageKey, verification.userId, studentId ? ['image/jpeg', 'image/png'] : ['application/pdf', 'image/jpeg', 'image/png'])
+  if (!documentFile) return void fail(res, 404, 'This verification document is unavailable.', 'NOT_FOUND')
+  const { upload, bytes } = documentFile
+  const extension = upload.mimeType === 'application/pdf' ? '.pdf' : upload.mimeType === 'image/jpeg' ? '.jpg' : '.png'
+  res.setHeader('Content-Type', upload.mimeType)
+  res.setHeader('Content-Disposition', `attachment; filename="${studentId ? 'student-id' : 'offer-letter'}${extension}"`)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.send(bytes)
+}))
+
 router.get('/deletion-requests', asyncRoute(async (req, res) => {
   const page = pageOf(req)
   const requestedStatus = statusOf(req)
@@ -216,6 +251,9 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
     const activeAdmins = await prisma.user.count({ where: { status: 'ACTIVE', roles: { has: 'ADMIN' } } })
     if (activeAdmins <= 1) return void fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
   }
+  const verificationUploads = body.data.status === 'APPROVED'
+    ? await prisma.mediaUpload.findMany({ where: { ownerId: previous.userId, purpose: 'VERIFICATION' }, select: { storageKey: true } })
+    : []
   const result = await atomicDecision(async transaction => {
     if (body.data.status === 'APPROVED' && previous.user.roles.includes('ADMIN')) {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(31415926)`
@@ -231,7 +269,9 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
       await transaction.listing.updateMany({ where: { ownerId: previous.userId }, data: { status: 'ARCHIVED', showExactLocation: false, latitude: null, longitude: null, address: null } })
       await transaction.roommateProfile.deleteMany({ where: { userId: previous.userId } })
       await transaction.profile.deleteMany({ where: { userId: previous.userId } })
-      await transaction.user.update({ where: { id: previous.userId }, data: { status: 'DELETED', name: 'Deleted account', email: `deleted-${previous.userId}@invalid.local`, passwordHash: randomBytes(48).toString('hex'), emailVerifiedAt: null, studentVerified: false } })
+      await transaction.studentVerification.deleteMany({ where: { userId: previous.userId } })
+      await transaction.mediaUpload.deleteMany({ where: { ownerId: previous.userId, purpose: 'VERIFICATION' } })
+      await transaction.user.update({ where: { id: previous.userId }, data: { status: 'DELETED', name: 'Deleted account', email: `deleted-${previous.userId}@invalid.local`, passwordHash: randomBytes(48).toString('hex'), emailVerifiedAt: null, studentVerified: false, verificationStatus: 'UNVERIFIED' } })
     } else {
       await notify(transaction, previous.userId, previous.user.email, 'DELETION_REQUEST', 'Account deletion request rejected', `Your account deletion request was rejected: ${body.data.reason}`, changed.id)
     }
@@ -240,6 +280,7 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
   }).catch(error => error instanceof LastAdminConflict ? 'LAST_ADMIN' as const : Promise.reject(error))
   if (result === 'LAST_ADMIN') return void fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
   if (!result) return void fail(res, 409, 'This deletion request has already been reviewed.', 'ALREADY_REVIEWED')
+  if (body.data.status === 'APPROVED') await removeStoredVerificationDocuments(verificationUploads.map(upload => upload.storageKey))
   ok(res, { id: result.id, status: result.status, requestedAt: result.requestedAt })
 }))
 
@@ -268,7 +309,7 @@ router.get('/:kind', asyncRoute(async (req, res) => {
   let total = 0
   if (kind === 'verifications') {
     const where = requestedStatus ? { status: requestedStatus as VerificationStatus } : {}
-    const [rows, count] = await Promise.all([prisma.studentVerification.findMany({ where, include: { user: { select: personSelect } }, orderBy: { createdAt: 'desc' }, skip, take }), prisma.studentVerification.count({ where })])
+    const [rows, count] = await Promise.all([prisma.studentVerification.findMany({ where, include: { user: { select: verificationPersonSelect } }, orderBy: { createdAt: 'desc' }, skip, take }), prisma.studentVerification.count({ where })])
     items = rows.map(row => verificationOf(row)); total = count
   } else if (kind === 'listings') {
     const where = requestedStatus ? { status: requestedStatus as ListingStatus } : {}
@@ -295,7 +336,7 @@ router.get('/:kind/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
   if (!moderationKinds.includes(kind) || !id.success) return void fail(res, 404, 'This moderation record does not exist.', 'NOT_FOUND')
   if (kind === 'verifications') {
-    const row = await prisma.studentVerification.findUnique({ where: { id: id.data }, include: { user: { select: personSelect } } })
+    const row = await prisma.studentVerification.findUnique({ where: { id: id.data }, include: { user: { select: verificationPersonSelect } } })
     return void (row ? ok(res, verificationOf(row, true)) : fail(res, 404, 'This verification does not exist.', 'NOT_FOUND'))
   }
   if (kind === 'listings') {
@@ -326,24 +367,39 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
 
   if (kind === 'verifications') {
     if (status !== 'APPROVED' && status !== 'REJECTED') return void fail(res, 400, 'Choose approve or reject for student verification.', 'INVALID_STATUS')
-    const previous = await prisma.studentVerification.findUnique({ where: { id: id.data }, include: { user: { select: personSelect } } })
+    const previous = await prisma.studentVerification.findUnique({ where: { id: id.data }, include: { user: { select: verificationPersonSelect } } })
     if (!previous) return void fail(res, 404, 'This verification does not exist.', 'NOT_FOUND')
     if (previous.status !== 'PENDING') return void fail(res, 409, 'This verification has already been reviewed.', 'ALREADY_REVIEWED')
-    if (status === 'APPROVED' && previous.method === 'MANUAL') {
-      const proof = previous.proofKey && await prisma.mediaUpload.findUnique({ where: { storageKey: previous.proofKey } })
-      const stored = proof ? await stat(resolve(verificationProofDirectory(), proof.storageKey)).catch(() => null) : null
-      if (!proof || proof.ownerId !== previous.userId || proof.purpose !== 'VERIFICATION' || proof.status !== 'READY' || !stored?.isFile() || stored.size !== proof.size) return void fail(res, 400, 'Review a valid proof document before approving this student.', 'PROOF_REQUIRED')
+    if (status === 'APPROVED') {
+      if (previous.method !== 'DOCUMENTS') return void fail(res, 400, 'Ask the student to resubmit both verification documents.', 'DOCUMENTS_REQUIRED')
+      if (!previous.user.emailVerifiedAt) return void fail(res, 400, 'The student must verify their school email before approval.', 'EMAIL_UNVERIFIED')
+      const emailDomain = previous.user.email.toLowerCase().split('@')[1]
+      const campuses = await prisma.campus.findMany({ where: { active: true }, select: { domains: true } })
+      if (!campuses.some(campus => campus.domains.some(domain => domain.trim().toLowerCase() === emailDomain))) return void fail(res, 400, 'The student school email domain is not approved.', 'DOMAIN_NOT_APPROVED')
+      const [studentId, offerLetter] = await Promise.all([
+        storedVerificationDocument(previous.studentIdKey, previous.userId, ['image/jpeg', 'image/png']),
+        storedVerificationDocument(previous.offerLetterKey, previous.userId, ['application/pdf', 'image/jpeg', 'image/png']),
+      ])
+      if (!studentId || !offerLetter) return void fail(res, 400, 'Review both valid student documents before approval.', 'PROOF_REQUIRED')
     }
+    const rejectedKeys = status === 'REJECTED' ? [previous.proofKey, previous.studentIdKey, previous.offerLetterKey] : []
     const changed = await atomicDecision(async transaction => {
-      const updated = await transaction.studentVerification.updateMany({ where: { id: id.data, status: 'PENDING' }, data: { status: status as VerificationStatus, reason: reason || null, reviewedById: actorId, reviewedAt: new Date() } })
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
+      const updated = await transaction.studentVerification.updateMany({ where: { id: id.data, status: 'PENDING' }, data: {
+        status: status as VerificationStatus, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(),
+        ...(status === 'REJECTED' ? { proofKey: null, studentIdKey: null, offerLetterKey: null } : {}),
+      } })
       if (!updated.count) throw new ModerationConflict()
       const row = await transaction.studentVerification.findUniqueOrThrow({ where: { id: id.data } })
-      await transaction.user.update({ where: { id: row.userId }, data: { studentVerified: status === 'APPROVED', verificationStatus: status as VerificationStatus } })
+      if (status === 'REJECTED') await transaction.mediaUpload.deleteMany({ where: { ownerId: row.userId, storageKey: { in: rejectedKeys.filter((key): key is string => Boolean(key)) } } })
+      const approved = status === 'APPROVED' || await transaction.studentVerification.count({ where: { userId: row.userId, status: 'APPROVED' } }) > 0
+      await transaction.user.update({ where: { id: row.userId }, data: { studentVerified: approved, verificationStatus: approved ? 'APPROVED' : status as VerificationStatus } })
       await audit(transaction, actorId, `VERIFICATION_${status}`, 'STUDENT_VERIFICATION', row.id, { status: previous.status }, { status, reason })
       await notify(transaction, row.userId, previous.user.email, 'STUDENT_VERIFICATION', `Student verification ${status.toLowerCase()}`, status === 'APPROVED' ? 'Your student verification has been approved.' : `Your student verification was rejected: ${reason}`, row.id)
       return row
     })
     if (!changed) return void fail(res, 409, 'This verification has already been reviewed.', 'ALREADY_REVIEWED')
+    if (status === 'REJECTED') await removeStoredVerificationDocuments(rejectedKeys)
     return void ok(res, verificationOf({ ...changed, user: previous.user }, true))
   }
 

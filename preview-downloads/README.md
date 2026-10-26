@@ -5,11 +5,13 @@
 ZIP 内含已构建的前端、内存演示 API，以及官方 Windows x64 Node.js v20.19.5 运行程序；无需安装 Node.js 或运行 `npm`。ZIP 的 SHA-256 为：
 
 ```text
-36c7be74abefe02abde4075d18aa922c96d106c22f70f862763fc327586bd539
+af328c4544591b78016ab560b4e7ce1ed378e8487c1170ba718081c0916a58ba
 ```
 
-演示账号为 `student@demo.local`、`landlord@demo.local`、`admin@demo.local`，密码均为 `Demo12345!`。所有数据均为虚构示例，重启服务后恢复初始状态。网站默认显示英文，可切换马来文或简体中文。这个 ZIP 使用独立的内存演示服务；仓库中的 Express/PostgreSQL 后端需按根目录 README 另行启动。
+演示账号为 `student@demo.local`、`landlord@demo.local`、`admin@demo.local`，以及待认证学生 `verification-demo@student.uts.edu.my`；密码均为 `Demo12345!`。所有数据均为虚构示例，重启服务后恢复初始状态。网站默认显示英文，可切换马来文或简体中文。这个 ZIP 使用独立的内存演示服务；仓库中的 Express/PostgreSQL 后端需按根目录 README 另行启动。
 
 此版本已移除 Google Maps，改为房东填写完整房屋地址，并增加设施选项和房东电话资料。
 
 学生个人资料新增可选电话号码；“寻找室友”会直接打开 My Lifestyle Profile，大学信息不会显示给匹配对象。
+
+待认证学生账号可以演示上传学生证照片和录取通知书，再由管理员审核。ZIP 不发送验证邮件，也不保存上传的文件；管理员下载的是通用占位图。请只使用虚构测试文件，勿上传真实证件。

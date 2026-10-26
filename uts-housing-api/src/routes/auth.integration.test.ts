@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,7 +12,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
   let outbox = ''
   let prisma: typeof import('../core/db.js').prisma
   let processEmailJobs: typeof import('../workers/email.js').processEmailJobs
-  const email = `auth-integration-${Date.now()}@example.test`
+  const email = `auth-integration-${Date.now()}@student.uts.edu.my`
+  const campusId = randomUUID()
   const password = 'IntegrationOnly123!'
 
   beforeAll(async () => {
@@ -26,6 +28,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
     ])
     prisma = dbModule.prisma
     processEmailJobs = workerModule.processEmailJobs
+    await prisma.campus.create({ data: {
+      id: campusId, name: 'Integration Test Campus', university: 'University of Technology Sarawak',
+      latitude: 2.322, longitude: 111.839, domains: ['student.uts.edu.my'],
+    } })
     server = await new Promise<Server>(resolve => {
       const started = appModule.app.listen(0, '127.0.0.1', () => resolve(started))
     })
@@ -39,6 +45,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
     if (prisma) {
       await prisma.emailJob.deleteMany({ where: { to: email } })
       await prisma.user.deleteMany({ where: { email } })
+      await prisma.campus.deleteMany({ where: { id: campusId } })
       await prisma.$disconnect()
     }
     if (outbox) await rm(outbox, { force: true, recursive: true })
@@ -67,6 +74,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
       throw new Error(`Missing ${subject} email`)
     }
 
+    const personalEmail = await request('/auth/register', 'POST', { name: 'Integration Student', email: `auth-integration-${Date.now()}@example.test`, password, role: 'STUDENT', acceptTerms: true })
+    expect(personalEmail.response.status).toBe(400)
+    expect(personalEmail.payload.error?.code).toBe('STUDENT_EMAIL_REQUIRED')
     expect((await request('/auth/register', 'POST', { name: 'Integration Student', email, password, role: 'STUDENT', acceptTerms: true })).response.status).toBe(201)
     const verificationToken = await emailToken('Verify your UTS Housing email')
     expect((await request('/auth/verify-email', 'POST', { token: verificationToken })).response.status).toBe(200)

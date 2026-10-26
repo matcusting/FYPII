@@ -44,9 +44,9 @@ export const adminTranslations: Record<string, { ms: string; zh: string }> = {
   'Edit campus': { ms: 'Sunting kampus', zh: '编辑校区' },
   'Add campus': { ms: 'Tambah kampus', zh: '添加校区' },
   'Cancel editing': { ms: 'Batalkan suntingan', zh: '取消编辑' },
-  'Enter one verification domain per line, such as university.edu.my. If no domain is listed, students can still be verified manually.': {
-    ms: 'Masukkan satu domain pengesahan setiap baris, contohnya university.edu.my. Jika tiada domain disenaraikan, pelajar masih boleh disahkan secara manual.',
-    zh: '每行输入一个认证域名，例如 university.edu.my。若未填写域名，仍可人工审核学生认证。',
+  'Add each school-issued student email domain on its own line, such as student.uts.edu.my. An active domain is required for student registration.': {
+    ms: 'Masukkan setiap domain e-mel pelajar yang dikeluarkan oleh institusi pada baris berasingan, contohnya student.uts.edu.my. Domain aktif diperlukan untuk pendaftaran pelajar.',
+    zh: '每行填写一个学校提供的学生邮箱域名，例如 student.uts.edu.my。学生注册需要已启用的域名。',
   },
   'Campus name': { ms: 'Nama kampus', zh: '校区名称' },
   'University name': { ms: 'Nama universiti', zh: '大学名称' },
@@ -66,9 +66,9 @@ export const adminTranslations: Record<string, { ms: string; zh: string }> = {
     ms: 'Masukkan koordinat yang sah: latitud antara -90 hingga 90 dan longitud antara -180 hingga 180.',
     zh: '请输入有效坐标：纬度须介于 -90 至 90，经度须介于 -180 至 180。',
   },
-  'Invalid verification domain. Enter one domain per line, such as university.edu.my.': {
-    ms: 'Domain pengesahan tidak sah. Masukkan satu domain setiap baris, contohnya university.edu.my.',
-    zh: '认证域名无效。请每行输入一个域名，例如 university.edu.my。',
+  'Invalid verification domain. Enter one domain per line, such as student.uts.edu.my.': {
+    ms: 'Domain pengesahan tidak sah. Masukkan satu domain setiap baris, contohnya student.uts.edu.my.',
+    zh: '认证域名无效。请每行输入一个域名，例如 student.uts.edu.my。',
   },
 
   'Review student identity, approve or reject applications, and record the reason for each decision.': {
@@ -105,6 +105,13 @@ export const adminTranslations: Record<string, { ms: string; zh: string }> = {
   'accounts': { ms: 'akaun', zh: '账户' },
   'Approve verification': { ms: 'Luluskan pengesahan', zh: '批准认证' },
   'Reject verification': { ms: 'Tolak pengesahan', zh: '拒绝认证' },
+  'DOCUMENTS': { ms: 'Dokumen', zh: '证件资料' },
+  'Student ID photo': { ms: 'Foto kad pelajar', zh: '学生证照片' },
+  'Offer letter': { ms: 'Surat tawaran', zh: '录取通知书' },
+  'Download student ID (review only)': { ms: 'Muat turun kad pelajar (untuk semakan sahaja)', zh: '下载学生证（仅供审核）' },
+  'Download offer letter (review only)': { ms: 'Muat turun surat tawaran (untuk semakan sahaja)', zh: '下载录取通知书（仅供审核）' },
+  'Document unavailable': { ms: 'Dokumen tidak tersedia', zh: '文件不可用' },
+  'Both student documents must be available before approval.': { ms: 'Kedua-dua dokumen pelajar mesti tersedia sebelum diluluskan.', zh: '批准前必须能查看两份学生文件。' },
   'Approve publication': { ms: 'Luluskan penerbitan', zh: '批准发布' },
   'Reject publication': { ms: 'Tolak penerbitan', zh: '拒绝发布' },
   'Pause listing': { ms: 'Jeda iklan rumah', zh: '暂停房源' },

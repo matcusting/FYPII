@@ -2,6 +2,10 @@ import { currentLocale, translate } from './i18n'
 
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || '/api/v1').replace(/\/$/, '')
 
+export function apiResourceUrl(path: string): string {
+  return new URL(`${baseUrl}${path}`, window.location.origin).href
+}
+
 export class ApiError extends Error {
   constructor(message: string, public status: number, public code?: string) {
     super(message)

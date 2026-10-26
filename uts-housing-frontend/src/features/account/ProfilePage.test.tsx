@@ -10,7 +10,7 @@ import { ProfilePage } from './ProfilePage'
 const state = vi.hoisted(() => ({
   api: vi.fn(),
   refresh: vi.fn(),
-  user: { id: 'landlord-1', name: 'Demo Landlord', email: 'landlord@demo.local', roles: ['LANDLORD'] },
+  user: { id: 'landlord-1', name: 'Demo Landlord', email: 'landlord@demo.local', roles: ['LANDLORD'], emailVerified: false, studentVerified: false, verificationStatus: 'UNVERIFIED' },
 }))
 
 vi.mock('../../lib/api', async original => ({ ...(await original<typeof import('../../lib/api')>()), api: state.api }))
@@ -28,6 +28,9 @@ beforeEach(() => {
   state.user.name = 'Demo Landlord'
   state.user.email = 'landlord@demo.local'
   state.user.roles = ['LANDLORD']
+  state.user.emailVerified = false
+  state.user.studentVerified = false
+  state.user.verificationStatus = 'UNVERIFIED'
   state.refresh.mockReset().mockResolvedValue(state.user)
   state.api.mockReset().mockImplementation((path: string, init?: RequestInit) => {
     if (path === '/profile' && !init) return Promise.resolve({ displayName: state.user.name, phone: null })
@@ -85,5 +88,33 @@ describe('landlord profile', () => {
     await waitFor(() => expect(state.api).toHaveBeenCalledWith('/profile', expect.objectContaining({
       method: 'PATCH', body: JSON.stringify({ displayName: 'Demo Student', university: 'University of Technology Sarawak', bio: null, phone: null }),
     })))
+  })
+
+  it('shows the latest rejected review and submits both student documents together', async () => {
+    state.user.id = 'student-1'
+    state.user.name = 'Synthetic Student'
+    state.user.email = 'synthetic@student.uts.edu.my'
+    state.user.roles = ['STUDENT']
+    state.user.emailVerified = true
+    state.user.verificationStatus = 'PENDING'
+    state.api.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/profile' && !init) return Promise.resolve({ displayName: state.user.name, verificationStatus: 'REJECTED' })
+      if (path === '/verifications' && init?.method === 'POST') return Promise.resolve({ status: 'PENDING' })
+      throw new Error(`Unexpected API request: ${path}`)
+    })
+    renderPage()
+    expect(await screen.findByText('Your previous verification was not approved. You may submit new documents for review.')).toBeTruthy()
+    await waitFor(() => expect(state.refresh).toHaveBeenCalled())
+    const studentId = new File([new Uint8Array([255, 216, 255])], 'synthetic-id.jpg', { type: 'image/jpeg' })
+    const offer = new File(['%PDF-1.7\n%%EOF'], 'synthetic-offer.pdf', { type: 'application/pdf' })
+    await userEvent.upload(screen.getByLabelText(/Student ID photo/), studentId)
+    await userEvent.upload(screen.getByLabelText(/Offer letter/), offer)
+    await userEvent.click(screen.getByRole('button', { name: 'Submit Verification' }))
+    await waitFor(() => expect(state.api).toHaveBeenCalledWith('/verifications', expect.objectContaining({ method: 'POST' })))
+    const call = state.api.mock.calls.find(([path]) => path === '/verifications')
+    const body = call?.[1]?.body as FormData
+    expect(body.get('method')).toBe('DOCUMENTS')
+    expect(body.get('studentId')).toBe(studentId)
+    expect(body.get('offerLetter')).toBe(offer)
   })
 })

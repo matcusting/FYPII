@@ -20,11 +20,12 @@ const users = [
   { id: 'landlord-demo', name: 'Demo Landlord', email: 'landlord@demo.local', roles: ['LANDLORD'], emailVerified: true, studentVerified: false, status: 'ACTIVE' },
   { id: 'admin-demo', name: 'Demo Admin', email: 'admin@demo.local', roles: ['ADMIN'], emailVerified: true, studentVerified: false, status: 'ACTIVE' },
   { id: 'student-candidate', name: 'Demo Roommate', email: 'candidate@demo.local', roles: ['STUDENT'], emailVerified: true, studentVerified: true, verificationStatus: 'APPROVED', status: 'ACTIVE' },
+  { id: 'student-applicant', name: 'Demo Applicant', email: 'verification-demo@student.uts.edu.my', roles: ['STUDENT'], emailVerified: true, studentVerified: false, verificationStatus: 'UNVERIFIED', status: 'ACTIVE' },
 ]
 const sessions = new Map()
 const uploads = new Map()
 const campuses = [
-  { id: 'uts-sibu', name: 'UTS Sibu Campus', university: 'University of Technology Sarawak', latitude: 2.286, longitude: 111.835, domains: ['uts.edu.my'], active: true },
+  { id: 'uts-sibu', name: 'UTS Sibu Campus', university: 'University of Technology Sarawak', latitude: 2.286, longitude: 111.835, domains: ['student.uts.edu.my'], active: true },
   { id: 'sibu-center', name: 'Sibu City Centre', university: 'University of Technology Sarawak', latitude: 2.298, longitude: 111.829, domains: [], active: true },
 ]
 const amenities = [
@@ -76,7 +77,7 @@ const roommateMessages = new Map()
 const notifications = []
 const reviews = [{ id: 'demo-review-1', listingId: 'demo-listing-1', listing: { id: 'demo-listing-1', title: 'Room Near UTS (Demo)' }, authorId: 'student-candidate', author: { name: 'Demo Roommate' }, rating: 4, body: 'Demo review: A convenient location and a student-friendly room. This is not based on a real stay.', status: 'APPROVED', moderationStatus: 'APPROVED', createdAt: seedDate }]
 const reports = [{ id: 'demo-report-1', targetType: 'LISTING', targetId: 'demo-listing-2', category: 'INACCURATE', reason: 'Demo report: Please check that the photos match the description.', reporter: { name: 'Demo Student' }, status: 'OPEN', createdAt: seedDate }]
-const verifications = [{ id: 'demo-verification-1', userId: 'student-candidate', student: { name: 'Demo Roommate', email: 'candidate@demo.local' }, university: 'University of Technology Sarawak', verificationMethod: 'EMAIL_DOMAIN', status: 'PENDING', createdAt: seedDate }]
+const verifications = []
 const preferences = new Map()
 
 function json(res, status, value) {
@@ -114,9 +115,22 @@ async function bodyOf(req, max = 5_500_000) {
     try { return JSON.parse(buffer.toString('utf8')) }
     catch { throw Object.assign(new Error('The request contains invalid JSON.'), { status: 400 }) }
   }
-  // Proof files are ignored in this UI-only preview; no private file is stored.
-  if (type.startsWith('multipart/form-data')) return { method: 'MANUAL', university: profiles.get(currentUser(req)?.id)?.university || '' }
+  if (type.startsWith('multipart/form-data')) {
+    try {
+      // Parse the upload only for local validation. The preview never stores the document bytes.
+      const form = await new Request('http://127.0.0.1/', { method: 'POST', headers: { 'Content-Type': type }, body: buffer }).formData()
+      return Object.fromEntries(form.entries())
+    } catch { throw Object.assign(new Error('The demo form upload is invalid.'), { status: 400 }) }
+  }
   return { buffer }
+}
+async function validDemoProof(file, allowedTypes) {
+  if (!file || typeof file.arrayBuffer !== 'function' || typeof file.size !== 'number' || file.size < 1 || file.size > 5_000_000) return false
+  const bytes = Buffer.from(await file.arrayBuffer())
+  const detected = bytes.length >= 5 && bytes.toString('ascii', 0, 5) === '%PDF-' ? 'application/pdf'
+    : bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff ? 'image/jpeg'
+      : bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ? 'image/png' : ''
+  return allowedTypes.includes(detected) && file.type === detected
 }
 function paginate(items, url, fallbackLimit = 20) {
   const page = Math.max(1, Number.parseInt(url.searchParams.get('page') || '1', 10) || 1)
@@ -133,6 +147,17 @@ function notify(userId, type, payload = {}) {
   notifications.unshift({ id: id('notification'), userId, type, payload, readAt: null, createdAt: now() })
 }
 function ownerOf(item) { return users.find(user => user.id === item.ownerId) }
+function verificationForAdmin(item, detail = false) {
+  const applicant = users.find(user => user.id === item.userId)
+  return {
+    ...item,
+    student: { ...item.student, emailVerified: applicant?.emailVerified === true },
+    ...(detail && item.method === 'DOCUMENTS' ? {
+      studentIdUrl: `/api/v1/admin/verifications/${item.id}/student-id`,
+      offerLetterUrl: `/api/v1/admin/verifications/${item.id}/offer-letter`,
+    } : {}),
+  }
+}
 function maySeeExactLocation(item, viewer) {
   return viewer?.id === item.ownerId || viewer?.roles.includes('ADMIN') || (item.showExactLocation === true && viewer?.roles.includes('STUDENT'))
 }
@@ -159,12 +184,12 @@ async function api(req, res, url) {
   const path = url.pathname.slice('/api/v1'.length)
   const method = req.method
   const user = currentUser(req)
-  const body = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) && !path.startsWith('/demo-uploads/') ? await bodyOf(req) : {}
+  const body = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) && !path.startsWith('/demo-uploads/') ? await bodyOf(req, path === '/verifications' ? 11_000_000 : 5_500_000) : {}
 
   if (path === '/auth/me' && method === 'GET') return user ? json(res, 200, user) : fail(res, 401, 'You are not signed in to a demo account.', 'UNAUTHORIZED')
   if (path === '/auth/login' && method === 'POST') {
     const account = users.find(item => item.email.toLowerCase() === String(body.email || '').toLowerCase())
-    if (!account || body.password !== demoPassword || account.status !== 'ACTIVE') return fail(res, 401, 'Incorrect demo email or password. Use student@demo.local, landlord@demo.local, or admin@demo.local. The password is Demo12345!', 'INVALID_CREDENTIALS')
+    if (!account || body.password !== demoPassword || account.status !== 'ACTIVE') return fail(res, 401, 'Incorrect demo email or password. Use student@demo.local, verification-demo@student.uts.edu.my, landlord@demo.local, or admin@demo.local. The password is Demo12345!', 'INVALID_CREDENTIALS')
     const token = randomUUID()
     sessions.set(token, { id: id('session'), userId: account.id, createdAt: now() })
     res.setHeader('Set-Cookie', `demo_session=${token}; HttpOnly; SameSite=Strict; Path=/`)
@@ -357,10 +382,19 @@ async function api(req, res, url) {
   }
   if (path === '/verifications' && method === 'POST') {
     if (!required(res, user, 'STUDENT')) return
-    const record = { id: id('verification'), userId: user.id, student: { name: user.name, email: user.email }, university: String(body.university || ''), verificationMethod: body.method || 'EMAIL_DOMAIN', status: 'PENDING', createdAt: now() }
+    if (user.studentVerified) return fail(res, 409, 'Your student status is already verified.', 'ALREADY_VERIFIED')
+    if (verifications.some(item => item.userId === user.id && item.status === 'PENDING')) return fail(res, 409, 'Your student verification request is already pending.', 'VERIFICATION_PENDING')
+    if (body.method !== 'DOCUMENTS') return fail(res, 400, 'Submit both documents for administrator review.', 'INVALID_METHOD')
+    if (!user.emailVerified) return fail(res, 403, 'Verify your school email before submitting documents.', 'EMAIL_UNVERIFIED')
+    const domain = user.email.toLowerCase().split('@')[1]
+    const campus = campuses.find(item => item.active && item.domains.some(allowed => allowed.toLowerCase() === domain))
+    if (!campus) return fail(res, 403, 'Use a configured school email address for student verification.', 'STUDENT_EMAIL_REQUIRED')
+    if (!await validDemoProof(body.studentId, ['image/jpeg', 'image/png'])) return fail(res, 400, 'Upload a valid student ID JPG or PNG image no larger than 5 MB.', 'INVALID_STUDENT_ID')
+    if (!await validDemoProof(body.offerLetter, ['application/pdf', 'image/jpeg', 'image/png'])) return fail(res, 400, 'Upload a valid offer letter PDF, JPG or PNG no larger than 5 MB.', 'INVALID_OFFER_LETTER')
+    const record = { id: id('verification'), userId: user.id, student: { name: user.name, email: user.email, emailVerified: true }, university: campus.university, method: 'DOCUMENTS', verificationMethod: 'DOCUMENTS', status: 'PENDING', note: 'Demo preview: uploaded files were checked and then discarded. Private documents are not stored here.', createdAt: now() }
     verifications.unshift(record)
     user.studentVerified = false; user.verificationStatus = 'PENDING'
-    return json(res, 201, record)
+    return json(res, 201, { id: record.id, method: record.method, status: record.status, createdAt: record.createdAt })
   }
   if (path === '/roommates/profile' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, roommateProfiles.get(user.id) || {}) }
   if (path === '/roommates/profile' && method === 'PATCH') { if (!required(res, user, 'STUDENT')) return; const current = roommateProfiles.get(user.id) || {}; const profile = { ...current, ...body, visibility: { ...current.visibility, ...body.visibility, university: false } }; roommateProfiles.set(user.id, profile); return json(res, 200, profile) }
@@ -423,6 +457,15 @@ async function api(req, res, url) {
 
   if (path.startsWith('/admin/')) {
     if (!required(res, user, 'ADMIN')) return
+    const demoDocumentMatch = path.match(/^\/admin\/verifications\/([^/]+)\/(student-id|offer-letter)$/)
+    if (demoDocumentMatch && method === 'GET') {
+      const verification = verifications.find(item => item.id === demoDocumentMatch[1] && item.method === 'DOCUMENTS')
+      if (!verification) return fail(res, 404, 'The demo verification document is unavailable.', 'NOT_FOUND')
+      const label = demoDocumentMatch[2] === 'student-id' ? 'Student ID' : 'Offer Letter'
+      const sample = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="720" height="420" fill="#f4f7fb"/><rect x="42" y="42" width="636" height="336" rx="20" fill="#fff" stroke="#203569" stroke-width="3"/><text x="72" y="134" fill="#203569" font-family="Arial" font-size="34" font-weight="bold">${label} — DEMO ONLY</text><text x="72" y="200" fill="#374151" font-family="Arial" font-size="21">Uploaded documents are checked, then discarded.</text><text x="72" y="242" fill="#374151" font-family="Arial" font-size="21">This placeholder contains no student information.</text></svg>`
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Content-Disposition': `attachment; filename="demo-${demoDocumentMatch[2]}.svg"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' })
+      return res.end(sample)
+    }
     if (path === '/admin/overview' && method === 'GET') return json(res, 200, {
       pendingVerifications: verifications.filter(item => item.status === 'PENDING').length,
       landlordAccounts: users.filter(item => item.roles.includes('LANDLORD')).length,
@@ -445,18 +488,25 @@ async function api(req, res, url) {
     if (moderationMatch) {
       const [, kind, itemId] = moderationMatch
       const collection = { verifications, listings, reviews, reports, accounts: users }[kind]
-      if (!itemId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status')).map(item => kind === 'listings' ? decorateListing(item, user) : item), url))
+      if (!itemId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status')).map(item => kind === 'listings' ? decorateListing(item, user) : kind === 'verifications' ? verificationForAdmin(item) : item), url))
       const item = collection.find(entry => entry.id === itemId)
       if (!item) return fail(res, 404, 'The demo moderation record could not be found.')
-      if (itemId && method === 'GET') return json(res, 200, kind === 'listings' ? decorateListing(item, user) : item)
+      if (itemId && method === 'GET') return json(res, 200, kind === 'listings' ? decorateListing(item, user) : kind === 'verifications' ? verificationForAdmin(item, true) : item)
       if (itemId && method === 'PATCH') {
+        if (kind === 'verifications') {
+          if (!['APPROVED', 'REJECTED'].includes(body.status)) return fail(res, 400, 'Choose approve or reject for student verification.', 'INVALID_STATUS')
+          if (item.status !== 'PENDING') return fail(res, 409, 'This verification has already been reviewed.', 'ALREADY_REVIEWED')
+          const applicant = users.find(account => account.id === item.userId)
+          const domain = applicant?.email.toLowerCase().split('@')[1]
+          if (body.status === 'APPROVED' && (item.method !== 'DOCUMENTS' || !applicant?.emailVerified || !campuses.some(campus => campus.active && campus.domains.some(allowed => allowed.toLowerCase() === domain)))) return fail(res, 400, 'A verified school email and both demo document checks are required.', 'PROOF_REQUIRED')
+        }
         item.status = body.status; item.moderationReason = String(body.reason || ''); item.moderatedAt = now(); item.moderatedBy = { name: user.name }
         if (kind === 'verifications') {
           const student = users.find(account => account.id === item.userId)
           if (student) { student.verificationStatus = body.status; student.studentVerified = body.status === 'APPROVED' }
         }
         if (kind === 'reviews') item.moderationStatus = body.status
-        return json(res, 200, item)
+        return json(res, 200, kind === 'verifications' ? verificationForAdmin(item, true) : item)
       }
     }
   }

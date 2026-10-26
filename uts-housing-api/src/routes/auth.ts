@@ -41,6 +41,12 @@ router.post('/register', limiter(10), asyncRoute(async (req, res) => {
   if (!parsed.success) return fail(res, 400, 'Enter a valid name, email, password and account type, then accept the terms.', 'VALIDATION_ERROR')
   const { name, email: address, password: rawPassword, role } = parsed.data
   if (/^(password|password123|12345678|qwerty123)$/i.test(rawPassword)) return fail(res, 400, 'Choose a less common password.', 'WEAK_PASSWORD')
+  if (role === 'STUDENT') {
+    const emailDomain = address.split('@')[1]
+    const campuses = await prisma.campus.findMany({ where: { active: true }, select: { domains: true } })
+    const accepted = campuses.some(campus => campus.domains.some(domain => domain.trim().toLowerCase() === emailDomain))
+    if (!accepted) return fail(res, 400, 'Use a university-issued student email address from an approved campus.', 'STUDENT_EMAIL_REQUIRED')
+  }
   const existing = await prisma.user.findUnique({ where: { email: address }, select: { id: true } })
   if (existing) return fail(res, 409, 'An account with this email already exists.', 'EMAIL_IN_USE')
   const token = randomBytes(32).toString('hex')
