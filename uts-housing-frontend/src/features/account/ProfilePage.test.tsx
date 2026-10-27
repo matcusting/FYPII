@@ -35,6 +35,7 @@ beforeEach(() => {
   state.api.mockReset().mockImplementation((path: string, init?: RequestInit) => {
     if (path === '/profile' && !init) return Promise.resolve({ displayName: state.user.name, phone: null })
     if (path === '/profile' && init?.method === 'PATCH') return Promise.resolve({ displayName: state.user.name, phone: '+60 12-345 6789' })
+    if (path === '/landlord-verifications/me') return Promise.resolve({ status: 'APPROVED', latest: null })
     throw new Error(`Unexpected API request: ${path}`)
   })
 })
@@ -54,6 +55,26 @@ describe('landlord profile', () => {
     await waitFor(() => expect(state.api).toHaveBeenCalledWith('/profile', expect.objectContaining({
       method: 'PATCH', body: JSON.stringify({ displayName: 'Demo Landlord', phone: '+60 12-345 6789' }),
     })))
+    await waitFor(() => expect(state.api.mock.calls.filter(([path]) => path === '/landlord-verifications/me').length).toBeGreaterThan(1))
+  })
+
+  it('explains the impact of replacing approved identity documents before uploading a new file', async () => {
+    state.user.emailVerified = true
+    state.api.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/profile' && !init) return Promise.resolve({ displayName: state.user.name, phone: '+60 12-345 6789' })
+      if (path === '/landlord-verifications/me') return Promise.resolve({ status: 'APPROVED', latest: null })
+      if (path === '/landlord-verifications/identity' && init?.method === 'POST') return Promise.resolve({ status: 'PENDING' })
+      throw new Error(`Unexpected API request: ${path}`)
+    })
+    renderPage()
+    await userEvent.click(await screen.findByRole('button', { name: 'Replace Identity Documents' }))
+    expect(screen.getByText(/withdraws current approval. Published listings will pause/)).toBeTruthy()
+    const file = new File([new Uint8Array([255, 216, 255])], 'fictional-id.jpg', { type: 'image/jpeg' })
+    await userEvent.upload(screen.getByLabelText(/MyKad or passport photo/), file)
+    await userEvent.click(screen.getByRole('button', { name: 'Submit Identity for Review' }))
+    await waitFor(() => expect(state.api).toHaveBeenCalledWith('/landlord-verifications/identity', expect.objectContaining({ method: 'POST' })))
+    const [, options] = state.api.mock.calls.find(([path]) => path === '/landlord-verifications/identity') || []
+    expect((options?.body as FormData).get('identity')).toBe(file)
   })
 
   it('shows student contact details without housing preferences or budget, and saves the phone', async () => {

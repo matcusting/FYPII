@@ -28,11 +28,11 @@ export function MyListingsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<{ id: string; type: 'rented' | 'archive' } | null>(null)
   const list = useQuery({ queryKey: ['my-listings', page], queryFn: () => getList<ListingDetails>(`/listings${query({ mine: true, page, limit: 20 })}`) })
-  const action = useMutation({ mutationFn: ({ id, type }: { id: string; type: 'submit' | 'availability' | 'archive' | 'pause' | 'resume' | 'rented' }) => {
+  const action = useMutation({ mutationFn: ({ id, type }: { id: string; type: 'availability' | 'archive' | 'pause' | 'rented' }) => {
     const path = `/listings/${encodeURIComponent(id)}`
     if (type === 'archive') return api(path, { method: 'DELETE' })
-    if (type === 'pause' || type === 'resume' || type === 'rented') {
-      const status = type === 'pause' ? 'PAUSED' : type === 'resume' ? 'PUBLISHED' : 'RENTED'
+    if (type === 'pause' || type === 'rented') {
+      const status = type === 'pause' ? 'PAUSED' : 'RENTED'
       return api(path, { method: 'PATCH', body: JSON.stringify({ status }) })
     }
     return api(`${path}/${type}`, { method: 'POST' })
@@ -50,12 +50,10 @@ export function MyListingsPage() {
             <div className="min-w-0"><h2 className={`mb-1 text-[1.15rem] font-bold ${item.status === 'PUBLISHED' ? 'text-[#1e3a8a]' : 'text-gray-600'}`}>{item.title}</h2>
               <p className="mb-2 text-[13px] text-[#64748b]">{money(item.rent, item.currency)}{t('/mo · Deposit:')} {money(item.deposit, item.currency)}</p>
               <div className="mb-4 flex flex-wrap gap-1.5">{(item.amenities || []).map(amenity => <span key={amenity} className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600">{t(amenity)}</span>)}{item.furnished && <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600">{t('Furnished')}</span>}</div>
-              {item.availabilityStale && <div className="mb-3"><Notice tone="error">{t('Availability needs reconfirmation.')}</Notice></div>}{item.rejectionReason && <div className="mb-3"><Notice tone="error">{t('Review feedback:')} {item.rejectionReason}</Notice></div>}
-              <div className="flex flex-wrap gap-2"><Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}/edit`}>{t('Edit Details')}</Link>{item.status === 'PUBLISHED' && <Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}`}>{t('View Listing')}</Link>}
-                {['DRAFT', 'REJECTED', 'RENTED'].includes(item.status || '') && <button type="button" className={smallButton} disabled={action.isPending || !item.photos?.length} title={!item.photos?.length ? t('Upload at least one photo before submitting') : undefined} onClick={() => action.mutate({ id: item.id, type: 'submit' })}>{t('Submit for Review')}</button>}
+              {item.availabilityStale && <div className="mb-3"><Notice tone="error">{t('Availability needs reconfirmation.')}</Notice></div>}{item.rejectionReason && <div className="mb-3"><Notice tone="error">{t('Review feedback:')} {t(item.rejectionReason)}</Notice></div>}
+              <div className="flex flex-wrap gap-2">{item.status !== 'ARCHIVED' && <Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}/edit`}>{t(['DRAFT', 'REJECTED', 'RENTED', 'PAUSED'].includes(item.status || '') ? 'Authorization & Submit' : 'Edit Details')}</Link>}{item.status === 'PUBLISHED' && <Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}`}>{t('View Listing')}</Link>}
                 {['PUBLISHED', 'PAUSED'].includes(item.status || '') && <button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'availability' })}>{t('Confirm Available')}</button>}
                 {item.status === 'PUBLISHED' && <><button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'pause' })}>{t('Pause Listing')}</button><button type="button" className={smallButton} disabled={action.isPending} onClick={() => setConfirmation({ id: item.id, type: 'rented' })}>{t('Mark as Rented')}</button></>}
-                {item.status === 'PAUSED' && <button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'resume' })}>{t('Re-list Property')}</button>}
                 {item.status !== 'ARCHIVED' && <button type="button" className="rounded border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-50 disabled:opacity-50" disabled={action.isPending} onClick={() => setConfirmation({ id: item.id, type: 'archive' })}>{t('Delete')}</button>}
               </div>
               {confirmation?.id === item.id && <div role="group" aria-labelledby={`confirm-action-${item.id}`} className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-gray-800">

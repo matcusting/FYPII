@@ -26,6 +26,8 @@ const RequestsPage = lazy(() => import('./features/account').then(module => ({ d
 const ReviewsMinePage = lazy(() => import('./features/account').then(module => ({ default: module.ReviewsMinePage })))
 const AdminOverviewPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminOverviewPage })))
 const AdminVerificationsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminVerificationsPage })))
+const AdminLandlordVerificationsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminLandlordVerificationsPage })))
+const AdminPropertyAuthorizationsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminPropertyAuthorizationsPage })))
 const AdminListingsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminListingsPage })))
 const AdminReviewsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminReviewsPage })))
 const AdminReportsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminReportsPage })))
@@ -56,6 +58,8 @@ export default function App() {
     <Route path="reviews/mine" element={<AuthGuard roles={['STUDENT']} verifiedStudent><ReviewsMinePage /></AuthGuard>} />
     <Route path="admin" element={<AuthGuard roles={['ADMIN']}><AdminOverviewPage /></AuthGuard>} />
     <Route path="admin/verifications" element={<AuthGuard roles={['ADMIN']}><AdminVerificationsPage /></AuthGuard>} />
+    <Route path="admin/landlord-verifications" element={<AuthGuard roles={['ADMIN']}><AdminLandlordVerificationsPage /></AuthGuard>} />
+    <Route path="admin/property-authorizations" element={<AuthGuard roles={['ADMIN']}><AdminPropertyAuthorizationsPage /></AuthGuard>} />
     <Route path="admin/listings" element={<AuthGuard roles={['ADMIN']}><AdminListingsPage /></AuthGuard>} />
     <Route path="admin/reviews" element={<AuthGuard roles={['ADMIN']}><AdminReviewsPage /></AuthGuard>} />
     <Route path="admin/reports" element={<AuthGuard roles={['ADMIN']}><AdminReportsPage /></AuthGuard>} />

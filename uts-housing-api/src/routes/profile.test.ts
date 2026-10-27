@@ -4,6 +4,11 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 const database = vi.hoisted(() => ({
   profile: { findUnique: vi.fn(), upsert: vi.fn() },
   user: { update: vi.fn() },
+  landlordVerification: { findMany: vi.fn(), updateMany: vi.fn() },
+  propertyAuthorization: { findMany: vi.fn(), updateMany: vi.fn() },
+  listing: { updateMany: vi.fn() },
+  mediaUpload: { deleteMany: vi.fn() },
+  queryRaw: vi.fn(),
   transaction: vi.fn(),
 }))
 vi.mock('../core/db.js', () => ({ prisma: {
@@ -36,7 +41,13 @@ function call(method: string, path: string, authUser: typeof landlord, body?: un
 beforeEach(() => {
   vi.clearAllMocks()
   database.profile.findUnique.mockResolvedValue(null)
-  database.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({ profile: database.profile, user: database.user }))
+  database.landlordVerification.findMany.mockResolvedValue([])
+  database.propertyAuthorization.findMany.mockResolvedValue([])
+  database.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
+    profile: database.profile, user: database.user, landlordVerification: database.landlordVerification,
+    propertyAuthorization: database.propertyAuthorization, listing: database.listing,
+    mediaUpload: database.mediaUpload, $queryRaw: database.queryRaw,
+  }))
   database.profile.upsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({ ...create, university: null, bio: null, preferredLocation: null, budgetMin: null, budgetMax: null, preferredMoveInDate: null }))
 })
 
@@ -46,6 +57,9 @@ describe('private account contact phone', () => {
     expect(saved.status).toBe(200)
     expect(saved.data).toMatchObject({ data: { displayName: 'Updated Landlord', email: landlord.email, phone: '+60 12-345 6789' } })
     expect(database.profile.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: landlord.id }, create: expect.objectContaining({ userId: landlord.id, phone: '+60 12-345 6789' }) }))
+    expect(database.landlordVerification.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ userId: landlord.id }), data: expect.objectContaining({ status: 'REJECTED' }) }))
+    expect(database.propertyAuthorization.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ requesterId: landlord.id }), data: expect.objectContaining({ status: 'REJECTED' }) }))
+    expect(database.listing.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ ownerId: landlord.id }), data: expect.objectContaining({ status: 'PAUSED' }) }))
   })
 
   it('lets a student save a private phone in their own account profile', async () => {

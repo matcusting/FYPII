@@ -1,5 +1,5 @@
 import { useI18n } from '../../lib/i18n'
-import { useState, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, messageOf } from '../../lib/api'
@@ -12,6 +12,81 @@ interface SignedUpload {
   uploadUrl: string
   objectKey: string
   headers?: Record<string, string>
+}
+
+type AuthorizationKind = 'OWNER' | 'AGENT' | 'SUBLETTING'
+interface ReviewStatus { status: string; latest: { id: string; kind: AuthorizationKind; status: string; reason?: string | null } | null }
+const proofTypes = ['application/pdf', 'image/jpeg', 'image/png']
+function validProof(file: File | null) { return !!file && file.size > 0 && file.size <= 5_000_000 && proofTypes.includes(file.type) }
+
+function PropertyAuthorization({ listingId, isStudent, canUpload, addressChanged, status, refetch }: { listingId: string; isStudent: boolean; canUpload: boolean; addressChanged: boolean; status: ReviewStatus | undefined; refetch: () => void }) {
+  const { t } = useI18n()
+  const [kind, setKind] = useState<AuthorizationKind>(isStudent ? 'SUBLETTING' : 'OWNER')
+  const [proof, setProof] = useState<File | null>(null)
+  const [supporting, setSupporting] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const [replaceApproved, setReplaceApproved] = useState(false)
+  const needsSupporting = kind !== 'OWNER'
+
+  function choose(which: 'proof' | 'supporting', event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0] || null
+    setError('')
+    if (file && !validProof(file)) {
+      setError('Select a PDF, JPG or PNG document no larger than 5 MB.')
+      event.currentTarget.value = ''
+    }
+    const selected = validProof(file) ? file : null
+    if (which === 'proof') setProof(selected)
+    else setSupporting(selected)
+  }
+
+  async function send() {
+    if (addressChanged) { setError('Save the changed address before uploading property documents.'); return }
+    if (!canUpload) { setError(isStudent ? 'Complete student verification before submitting property documents.' : 'Complete landlord identity verification before submitting property documents.'); return }
+    if (!proof) { setError('Choose your primary property authorization document.'); return }
+    if (needsSupporting && !supporting) { setError('Choose the supporting authorization document.'); return }
+    const body = new FormData()
+    body.set('kind', kind)
+    body.set('proof', proof)
+    if (needsSupporting) body.set('supporting', supporting!)
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/landlord-verifications/listings/${encodeURIComponent(listingId)}`, { method: 'POST', body })
+      setProof(null)
+      setSupporting(null)
+      setSubmitted(true)
+      setReplaceApproved(false)
+      refetch()
+    } catch (failure) { setError(messageOf(failure)) }
+    finally { setBusy(false) }
+  }
+
+  const current = status?.status || 'UNVERIFIED'
+  return <section className="space-y-4 rounded-lg border border-gray-200 bg-[#fcfcfd] p-4 sm:p-5" aria-labelledby="property-authorization-heading">
+    <div><h2 id="property-authorization-heading" className="text-[13px] font-bold text-[#374151]">{t('Property Authorization')}</h2><p className="mt-1 text-xs text-gray-600">{t('This address needs its own private authorization review before the listing can be submitted for publication.')}</p></div>
+    <p className="text-sm text-gray-700">{t('Current status:')} <strong>{t(current === 'UNVERIFIED' ? 'Not verified' : current === 'PENDING' ? 'Pending review' : current === 'APPROVED' ? 'Approved' : current === 'REJECTED' ? 'Rejected' : current)}</strong></p>
+    {status?.latest?.reason && current === 'REJECTED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('Reason: {reason}', { reason: t(status.latest.reason) })}</p>}
+    {submitted && <p role="status" className="text-sm text-green-700">{t('Property documents submitted for review.')}</p>}
+    {addressChanged && <p className="text-sm text-amber-800">{t('Save the changed address before uploading property documents. A new address needs a new review.')}</p>}
+    {current === 'APPROVED' && !addressChanged && !replaceApproved ? <div className="space-y-2"><p className="text-sm text-green-700">{t('This address has been reviewed. Changing the full address will require new authorization.')}</p><button type="button" onClick={() => setReplaceApproved(true)} className="text-sm font-semibold text-[#203569] underline">{t('Replace Property Documents')}</button></div>
+      : current === 'PENDING' ? <p className="text-sm text-gray-600">{t('Your property documents are being reviewed.')}</p>
+        : <div className="space-y-4 text-sm">
+          {current === 'APPROVED' && replaceApproved && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Submitting new property evidence withdraws current authorization and pauses a published listing until both reviews pass again.')}</p>}
+          <fieldset><legend className="font-semibold text-gray-700">{t('Your right to offer this property')}</legend><div className="mt-2 flex flex-wrap gap-3">
+            {(isStudent ? ['SUBLETTING'] as const : ['OWNER', 'AGENT', 'SUBLETTING'] as const).map(option => <label key={option} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 ${kind === option ? 'border-[#203569] bg-blue-50' : 'border-gray-300'}`}><input type="radio" name="authority-kind" value={option} checked={kind === option} onChange={() => setKind(option)} className="accent-[#203569]" />{t(option === 'OWNER' ? 'Owner' : option === 'AGENT' ? 'Authorized agent' : 'Subletting tenant')}</label>)}
+          </div></fieldset>
+          <p className="text-xs text-gray-600">{t(kind === 'OWNER' ? 'Upload ownership or title evidence. A utility bill alone is not enough.' : kind === 'AGENT' ? 'Upload ownership evidence and a signed authorization from the owner.' : 'Upload the lease permitting subletting and the owner’s written consent.')}</p>
+          <label className="block font-semibold text-gray-700">{t(kind === 'OWNER' ? 'Ownership evidence' : kind === 'AGENT' ? 'Ownership evidence' : 'Lease agreement')} *<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => choose('proof', event)} className={`${inputClass} text-sm`} /></label>
+          {needsSupporting && <label className="block font-semibold text-gray-700">{t(kind === 'AGENT' ? 'Signed owner authorization' : 'Owner consent to sublet')} *<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => choose('supporting', event)} className={`${inputClass} text-sm`} /></label>}
+          <p className="text-xs text-gray-600">{t('PDF, JPG or PNG, up to 5 MB per document. Only authorized reviewers can access these files.')}</p>
+          {error && <p role="alert" className="text-red-700">{t(error)}</p>}
+          <button type="button" onClick={() => { void send() }} disabled={busy || !canUpload || addressChanged} className="min-h-11 rounded-lg bg-[#203569] px-4 py-2 font-semibold text-white hover:bg-[#172b59] disabled:opacity-60">{t(busy ? 'Submitting…' : 'Submit Property Documents')}</button>
+          {current === 'APPROVED' && replaceApproved && <button type="button" disabled={busy} onClick={() => setReplaceApproved(false)} className="ml-3 font-semibold text-[#203569] underline">{t('Cancel')}</button>}
+        </div>}
+  </section>
 }
 
 async function uploadPhotos(files: File[]): Promise<string[]> {
@@ -39,13 +114,18 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
   const [error, setError] = useState<string | null>(null)
   const [uploadProgress, setUploadProgress] = useState('')
   const photoCount = (initial?.photos || []).filter(photo => !photo.id || !removedPhotoIds.includes(photo.id)).length + files.length
-  const maySubmit = hasRole(user, 'LANDLORD', 'ADMIN') || (!!user?.studentVerified && hasRole(user, 'STUDENT'))
+  const isLandlord = hasRole(user, 'LANDLORD') && !hasRole(user, 'ADMIN')
+  const isStudent = hasRole(user, 'STUDENT') && !isLandlord
+  const isAdmin = hasRole(user, 'ADMIN')
+  const identity = useQuery({ queryKey: ['landlord-identity'], queryFn: () => api<ReviewStatus>('/landlord-verifications/me'), enabled: isLandlord, refetchInterval: isLandlord ? 30_000 : false })
+  const authority = useQuery({ queryKey: ['property-authorization', initial?.id], queryFn: () => api<ReviewStatus>(`/landlord-verifications/listings/${encodeURIComponent(initial!.id)}`), enabled: !!initial?.id && !isAdmin, refetchInterval: initial?.id ? 30_000 : false })
+  const maySubmit = !!initial?.id && (isStudent ? !!user?.studentVerified : isLandlord && user?.emailVerified === true && identity.data?.status === 'APPROVED') && authority.data?.status === 'APPROVED' && address.trim() === initial.address
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const action = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null
     const submitForReview = action?.value === 'review'
-    if (submitForReview && !maySubmit) { setError('Complete student verification before submitting a listing for review.'); return }
+    if (submitForReview && !maySubmit) { setError('Complete account and property authorization reviews before submitting this listing. Save new properties as drafts first.'); return }
     if (submitForReview && photoCount < 1) { setError('Upload at least one property photo before submitting for review.'); return }
     const form = new FormData(event.currentTarget)
     const title = String(form.get('title') || '').trim()
@@ -122,12 +202,13 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
       <label className="flex cursor-pointer items-start gap-3 border-t border-gray-200 pt-3 text-sm font-medium text-[#374151]"><input type="checkbox" className="mt-1 accent-[#203569]" checked={showExactLocation} onChange={event => setShowExactLocation(event.currentTarget.checked)} /><span>{t('Share the full address with signed-in students after approval.')}</span></label>
       {!showExactLocation && <p className="text-xs text-gray-500">{t('The full address stays private. Students see only the approximate area.')}</p>}
     </section>
+    {!isAdmin && initial?.id && <>{authority.isError ? <Notice tone="error">{t(messageOf(authority.error))}</Notice> : authority.isPending ? <Notice>{t('Loading property authorization status…')}</Notice> : <PropertyAuthorization listingId={initial.id} isStudent={isStudent} canUpload={isStudent ? !!user?.studentVerified : identity.data?.status === 'APPROVED'} addressChanged={address.trim() !== initial.address} status={authority.data} refetch={() => { void authority.refetch() }} />}</>}
     <Field label={t('Property Description')} required><textarea className={inputClass} name="description" required minLength={30} maxLength={5000} rows={4} defaultValue={initial?.description || ''} placeholder={t('Describe the room, furniture, transport and included costs')} /></Field>
     <div><p className="mb-3 text-[13px] font-bold text-[#374151]">{t('Included Facilities (Select all that apply)')}</p>{amenities.length ? <div className="flex flex-wrap gap-2">{amenities.map(amenity => { const selected = selectedAmenityIds.includes(amenity.id); return <label key={amenity.id} className={`cursor-pointer rounded-full border px-4 py-2 text-xs font-bold transition ${selected ? 'border-[#203569] bg-[#203569] text-white' : 'border-gray-200 bg-[#f1f3f5] text-[#64748b] hover:border-[#203569]'}`}><input type="checkbox" className="sr-only" checked={selected} onChange={() => setSelectedAmenityIds(value => value.includes(amenity.id) ? value.filter(id => id !== amenity.id) : [...value, amenity.id!])} />{selected ? '✓ ' : '+ '}{t(amenity.name)}</label> })}</div> : <p className="text-sm text-gray-500">{t('Facilities are temporarily unavailable. You can still save your listing.')}</p>}</div>
     <Field label={t('House Rules')}><textarea className={inputClass} name="houseRules" rows={3} maxLength={2000} defaultValue={initial?.houseRules || ''} placeholder={t('e.g., No smoking, visitor hours')} /></Field>
     <Field label={t('Contact Method')}><select className={inputClass} name="contactMethod" defaultValue="IN_APP"><option value="IN_APP">{t('In-app inquiry')}</option></select></Field>
-    {initial?.status === 'PUBLISHED' && <Notice>{t('Editing a published listing may require another review. Check its status after saving.')}</Notice>}{!maySubmit && <Notice>{t('Unverified students can save drafts. Complete student verification before submitting for review.')}</Notice>}{error && <Notice tone="error">{t(error)}</Notice>}{saving && <p role="status" className="text-sm text-[#203569]">{t(uploadProgress, { count: files.length })}</p>}
-    <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 pt-6"><Link className={secondaryButton} to="/my-listings">{t('Cancel')}</Link><button className={secondaryButton} type="submit" value="draft" disabled={saving}>{saving ? t('Saving…') : initial ? t('Save Changes') : t('Save Draft')}</button><button className={primaryButton} type="submit" value="review" disabled={saving || !maySubmit || initial?.status === 'PENDING_REVIEW' || initial?.status === 'PUBLISHED'}>{saving ? t('Submitting…') : t('Publish to Student Database')}</button></div>
+    {initial?.status === 'PUBLISHED' && <Notice>{t('Editing a published listing may require another review. Check its status after saving.')}</Notice>}{!maySubmit && <Notice>{t(!initial?.id ? 'Save this property as a draft first, then upload proof of your right to list it.' : isLandlord && identity.data?.status !== 'APPROVED' ? 'Complete landlord identity verification in Profile Settings, then submit property documents here.' : isStudent && !user?.studentVerified ? 'Complete student verification before submitting a listing for review.' : authority.data?.status !== 'APPROVED' ? 'Property authorization must be approved before this listing can be submitted for review.' : 'Save the changed address first; it will need a new property authorization review.')}</Notice>}{error && <Notice tone="error">{t(error)}</Notice>}{saving && <p role="status" className="text-sm text-[#203569]">{t(uploadProgress, { count: files.length })}</p>}
+    <div className="flex flex-wrap items-center justify-end gap-3 border-t border-gray-100 pt-6"><Link className={secondaryButton} to="/my-listings">{t('Cancel')}</Link><button className={secondaryButton} type="submit" value="draft" disabled={saving}>{saving ? t('Saving…') : initial ? t('Save Changes') : t('Save Draft')}</button><button className={primaryButton} type="submit" value="review" disabled={saving || !maySubmit || initial?.status === 'PENDING_REVIEW' || initial?.status === 'PUBLISHED'}>{saving ? t('Submitting…') : t('Submit for Review')}</button></div>
   </form>
 }
 

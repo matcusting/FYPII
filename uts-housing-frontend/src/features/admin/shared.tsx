@@ -5,6 +5,8 @@ import { useI18n } from '../../lib/i18n'
 const navigation = [
   { to: '/admin', text: 'Overview', icon: '▦', end: true },
   { to: '/admin/verifications', text: 'Student Verification', icon: '✓' },
+  { to: '/admin/landlord-verifications', text: 'Landlord Identity Review', icon: '♙' },
+  { to: '/admin/property-authorizations', text: 'Property Authorization Review', icon: '▣' },
   { to: '/admin/listings', text: 'Listing Review', icon: '⌂' },
   { to: '/admin/reviews', text: 'Review Moderation', icon: '★' },
   { to: '/admin/reports', text: 'Reports', icon: '⚑' },

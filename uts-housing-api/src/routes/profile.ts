@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { prisma } from '../core/db.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
+import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 
 const router = Router()
 const optionalText = (length: number) => z.string().trim().max(length).nullable().optional()
@@ -51,6 +52,10 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   if (!parsed.success || Object.keys(parsed.data || {}).length === 0) return fail(res, 400, 'Enter valid profile details.', 'VALIDATION_ERROR')
   const user = currentUser(req)!
   if (parsed.data.phone !== undefined && !user.roles.some(role => role === 'STUDENT' || role === 'LANDLORD')) return fail(res, 403, 'Only students and landlords can update a contact phone number.', 'FORBIDDEN')
+  if (user.roles.includes('LANDLORD')) {
+    if (parsed.data.phone === null) return fail(res, 400, 'Landlord accounts need a contact phone number.', 'PHONE_REQUIRED')
+    if (Object.keys(parsed.data).some(key => !['displayName', 'phone'].includes(key))) return fail(res, 400, 'Landlord profiles contain only name and phone number.', 'VALIDATION_ERROR')
+  }
   const current = await prisma.profile.findUnique({ where: { userId: user.id } })
   const fields = parsed.data
   const min = fields.budgetMin === undefined ? current?.budgetMin == null ? null : Number(current.budgetMin) : fields.budgetMin
@@ -68,10 +73,24 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
     ...(fields.budgetMax !== undefined ? { budgetMax: fields.budgetMax } : {}),
     ...(fields.preferredMoveInDate !== undefined ? { preferredMoveInDate: fields.preferredMoveInDate ? new Date(`${fields.preferredMoveInDate}T00:00:00.000Z`) : null } : {}),
   }
+  const revokedKeys: string[] = []
   const profile = await prisma.$transaction(async tx => {
+    if (user.roles.includes('LANDLORD') && fields.displayName && fields.displayName !== user.name) {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
+      const applications = await tx.landlordVerification.findMany({ where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { identityKey: true, companyKey: true, representationKey: true } })
+      const keys = applications.flatMap(item => [item.identityKey, item.companyKey, item.representationKey]).filter((key): key is string => Boolean(key))
+      const propertyApplications = await tx.propertyAuthorization.findMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { proofKey: true, supportingKey: true } })
+      keys.push(...propertyApplications.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
+      await tx.landlordVerification.updateMany({ where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Legal name changed; submit a new identity application.', identityKey: null, companyKey: null, representationKey: null } })
+      await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Landlord legal name changed; submit new property proof.', proofKey: null, supportingKey: null } })
+      if (keys.length) await tx.mediaUpload.deleteMany({ where: { ownerId: user.id, storageKey: { in: keys } } })
+      await tx.listing.updateMany({ where: { ownerId: user.id, status: { in: ['PUBLISHED', 'PENDING_REVIEW'] } }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Landlord identity must be reviewed again.' } })
+      revokedKeys.push(...keys)
+    }
     if (fields.displayName) await tx.user.update({ where: { id: user.id }, data: { name: fields.displayName } })
     return tx.profile.upsert({ where: { userId: user.id }, create: { userId: user.id, displayName: fields.displayName || user.name, ...update }, update })
   })
+  if (revokedKeys.length) await removeStoredLandlordDocuments(revokedKeys)
   return ok(res, formatProfile({ ...user, name: fields.displayName || user.name }, profile))
 }))
 

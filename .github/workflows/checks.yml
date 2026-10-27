@@ -57,3 +57,9 @@ jobs:
         working-directory: uts-housing-api
       - run: npm run typecheck && npm test && npm run build
         working-directory: uts-housing-api
+      - name: Check fictional seed on first and repeated runs
+        run: |
+          CONFIRM_DEMO_SEED=1 npm run db:seed
+          CONFIRM_DEMO_SEED=1 npm run db:seed
+          node --import tsx --input-type=module -e 'import { prisma } from "./src/core/db.ts"; const listing = await prisma.listing.findUnique({ where: { id: "30000000-0000-4000-8000-000000000001" } }); await prisma.$disconnect(); if (listing?.status !== "PUBLISHED") process.exit(1)'
+        working-directory: uts-housing-api

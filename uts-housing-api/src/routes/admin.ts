@@ -9,6 +9,7 @@ import { currentUser, requireRole } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
 import { uploadMetadata } from '../storage/listings.js'
 import { removeStoredVerificationDocuments, verificationProofDirectory, verificationProofMime } from './verifications.js'
+import { landlordProofDirectory, landlordProofMime, removeStoredLandlordDocuments } from './landlord-verifications.js'
 
 const router = Router()
 router.use(requireRole('ADMIN'))
@@ -34,6 +35,7 @@ const queueStatuses: Record<ModerationKind, readonly string[]> = {
 const accountSelect = { id: true, name: true, email: true, roles: true, emailVerifiedAt: true, studentVerified: true, verificationStatus: true, status: true, createdAt: true, updatedAt: true } as const
 const personSelect = { id: true, name: true, email: true } as const
 const verificationPersonSelect = { ...personSelect, emailVerifiedAt: true } as const
+const landlordPersonSelect = { ...verificationPersonSelect, status: true, roles: true, profile: { select: { phone: true } } } as const
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => { void handler(req, res).catch(next) }
@@ -94,6 +96,48 @@ async function storedVerificationDocument(storageKey: string | null, ownerId: st
   return bytes && verificationProofMime(bytes, upload.mimeType) === upload.mimeType ? { upload, bytes } : null
 }
 
+async function storedLandlordDocument(storageKey: string | null, ownerId: string, purpose: 'LANDLORD_IDENTITY' | 'PROPERTY_AUTHORIZATION', allowedMimeTypes: readonly string[]) {
+  if (!storageKey || !/^[0-9a-f-]{36}\.(?:pdf|jpg|png)$/.test(storageKey)) return null
+  const upload = await prisma.mediaUpload.findUnique({ where: { storageKey } })
+  if (!upload || upload.ownerId !== ownerId || upload.purpose !== purpose || upload.status !== 'READY' || !allowedMimeTypes.includes(upload.mimeType) || upload.size < 1 || upload.size > 5_000_000) return null
+  const path = resolve(landlordProofDirectory(), storageKey)
+  const stored = await stat(path).catch(() => null)
+  if (!stored?.isFile() || stored.size !== upload.size) return null
+  const bytes = await readFile(path).catch(() => null)
+  return bytes && landlordProofMime(bytes, upload.mimeType) === upload.mimeType ? { upload, bytes } : null
+}
+
+function landlordVerificationOf(row: {
+  id: string; userId: string; kind: string; identityKey: string | null; companyKey: string | null; representationKey: string | null;
+  status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date;
+  user: { id: string; name: string; email: string; emailVerifiedAt: Date | null; profile: { phone: string | null } | null }
+}, detail = false) {
+  return {
+    id: row.id, userId: row.userId, kind: row.kind, status: row.status, moderationReason: row.reason,
+    reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt,
+    landlord: { id: row.user.id, name: row.user.name, email: row.user.email, emailVerified: Boolean(row.user.emailVerifiedAt), phone: row.user.profile?.phone || null },
+    ...(detail && row.identityKey ? { identityUrl: `/api/v1/admin/landlord-verifications/${row.id}/identity` } : {}),
+    ...(detail && row.companyKey ? { companyUrl: `/api/v1/admin/landlord-verifications/${row.id}/company` } : {}),
+    ...(detail && row.representationKey ? { representativeUrl: `/api/v1/admin/landlord-verifications/${row.id}/representative` } : {}),
+  }
+}
+
+function propertyAuthorizationOf(row: {
+  id: string; listingId: string; requesterId: string; kind: string; proofKey: string | null; supportingKey: string | null;
+  addressSnapshot: string; status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date;
+  requester: { id: string; name: string; email: string };
+  listing: { id: string; title: string; address: string | null; status: string }
+}, detail = false) {
+  return {
+    id: row.id, listingId: row.listingId, requesterId: row.requesterId, kind: row.kind, addressSnapshot: row.addressSnapshot,
+    status: row.status, moderationReason: row.reason, reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt,
+    landlord: { id: row.requester.id, name: row.requester.name, email: row.requester.email },
+    listing: row.listing,
+    ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/property-authorizations/${row.id}/proof` } : {}),
+    ...(detail && row.supportingKey ? { supportingUrl: `/api/v1/admin/property-authorizations/${row.id}/supporting` } : {}),
+  }
+}
+
 function listingOf(row: {
   id: string; photos: Array<{ id: string; storageKey: string }>;
   owner: { id: string; name: string; email: string }; campus: { name: string };
@@ -135,15 +179,17 @@ async function atomicDecision<T>(work: (transaction: Prisma.TransactionClient) =
 }
 
 router.get('/overview', asyncRoute(async (_req, res) => {
-  const [pendingVerifications, landlordAccounts, pendingListings, pendingReviews, openReports, pendingDeletionRequests] = await Promise.all([
+  const [pendingVerifications, pendingLandlordVerifications, pendingPropertyAuthorizations, landlordAccounts, pendingListings, pendingReviews, openReports, pendingDeletionRequests] = await Promise.all([
     prisma.studentVerification.count({ where: { status: 'PENDING' } }),
+    prisma.landlordVerification.count({ where: { status: 'PENDING' } }),
+    prisma.propertyAuthorization.count({ where: { status: 'PENDING' } }),
     prisma.user.count({ where: { roles: { has: 'LANDLORD' }, status: 'ACTIVE' } }),
     prisma.listing.count({ where: { status: 'PENDING_REVIEW' } }),
     prisma.review.count({ where: { status: 'PENDING' } }),
     prisma.report.count({ where: { status: 'OPEN' } }),
     prisma.deletionRequest.count({ where: { status: 'PENDING' } }),
   ])
-  ok(res, { pendingVerifications, landlordAccounts, pendingListings, pendingReviews, openReports, pendingDeletionRequests })
+  ok(res, { pendingVerifications, pendingLandlordVerifications, pendingPropertyAuthorizations, landlordAccounts, pendingListings, pendingReviews, openReports, pendingDeletionRequests })
 }))
 
 router.get('/campuses', asyncRoute(async (_req, res) => {
@@ -226,6 +272,165 @@ router.get('/verifications/:id/:document', asyncRoute(async (req, res) => {
   res.send(bytes)
 }))
 
+router.get('/landlord-verifications', asyncRoute(async (req, res) => {
+  const page = pageOf(req)
+  const status = statusOf(req)
+  if (status && !['PENDING', 'APPROVED', 'REJECTED'].includes(status)) return void fail(res, 400, 'Choose a valid identity status.', 'INVALID_STATUS')
+  const where = status ? { status: status as VerificationStatus } : {}
+  const [rows, total] = await Promise.all([
+    prisma.landlordVerification.findMany({ where, include: { user: { select: landlordPersonSelect } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 20, take: 20 }),
+    prisma.landlordVerification.count({ where }),
+  ])
+  ok(res, { items: rows.map(row => landlordVerificationOf(row)), total, page, pages: Math.max(1, Math.ceil(total / 20)) })
+}))
+
+router.get('/landlord-verifications/:id', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  if (!id.success) return void fail(res, 404, 'This identity request does not exist.', 'NOT_FOUND')
+  const row = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect } } })
+  return void (row ? ok(res, landlordVerificationOf(row, true)) : fail(res, 404, 'This identity request does not exist.', 'NOT_FOUND'))
+}))
+
+router.get('/landlord-verifications/:id/:document', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  const document = z.enum(['identity', 'company', 'representative']).safeParse(req.params.document)
+  if (!id.success || !document.success) return void fail(res, 404, 'This identity document is unavailable.', 'NOT_FOUND')
+  const row = await prisma.landlordVerification.findUnique({ where: { id: id.data }, select: { userId: true, identityKey: true, companyKey: true, representationKey: true } })
+  if (!row) return void fail(res, 404, 'This identity document is unavailable.', 'NOT_FOUND')
+  const key = document.data === 'identity' ? row.identityKey : document.data === 'company' ? row.companyKey : row.representationKey
+  const stored = await storedLandlordDocument(key, row.userId, 'LANDLORD_IDENTITY', ['image/jpeg', 'image/png', 'application/pdf'])
+  if (!stored) return void fail(res, 404, 'This identity document is unavailable.', 'NOT_FOUND')
+  await prisma.auditLog.create({ data: { actorId: currentUser(req)!.id, action: 'LANDLORD_DOCUMENT_VIEWED', targetType: 'LANDLORD_VERIFICATION', targetId: id.data, after: { document: document.data } } })
+  const extension = stored.upload.mimeType === 'application/pdf' ? '.pdf' : stored.upload.mimeType === 'image/jpeg' ? '.jpg' : '.png'
+  res.setHeader('Content-Type', stored.upload.mimeType)
+  res.setHeader('Content-Disposition', `attachment; filename="landlord-${document.data}${extension}"`)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.send(stored.bytes)
+}))
+
+router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED']), reason: z.string().trim().max(1000).default('') }).safeParse(req.body)
+  if (!id.success || !decision.success || (decision.data.status === 'REJECTED' && decision.data.reason.length < 3)) return void fail(res, 400, 'Choose approve or reject and explain a rejection.', 'INVALID_DECISION')
+  const { status, reason } = decision.data
+  const previous = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect } } })
+  if (!previous) return void fail(res, 404, 'This identity request does not exist.', 'NOT_FOUND')
+  if (previous.status !== 'PENDING') return void fail(res, 409, 'This identity request has already been reviewed.', 'ALREADY_REVIEWED')
+  if (previous.userId === currentUser(req)!.id) return void fail(res, 403, 'You cannot approve your own identity.', 'FORBIDDEN')
+  if (status === 'APPROVED') {
+    if (previous.user.status !== 'ACTIVE' || !previous.user.roles.includes('LANDLORD') || !previous.user.emailVerifiedAt || !previous.user.profile?.phone) return void fail(res, 400, 'The landlord needs a verified email and phone before identity approval.', 'ACCOUNT_INCOMPLETE')
+    const [identity, company, representative] = await Promise.all([
+      storedLandlordDocument(previous.identityKey, previous.userId, 'LANDLORD_IDENTITY', ['image/jpeg', 'image/png']),
+      previous.kind === 'COMPANY' ? storedLandlordDocument(previous.companyKey, previous.userId, 'LANDLORD_IDENTITY', ['application/pdf', 'image/jpeg', 'image/png']) : Promise.resolve(null),
+      previous.kind === 'COMPANY' ? storedLandlordDocument(previous.representationKey, previous.userId, 'LANDLORD_IDENTITY', ['application/pdf', 'image/jpeg', 'image/png']) : Promise.resolve(null),
+    ])
+    if (!identity || (previous.kind === 'COMPANY' && (!company || !representative))) return void fail(res, 400, 'Review valid identity and company documents before approval.', 'PROOF_REQUIRED')
+  }
+  const actorId = currentUser(req)!.id
+  const rejectedKeys = status === 'REJECTED' ? [previous.identityKey, previous.companyKey, previous.representationKey].filter((key): key is string => Boolean(key)) : []
+  const changed = await atomicDecision(async transaction => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
+    if (status === 'APPROVED') {
+      const user = await transaction.user.findUniqueOrThrow({ where: { id: previous.userId }, include: { profile: true } })
+      if (user.status !== 'ACTIVE' || !user.roles.includes('LANDLORD') || !user.emailVerifiedAt || !user.profile?.phone) throw new ModerationConflict()
+    }
+    const updated = await transaction.landlordVerification.updateMany({ where: { id: id.data, status: 'PENDING' }, data: {
+      status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(),
+      ...(status === 'REJECTED' ? { identityKey: null, companyKey: null, representationKey: null } : {}),
+    } })
+    if (!updated.count) throw new ModerationConflict()
+    const row = await transaction.landlordVerification.findUniqueOrThrow({ where: { id: id.data } })
+    if (status === 'REJECTED' && rejectedKeys.length) await transaction.mediaUpload.deleteMany({ where: { ownerId: row.userId, storageKey: { in: rejectedKeys } } })
+    await audit(transaction, actorId, `LANDLORD_IDENTITY_${status}`, 'LANDLORD_VERIFICATION', row.id, { status: previous.status }, { status, reason })
+    await notify(transaction, row.userId, previous.user.email, 'LANDLORD_IDENTITY', `Landlord identity ${status.toLowerCase()}`, status === 'APPROVED' ? 'Your landlord identity review is approved.' : `Your landlord identity review was rejected: ${reason}`, row.id)
+    return row
+  })
+  if (!changed) return void fail(res, 409, 'This identity request changed while being reviewed. Refresh the queue.', 'ALREADY_REVIEWED')
+  if (status === 'REJECTED') await removeStoredLandlordDocuments(rejectedKeys)
+  ok(res, landlordVerificationOf({ ...changed, user: previous.user }, true))
+}))
+
+router.get('/property-authorizations', asyncRoute(async (req, res) => {
+  const page = pageOf(req)
+  const status = statusOf(req)
+  if (status && !['PENDING', 'APPROVED', 'REJECTED'].includes(status)) return void fail(res, 400, 'Choose a valid property authorization status.', 'INVALID_STATUS')
+  const where = status ? { status: status as VerificationStatus } : {}
+  const [rows, total] = await Promise.all([
+    prisma.propertyAuthorization.findMany({ where, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 20, take: 20 }),
+    prisma.propertyAuthorization.count({ where }),
+  ])
+  ok(res, { items: rows.map(row => propertyAuthorizationOf(row)), total, page, pages: Math.max(1, Math.ceil(total / 20)) })
+}))
+
+router.get('/property-authorizations/:id', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  if (!id.success) return void fail(res, 404, 'This property authorization does not exist.', 'NOT_FOUND')
+  const row = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true } } } })
+  return void (row ? ok(res, propertyAuthorizationOf(row, true)) : fail(res, 404, 'This property authorization does not exist.', 'NOT_FOUND'))
+}))
+
+router.get('/property-authorizations/:id/:document', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  const document = z.enum(['proof', 'supporting']).safeParse(req.params.document)
+  if (!id.success || !document.success) return void fail(res, 404, 'This property document is unavailable.', 'NOT_FOUND')
+  const row = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, select: { requesterId: true, proofKey: true, supportingKey: true } })
+  if (!row) return void fail(res, 404, 'This property document is unavailable.', 'NOT_FOUND')
+  const stored = await storedLandlordDocument(document.data === 'proof' ? row.proofKey : row.supportingKey, row.requesterId, 'PROPERTY_AUTHORIZATION', ['application/pdf', 'image/jpeg', 'image/png'])
+  if (!stored) return void fail(res, 404, 'This property document is unavailable.', 'NOT_FOUND')
+  await prisma.auditLog.create({ data: { actorId: currentUser(req)!.id, action: 'PROPERTY_DOCUMENT_VIEWED', targetType: 'PROPERTY_AUTHORIZATION', targetId: id.data, after: { document: document.data } } })
+  const extension = stored.upload.mimeType === 'application/pdf' ? '.pdf' : stored.upload.mimeType === 'image/jpeg' ? '.jpg' : '.png'
+  res.setHeader('Content-Type', stored.upload.mimeType)
+  res.setHeader('Content-Disposition', `attachment; filename="property-${document.data}${extension}"`)
+  res.setHeader('Cache-Control', 'private, no-store')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.send(stored.bytes)
+}))
+
+router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED']), reason: z.string().trim().max(1000).default('') }).safeParse(req.body)
+  if (!id.success || !decision.success || (decision.data.status === 'REJECTED' && decision.data.reason.length < 3)) return void fail(res, 400, 'Choose approve or reject and explain a rejection.', 'INVALID_DECISION')
+  const { status, reason } = decision.data
+  const previous = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true, ownerId: true } } } })
+  if (!previous) return void fail(res, 404, 'This property authorization does not exist.', 'NOT_FOUND')
+  if (previous.status !== 'PENDING') return void fail(res, 409, 'This property authorization has already been reviewed.', 'ALREADY_REVIEWED')
+  if (previous.requesterId === currentUser(req)!.id) return void fail(res, 403, 'You cannot approve your own property authorization.', 'FORBIDDEN')
+  if (status === 'APPROVED') {
+    if (previous.listing.ownerId !== previous.requesterId || !previous.listing.address || previous.listing.address !== previous.addressSnapshot || previous.listing.status === 'ARCHIVED') return void fail(res, 400, 'The property address or listing changed. Ask for a new authorization request.', 'LISTING_CHANGED')
+    const account = await prisma.user.findUnique({ where: { id: previous.requesterId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true } })
+    const identity = await prisma.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true } })
+    if (!account || account.status !== 'ACTIVE' || !account.emailVerifiedAt || !(account.roles.includes('LANDLORD') ? identity?.status === 'APPROVED' : account.roles.includes('STUDENT') && account.studentVerified)) return void fail(res, 400, 'Verify the property owner account before reviewing its authorization.', 'IDENTITY_REQUIRED')
+    const [proof, supporting] = await Promise.all([
+      storedLandlordDocument(previous.proofKey, previous.requesterId, 'PROPERTY_AUTHORIZATION', ['application/pdf', 'image/jpeg', 'image/png']),
+      previous.kind !== 'OWNER' ? storedLandlordDocument(previous.supportingKey, previous.requesterId, 'PROPERTY_AUTHORIZATION', ['application/pdf', 'image/jpeg', 'image/png']) : Promise.resolve(null),
+    ])
+    if (!proof || (previous.kind !== 'OWNER' && !supporting)) return void fail(res, 400, 'Review the required property authorization documents before approval.', 'PROOF_REQUIRED')
+  }
+  const actorId = currentUser(req)!.id
+  const rejectedKeys = status === 'REJECTED' ? [previous.proofKey, previous.supportingKey].filter((key): key is string => Boolean(key)) : []
+  const changed = await atomicDecision(async transaction => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.requesterId}))::text`
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.listingId}))::text`
+    if (status === 'APPROVED') {
+      const listing = await transaction.listing.findUniqueOrThrow({ where: { id: previous.listingId } })
+      const owner = await transaction.user.findUniqueOrThrow({ where: { id: previous.requesterId } })
+      const identity = await transaction.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true } })
+      if (listing.ownerId !== previous.requesterId || listing.address !== previous.addressSnapshot || listing.status === 'ARCHIVED' || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? identity?.status === 'APPROVED' : owner.roles.includes('STUDENT') && owner.studentVerified)) throw new ModerationConflict()
+    }
+    const updated = await transaction.propertyAuthorization.updateMany({ where: { id: id.data, status: 'PENDING' }, data: { status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), ...(status === 'REJECTED' ? { proofKey: null, supportingKey: null } : {}) } })
+    if (!updated.count) throw new ModerationConflict()
+    const row = await transaction.propertyAuthorization.findUniqueOrThrow({ where: { id: id.data } })
+    if (status === 'REJECTED' && rejectedKeys.length) await transaction.mediaUpload.deleteMany({ where: { ownerId: row.requesterId, storageKey: { in: rejectedKeys } } })
+    await audit(transaction, actorId, `PROPERTY_AUTHORIZATION_${status}`, 'PROPERTY_AUTHORIZATION', row.id, { status: previous.status }, { status, reason, listingId: row.listingId })
+    await notify(transaction, row.requesterId, previous.requester.email, 'PROPERTY_AUTHORIZATION', `Property authorization ${status.toLowerCase()}`, status === 'APPROVED' ? `Property authorization for "${previous.listing.title}" is approved.` : `Property authorization for "${previous.listing.title}" was rejected: ${reason}`, row.id)
+    return row
+  })
+  if (!changed) return void fail(res, 409, 'This authorization changed while being reviewed. Refresh the queue.', 'ALREADY_REVIEWED')
+  if (status === 'REJECTED') await removeStoredLandlordDocuments(rejectedKeys)
+  ok(res, propertyAuthorizationOf({ ...changed, requester: previous.requester, listing: previous.listing }, true))
+}))
+
 router.get('/deletion-requests', asyncRoute(async (req, res) => {
   const page = pageOf(req)
   const requestedStatus = statusOf(req)
@@ -251,14 +456,16 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
     const activeAdmins = await prisma.user.count({ where: { status: 'ACTIVE', roles: { has: 'ADMIN' } } })
     if (activeAdmins <= 1) return void fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
   }
-  const verificationUploads = body.data.status === 'APPROVED'
-    ? await prisma.mediaUpload.findMany({ where: { ownerId: previous.userId, purpose: 'VERIFICATION' }, select: { storageKey: true } })
-    : []
+  let verificationUploads: Array<{ storageKey: string; purpose: string }> = []
   const result = await atomicDecision(async transaction => {
     if (body.data.status === 'APPROVED' && previous.user.roles.includes('ADMIN')) {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(31415926)`
       const activeAdmins = await transaction.user.count({ where: { status: 'ACTIVE', roles: { has: 'ADMIN' } } })
       if (activeAdmins <= 1) throw new LastAdminConflict()
+    }
+    if (body.data.status === 'APPROVED') {
+      await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
+      verificationUploads = await transaction.mediaUpload.findMany({ where: { ownerId: previous.userId, purpose: { in: ['VERIFICATION', 'LANDLORD_IDENTITY', 'PROPERTY_AUTHORIZATION'] } }, select: { storageKey: true, purpose: true } })
     }
     const updated = await transaction.deletionRequest.updateMany({ where: { id: id.data, status: 'PENDING' }, data: { status: body.data.status } })
     if (!updated.count) throw new ModerationConflict()
@@ -270,7 +477,9 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
       await transaction.roommateProfile.deleteMany({ where: { userId: previous.userId } })
       await transaction.profile.deleteMany({ where: { userId: previous.userId } })
       await transaction.studentVerification.deleteMany({ where: { userId: previous.userId } })
-      await transaction.mediaUpload.deleteMany({ where: { ownerId: previous.userId, purpose: 'VERIFICATION' } })
+      await transaction.landlordVerification.deleteMany({ where: { userId: previous.userId } })
+      await transaction.propertyAuthorization.deleteMany({ where: { requesterId: previous.userId } })
+      await transaction.mediaUpload.deleteMany({ where: { ownerId: previous.userId, purpose: { in: ['VERIFICATION', 'LANDLORD_IDENTITY', 'PROPERTY_AUTHORIZATION'] } } })
       await transaction.user.update({ where: { id: previous.userId }, data: { status: 'DELETED', name: 'Deleted account', email: `deleted-${previous.userId}@invalid.local`, passwordHash: randomBytes(48).toString('hex'), emailVerifiedAt: null, studentVerified: false, verificationStatus: 'UNVERIFIED' } })
     } else {
       await notify(transaction, previous.userId, previous.user.email, 'DELETION_REQUEST', 'Account deletion request rejected', `Your account deletion request was rejected: ${body.data.reason}`, changed.id)
@@ -280,7 +489,10 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
   }).catch(error => error instanceof LastAdminConflict ? 'LAST_ADMIN' as const : Promise.reject(error))
   if (result === 'LAST_ADMIN') return void fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
   if (!result) return void fail(res, 409, 'This deletion request has already been reviewed.', 'ALREADY_REVIEWED')
-  if (body.data.status === 'APPROVED') await removeStoredVerificationDocuments(verificationUploads.map(upload => upload.storageKey))
+  if (body.data.status === 'APPROVED') {
+    await removeStoredVerificationDocuments(verificationUploads.filter(upload => upload.purpose === 'VERIFICATION').map(upload => upload.storageKey))
+    await removeStoredLandlordDocuments(verificationUploads.filter(upload => upload.purpose !== 'VERIFICATION').map(upload => upload.storageKey))
+  }
   ok(res, { id: result.id, status: result.status, requestedAt: result.requestedAt })
 }))
 
@@ -407,11 +619,32 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
     if (!['PUBLISHED', 'REJECTED', 'PAUSED'].includes(status)) return void fail(res, 400, 'Choose an available listing decision.', 'INVALID_STATUS')
     const previous = await prisma.listing.findUnique({ where: { id: id.data }, include: { owner: { select: personSelect }, campus: { select: { name: true } }, photos: true } })
     if (!previous) return void fail(res, 404, 'This listing does not exist.', 'NOT_FOUND')
+    if (previous.ownerId === actorId) return void fail(res, 403, 'You cannot moderate your own listing.', 'FORBIDDEN')
     const permitted = (previous.status === 'PENDING_REVIEW' && ['PUBLISHED', 'REJECTED'].includes(status)) || (previous.status === 'PUBLISHED' && status === 'PAUSED') || (previous.status === 'PAUSED' && status === 'PUBLISHED')
     if (!permitted) return void fail(res, 409, 'Submit the listing for review before changing it to this status.', 'INVALID_TRANSITION')
     if (status === 'PUBLISHED' && !previous.photos.length) return void fail(res, 400, 'A property needs at least one photo before publication.', 'PHOTO_REQUIRED')
     if (status === 'PUBLISHED' && (!previous.address?.trim() || previous.address.trim().length < 10 || previous.address.trim().length > 250)) return void fail(res, 400, 'Enter the full property address before publishing.', 'ADDRESS_REQUIRED')
+    if (status === 'PUBLISHED') {
+      const [owner, authorization] = await Promise.all([
+        prisma.user.findUnique({ where: { id: previous.ownerId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true } }),
+        prisma.propertyAuthorization.findFirst({ where: { listingId: previous.id, requesterId: previous.ownerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, addressSnapshot: true } }),
+      ])
+      const identity = owner?.roles.includes('LANDLORD') ? await prisma.landlordVerification.findFirst({ where: { userId: previous.ownerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true } }) : null
+      if (!owner || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? identity?.status === 'APPROVED' : owner.roles.includes('STUDENT') && owner.studentVerified)) return void fail(res, 400, 'The listing owner must complete account verification before publication.', 'IDENTITY_REQUIRED')
+      if (authorization?.status !== 'APPROVED' || authorization.addressSnapshot !== previous.address) return void fail(res, 400, 'Approve proof of rental authority for this exact address before publication.', 'AUTHORIZATION_REQUIRED')
+    }
     const changed = await atomicDecision(async transaction => {
+      if (status === 'PUBLISHED') {
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.ownerId}))::text`
+        await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.id}))::text`
+        const [listing, owner, authorization] = await Promise.all([
+          transaction.listing.findUniqueOrThrow({ where: { id: previous.id } }),
+          transaction.user.findUniqueOrThrow({ where: { id: previous.ownerId } }),
+          transaction.propertyAuthorization.findFirst({ where: { listingId: previous.id, requesterId: previous.ownerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
+        ])
+        const identity = owner.roles.includes('LANDLORD') ? await transaction.landlordVerification.findFirst({ where: { userId: owner.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true } }) : null
+        if (listing.status !== previous.status || listing.address !== previous.address || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? identity?.status === 'APPROVED' : owner.roles.includes('STUDENT') && owner.studentVerified) || authorization?.status !== 'APPROVED' || authorization.addressSnapshot !== listing.address) throw new ModerationConflict()
+      }
       const updated = await transaction.listing.updateMany({ where: { id: id.data, status: previous.status }, data: { status: status as ListingStatus, moderationReason: reason || null, reviewedAt: new Date() } })
       if (!updated.count) throw new ModerationConflict()
       const row = await transaction.listing.findUniqueOrThrow({ where: { id: id.data } })
@@ -478,12 +711,14 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
       const activeAdmins = await transaction.user.count({ where: { status: 'ACTIVE', roles: { has: 'ADMIN' } } })
       if (activeAdmins <= 1) throw new LastAdminConflict()
     }
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.id}))::text`
     const updated = await transaction.user.updateMany({ where: { id: id.data, status: previous.status }, data: { status: status as AccountStatus } })
     if (!updated.count) throw new ModerationConflict()
     const row = await transaction.user.findUniqueOrThrow({ where: { id: id.data } })
     if (status === 'SUSPENDED') {
       await transaction.session.updateMany({ where: { userId: row.id, revokedAt: null }, data: { revokedAt: new Date() } })
       await transaction.authToken.deleteMany({ where: { userId: row.id } })
+      await transaction.listing.updateMany({ where: { ownerId: row.id, status: 'PUBLISHED' }, data: { status: 'PAUSED', moderationReason: 'Owner account suspended; review is required before republishing.' } })
     }
     await audit(transaction, actorId, `ACCOUNT_${status}`, 'USER', row.id, { status: previous.status }, { status, reason })
     await notify(transaction, row.id, row.email, 'ACCOUNT_MODERATION', `Account ${status.toLowerCase()}`, status === 'ACTIVE' ? 'Your account has been restored.' : `Your account was suspended: ${reason}`, row.id)

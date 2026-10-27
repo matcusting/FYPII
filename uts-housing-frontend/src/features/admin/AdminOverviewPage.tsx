@@ -7,6 +7,8 @@ import { asRecord, type DataRecord } from './data'
 
 const metrics = [
   { label: 'Student verifications pending', path: '/admin/verifications', keys: ['pendingVerifications', 'pendingStudentVerifications', 'verificationsPending', 'studentVerifications'] },
+  { label: 'Landlord identities pending', path: '/admin/landlord-verifications', keys: ['pendingLandlordVerifications', 'landlordVerificationsPending'] },
+  { label: 'Property authorizations pending', path: '/admin/property-authorizations', keys: ['pendingPropertyAuthorizations', 'propertyAuthorizationsPending'] },
   { label: 'Landlord accounts', path: '/admin/accounts', keys: ['landlordAccounts', 'landlords', 'landlordCount'] },
   { label: 'Listings pending review', path: '/admin/listings', keys: ['pendingListings', 'listingsPending'] },
   { label: 'Reviews pending moderation', path: '/admin/reviews', keys: ['pendingReviews', 'reviewsPending'] },

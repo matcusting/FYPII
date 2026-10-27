@@ -13,6 +13,7 @@ const MAX_PROOF_BYTES = 5_000_000
 const MAX_DAILY_SUBMISSIONS = 3
 class PendingVerificationConflict extends Error {}
 class SubmissionLimitConflict extends Error {}
+class AccountChangedConflict extends Error {}
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PROOF_BYTES, files: 2, fields: 3 } })
 const noteSchema = z.string().trim().max(500).optional()
 
@@ -93,6 +94,8 @@ router.post('/', requireRole('STUDENT'), uploadedProof, async (req, res, next) =
       // Serialize requests for this student before checking again. Two uploads can
       // otherwise pass the initial pending check at the same time.
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
+      const freshUser = await transaction.user.findUnique({ where: { id: user.id }, select: { status: true, roles: true, email: true, emailVerifiedAt: true, studentVerified: true } })
+      if (!freshUser || freshUser.status !== 'ACTIVE' || !freshUser.roles.includes('STUDENT') || !freshUser.emailVerifiedAt || freshUser.email !== user.email || freshUser.studentVerified) throw new AccountChangedConflict()
       if (await transaction.studentVerification.findFirst({ where: { userId: user.id, status: 'PENDING' } })) throw new PendingVerificationConflict()
       const submittedToday = await transaction.studentVerification.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
       if (submittedToday >= MAX_DAILY_SUBMISSIONS) throw new SubmissionLimitConflict()
@@ -112,6 +115,7 @@ router.post('/', requireRole('STUDENT'), uploadedProof, async (req, res, next) =
     await Promise.all(storedProofPaths.map(path => rm(path, { force: true }).catch(() => {})))
     if (error instanceof PendingVerificationConflict) return void fail(res, 409, 'Your student verification request is already pending.', 'VERIFICATION_PENDING')
     if (error instanceof SubmissionLimitConflict) return void fail(res, 429, 'You can submit student verification documents up to three times in 24 hours.', 'VERIFICATION_RATE_LIMITED')
+    if (error instanceof AccountChangedConflict) return void fail(res, 409, 'Your account changed while submitting documents. Refresh and try again.', 'ACCOUNT_CHANGED')
     next(error)
   }
 })

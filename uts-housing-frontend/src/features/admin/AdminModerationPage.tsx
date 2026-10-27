@@ -5,7 +5,7 @@ import { useI18n } from '../../lib/i18n'
 import { AdminShell, Notice, QueryState } from './shared'
 import { asRecord, dateText, firstText, nestedText, type DataRecord } from './data'
 
-type ModerationKind = 'verifications' | 'listings' | 'reviews' | 'reports' | 'accounts'
+type ModerationKind = 'verifications' | 'landlord-verifications' | 'property-authorizations' | 'listings' | 'reviews' | 'reports' | 'accounts'
 
 const configuration: Record<ModerationKind, {
   title: string
@@ -21,6 +21,16 @@ const configuration: Record<ModerationKind, {
   verifications: {
     title: 'Student Verification', description: 'Review student identity, approve or reject applications, and record the reason for each decision.', singular: 'verification request',
     approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve verification', rejectLabel: 'Reject verification',
+    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
+  },
+  'landlord-verifications': {
+    title: 'Landlord Identity Review', description: 'Review landlord identity documents privately before the landlord can request property authorization.', singular: 'landlord identity request',
+    approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve identity', rejectLabel: 'Reject identity',
+    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
+  },
+  'property-authorizations': {
+    title: 'Property Authorization Review', description: 'Check the full address and evidence of the right to list each property before publication.', singular: 'property authorization request',
+    approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve authorization', rejectLabel: 'Reject authorization',
     statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
   },
   listings: {
@@ -72,6 +82,8 @@ type Translate = (english: string, vars?: Record<string, string | number>) => st
 
 function rowTitle(row: DataRecord, kind: ModerationKind, t: Translate): string {
   if (kind === 'accounts') return firstText(row, 'name', 'displayName', 'email') || t('Account name unavailable')
+  if (kind === 'landlord-verifications') return nestedText(row, 'landlord', 'name', 'email') || t('Applicant unavailable')
+  if (kind === 'property-authorizations') return nestedText(row, 'listing', 'title') || t('Listing title unavailable')
   if (kind === 'verifications') return nestedText(row, 'student', 'name', 'email') || nestedText(row, 'user', 'name', 'email') || firstText(row, 'studentName', 'name', 'email') || t('Applicant unavailable')
   if (kind === 'listings') return firstText(row, 'title') || t('Listing title unavailable')
   if (kind === 'reviews') return firstText(row, 'title', 'content', 'comment', 'body') || t('Review content unavailable')
@@ -80,6 +92,8 @@ function rowTitle(row: DataRecord, kind: ModerationKind, t: Translate): string {
 
 function rowDetail(row: DataRecord, kind: ModerationKind): string {
   if (kind === 'accounts') return firstText(row, 'email') || (Array.isArray(row.roles) ? row.roles.filter((role): role is string => typeof role === 'string').join(', ') : '')
+  if (kind === 'landlord-verifications') return nestedText(row, 'landlord', 'email') || firstText(row, 'kind')
+  if (kind === 'property-authorizations') return firstText(row, 'addressSnapshot') || nestedText(row, 'listing', 'address')
   if (kind === 'verifications') return firstText(row, 'university', 'verificationMethod', 'emailDomain') || nestedText(row, 'student', 'email') || nestedText(row, 'user', 'email')
   if (kind === 'listings') return nestedText(row, 'owner', 'name', 'email') || firstText(row, 'approximateArea', 'campusName', 'ownerName')
   if (kind === 'reviews') return nestedText(row, 'listing', 'title') || nestedText(row, 'author', 'name') || firstText(row, 'listingId')
@@ -119,6 +133,18 @@ function privateVerificationUrl(row: DataRecord, field: 'studentIdUrl' | 'offerL
   }
 }
 
+function privateLandlordDocumentUrl(row: DataRecord, kind: 'landlord-verifications' | 'property-authorizations', field: 'identityUrl' | 'companyUrl' | 'representativeUrl' | 'proofUrl' | 'supportingUrl', document: 'identity' | 'company' | 'representative' | 'proof' | 'supporting'): string | null {
+  const id = firstText(row, 'id')
+  const source = row[field]
+  if (!id || typeof source !== 'string') return null
+  try {
+    const url = new URL(source, window.location.origin)
+    const expected = `/api/v1/admin/${kind}/${encodeURIComponent(id)}/${document}`
+    return url.origin === window.location.origin && url.pathname === expected && !url.search && !url.hash
+      ? apiResourceUrl(`/admin/${kind}/${encodeURIComponent(id)}/${document}`) : null
+  } catch { return null }
+}
+
 function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecord }) {
   const { t } = useI18n()
   const details: Array<{ label: string; value: string }> = []
@@ -137,6 +163,23 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Email verification', value: typeof emailVerified === 'boolean' ? t(emailVerified ? 'Verified' : 'Unverified') : '' },
       { label: 'University', value: firstText(row, 'university', 'universityName') },
       { label: 'Verification method', value: t(firstText(row, 'verificationMethod', 'method')) },
+    )
+  } else if (kind === 'landlord-verifications') {
+    const emailVerified = asRecord(row.landlord)?.emailVerified
+    details.push(
+      { label: 'Applicant', value: nestedText(row, 'landlord', 'name', 'email') },
+      { label: 'Email', value: nestedText(row, 'landlord', 'email') },
+      { label: 'Phone Number', value: nestedText(row, 'landlord', 'phone') },
+      { label: 'Email verification', value: typeof emailVerified === 'boolean' ? t(emailVerified ? 'Verified' : 'Unverified') : '' },
+      { label: 'Account holder type', value: t(firstText(row, 'kind') === 'COMPANY' ? 'Company' : 'Individual') },
+    )
+  } else if (kind === 'property-authorizations') {
+    const right = firstText(row, 'kind')
+    details.push(
+      { label: 'Listing', value: nestedText(row, 'listing', 'title') },
+      { label: 'Full Property Address', value: firstText(row, 'addressSnapshot') || nestedText(row, 'listing', 'address') },
+      { label: 'Applicant', value: nestedText(row, 'landlord', 'name', 'email') },
+      { label: 'Your right to offer this property', value: t(right === 'OWNER' ? 'Owner' : right === 'AGENT' ? 'Authorized agent' : 'Subletting tenant') },
     )
   } else if (kind === 'listings') {
     details.push(
@@ -171,6 +214,15 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
   const offerLetterUrl = documentRequest ? privateVerificationUrl(row, 'offerLetterUrl', 'offer-letter') : null
   const proofUrl = kind === 'reviews' || (kind === 'verifications' && !documentRequest) ? safeDocumentUrl(row.proofUrl ?? row.documentUrl ?? asRecord(row.document)?.url) : null
   const evidenceUrl = kind === 'reports' ? safeDocumentUrl(row.evidenceUrl) : null
+  const landlordDocs = kind === 'landlord-verifications' ? [
+    { field: 'identityUrl' as const, document: 'identity' as const, label: 'MyKad or passport photo' },
+    { field: 'companyUrl' as const, document: 'company' as const, label: 'Company registration document' },
+    { field: 'representativeUrl' as const, document: 'representative' as const, label: 'Representative authorization document' },
+  ] : []
+  const propertyDocs = kind === 'property-authorizations' ? [
+    { field: 'proofUrl' as const, document: 'proof' as const, label: 'Primary property evidence' },
+    { field: 'supportingUrl' as const, document: 'supporting' as const, label: 'Supporting authorization evidence' },
+  ] : []
 
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
@@ -182,6 +234,12 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       {documentRequest && <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-sm font-semibold text-slate-700">{t('Student ID photo')}</p>{studentIdUrl ? <a href={studentIdUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-semibold text-[#203569] underline">{t('Download student ID (review only)')}</a> : <p className="mt-2 text-sm text-red-700">{t('Document unavailable')}</p>}</div>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-sm font-semibold text-slate-700">{t('Offer letter')}</p>{offerLetterUrl ? <a href={offerLetterUrl} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-semibold text-[#203569] underline">{t('Download offer letter (review only)')}</a> : <p className="mt-2 text-sm text-red-700">{t('Document unavailable')}</p>}</div>
+      </div>}
+      {(kind === 'landlord-verifications' || kind === 'property-authorizations') && <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {[...landlordDocs, ...propertyDocs].filter(item => typeof row[item.field] === 'string').map(item => {
+          const url = privateLandlordDocumentUrl(row, kind, item.field, item.document)
+          return <div key={item.field} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><p className="text-sm font-semibold text-slate-700">{t(item.label)}</p>{url ? <a href={url} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm font-semibold text-[#203569] underline">{t('Open private document (review only)')}</a> : <p className="mt-2 text-sm text-red-700">{t('Document unavailable')}</p>}</div>
+        })}
       </div>}
       {proofUrl && <p className="mt-4 text-sm"><a href={proofUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{t(kind === 'reviews' ? 'View rental evidence (review only)' : 'View verification document (review only)')}</a></p>}
       {evidenceUrl && <p className="mt-4 text-sm"><a href={evidenceUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#203569] underline">{t('View report evidence')}</a></p>}
@@ -251,6 +309,17 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
       setValidation('Both student documents must be available before approval.')
       return
     }
+    const reviewed = asRecord(detail.data)
+    if (decision === config.approve && kind === 'landlord-verifications' && reviewed &&
+      (!privateLandlordDocumentUrl(reviewed, kind, 'identityUrl', 'identity') || (firstText(reviewed, 'kind') === 'COMPANY' && (!privateLandlordDocumentUrl(reviewed, kind, 'companyUrl', 'company') || !privateLandlordDocumentUrl(reviewed, kind, 'representativeUrl', 'representative'))))) {
+      setValidation('Required landlord identity documents must be available before approval.')
+      return
+    }
+    if (decision === config.approve && kind === 'property-authorizations' && reviewed &&
+      (!privateLandlordDocumentUrl(reviewed, kind, 'proofUrl', 'proof') || (firstText(reviewed, 'kind') !== 'OWNER' && !privateLandlordDocumentUrl(reviewed, kind, 'supportingUrl', 'supporting')))) {
+      setValidation('Required property authorization documents must be available before approval.')
+      return
+    }
     if ((decision === config.reject || decision === config.extraAction?.value || kind === 'reports') && explanation.length < 3) {
       setValidation('Please enter a reason of at least 3 characters.')
       return
@@ -277,7 +346,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
         <button type="button" className="button button-secondary" onClick={() => { void list.refetch() }} disabled={list.isFetching}>{t('Refresh queue')}</button>
       </div>
       <div className="mb-4"><Notice success={notice} error={validation || (mutation.error ? messageOf(mutation.error) : null)} /></div>
-      <QueryState loading={list.isPending} error={list.error ? messageOf(list.error) : null} empty={rows.length === 0} emptyText={t('No {items} match the current filter.', { items: t({ verifications: 'verification requests', listings: 'listings', reviews: 'reviews', reports: 'reports', accounts: 'accounts' }[kind]) })} onRetry={() => { void list.refetch() }} />
+      <QueryState loading={list.isPending} error={list.error ? messageOf(list.error) : null} empty={rows.length === 0} emptyText={t('No {items} match the current filter.', { items: t({ verifications: 'verification requests', 'landlord-verifications': 'landlord identity requests', 'property-authorizations': 'property authorization requests', listings: 'listings', reviews: 'reviews', reports: 'reports', accounts: 'accounts' }[kind]) })} onRetry={() => { void list.refetch() }} />
       {!list.isPending && !list.error && rows.length > 0 && (
         <div className="card overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
@@ -324,7 +393,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                             <label htmlFor={`reason-${kind}-${id}`}>{t('Reason')}{t(decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)')}</label>
                             <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder={t('Record your review findings and explain any rejection or suspension')} />
                           </div>
-                          <button type="submit" className="button" disabled={mutation.isPending || (kind === 'verifications' && (detail.isPending || detail.isError))}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
+                          <button type="submit" className="button" disabled={mutation.isPending || (['verifications', 'landlord-verifications', 'property-authorizations'].includes(kind) && (detail.isPending || detail.isError))}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
                         </form>
                       </td></tr>
                     )}

@@ -21,6 +21,8 @@ English is the default interface language. The navigation selector switches the 
 
 For a new student account, registration requires a school email domain configured for an active campus (for example, `student.uts.edu.my`). The student verifies ownership through the emailed link, then opens Profile Settings to submit a Student ID photo (JPG/PNG) and offer letter (PDF/JPG/PNG). Both are required, with a 5 MB limit per file. The admin verification queue provides private download links for both documents and an approve/reject decision. The browser's file checks provide early feedback; the API repeats validation and controls access. The seeded `student@demo.local` and `candidate@demo.local` users are already verified demo accounts, so use a new fictional account to exercise the application flow. Do not put real documents in the UI preview or repository.
 
+A new landlord registers with a name, email and required phone number, then verifies their email. The landlord profile still contains only name, read-only account email and phone; the separate verification area accepts private identity documents. Each listing has a separate property authorization application, so approval of one property never covers another. Both reviews must be approved before submitting a landlord listing for moderation, and listing moderation is still required before publication. The landlord and administrators can see review status and rejection reasons. Browser upload checks offer early feedback, while the API enforces document and permission rules. Use only fictional documents for local testing.
+
 ## Checks
 
 ```bash

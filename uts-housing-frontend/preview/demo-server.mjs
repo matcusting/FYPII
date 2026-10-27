@@ -18,11 +18,13 @@ const demoPassword = 'Demo12345!'
 const users = [
   { id: 'student-demo', name: 'Demo Student', email: 'student@demo.local', roles: ['STUDENT'], emailVerified: true, studentVerified: true, verificationStatus: 'APPROVED', status: 'ACTIVE' },
   { id: 'landlord-demo', name: 'Demo Landlord', email: 'landlord@demo.local', roles: ['LANDLORD'], emailVerified: true, studentVerified: false, status: 'ACTIVE' },
+  { id: 'landlord-applicant', name: 'Demo New Landlord', email: 'landlord-applicant@demo.local', roles: ['LANDLORD'], emailVerified: true, studentVerified: false, status: 'ACTIVE' },
   { id: 'admin-demo', name: 'Demo Admin', email: 'admin@demo.local', roles: ['ADMIN'], emailVerified: true, studentVerified: false, status: 'ACTIVE' },
   { id: 'student-candidate', name: 'Demo Roommate', email: 'candidate@demo.local', roles: ['STUDENT'], emailVerified: true, studentVerified: true, verificationStatus: 'APPROVED', status: 'ACTIVE' },
   { id: 'student-applicant', name: 'Demo Applicant', email: 'verification-demo@student.uts.edu.my', roles: ['STUDENT'], emailVerified: true, studentVerified: false, verificationStatus: 'UNVERIFIED', status: 'ACTIVE' },
 ]
 const sessions = new Map()
+const demoEmailTokens = new Map()
 const uploads = new Map()
 const campuses = [
   { id: 'uts-sibu', name: 'UTS Sibu Campus', university: 'University of Technology Sarawak', latitude: 2.286, longitude: 111.835, domains: ['student.uts.edu.my'], active: true },
@@ -55,7 +57,7 @@ const listings = [
   listing('demo-listing-4', 'Listing Pending Review (Demo)', 720, 'Sibu Jaya area', 'HOUSE', 'SINGLE', 'room', 'PENDING_REVIEW'),
 ]
 const profiles = new Map(users.map(user => [user.id, {
-  displayName: user.name, name: user.name, email: user.email, phone: null,
+  displayName: user.name, name: user.name, email: user.email, phone: user.roles.includes('LANDLORD') ? '+60 12-345 6789' : null,
   university: user.roles.includes('STUDENT') ? 'University of Technology Sarawak' : '',
   bio: user.roles.includes('STUDENT') ? 'Looking for a quiet place with an easy commute to campus.' : '',
   preferredLocation: user.roles.includes('STUDENT') ? 'Sibu Jaya' : null,
@@ -78,6 +80,20 @@ const notifications = []
 const reviews = [{ id: 'demo-review-1', listingId: 'demo-listing-1', listing: { id: 'demo-listing-1', title: 'Room Near UTS (Demo)' }, authorId: 'student-candidate', author: { name: 'Demo Roommate' }, rating: 4, body: 'Demo review: A convenient location and a student-friendly room. This is not based on a real stay.', status: 'APPROVED', moderationStatus: 'APPROVED', createdAt: seedDate }]
 const reports = [{ id: 'demo-report-1', targetType: 'LISTING', targetId: 'demo-listing-2', category: 'INACCURATE', reason: 'Demo report: Please check that the photos match the description.', reporter: { name: 'Demo Student' }, status: 'OPEN', createdAt: seedDate }]
 const verifications = []
+// These fictional records keep the pre-existing preview properties available.
+// New applicants must complete the two independent review steps themselves.
+const landlordVerifications = [{
+  id: 'demo-landlord-identity-1', userId: 'landlord-demo', kind: 'INDIVIDUAL', status: 'APPROVED',
+  landlord: { id: 'landlord-demo', name: 'Demo Landlord', email: 'landlord@demo.local', phone: '+60 12-345 6789' },
+  reason: null, createdAt: seedDate, reviewedAt: seedDate,
+}]
+const propertyAuthorizations = listings.map(item => ({
+  id: `demo-property-auth-${item.id}`, listingId: item.id, userId: item.ownerId,
+  listing: { id: item.id, title: item.title, address: item.address },
+  owner: { id: item.ownerId, name: item.owner.name, email: 'landlord@demo.local' },
+  address: item.address, kind: 'OWNER', status: 'APPROVED', reason: null,
+  createdAt: seedDate, reviewedAt: seedDate,
+}))
 const preferences = new Map()
 
 function json(res, status, value) {
@@ -147,6 +163,56 @@ function notify(userId, type, payload = {}) {
   notifications.unshift({ id: id('notification'), userId, type, payload, readAt: null, createdAt: now() })
 }
 function ownerOf(item) { return users.find(user => user.id === item.ownerId) }
+function latestIdentity(userId) { return landlordVerifications.find(item => item.userId === userId) || null }
+function revokePropertyReviews(userId, reason) {
+  for (const authorization of propertyAuthorizations) {
+    if (authorization.userId !== userId || !['PENDING', 'APPROVED'].includes(authorization.status)) continue
+    authorization.status = 'REJECTED'
+    authorization.reason = reason
+  }
+  for (const listing of listings) {
+    if (listing.ownerId === userId && ['PUBLISHED', 'PENDING_REVIEW'].includes(listing.status)) listing.status = 'PAUSED'
+  }
+}
+function latestPropertyAuthorization(listingId) {
+  const listing = listings.find(item => item.id === listingId)
+  return propertyAuthorizations.find(item => item.listingId === listingId && item.address === listing?.address) || null
+}
+function approvedPropertyAuthorization(item) {
+  const latest = latestPropertyAuthorization(item.id)
+  return latest?.userId === item.ownerId && latest.status === 'APPROVED'
+}
+function requiredListingProof(item) {
+  const owner = ownerOf(item)
+  if (!owner?.emailVerified) return 'Verify your account email before submitting a property.'
+  if (owner.roles.includes('LANDLORD') && latestIdentity(owner.id)?.status !== 'APPROVED') return 'Your landlord identity must be approved before this listing can be submitted or published.'
+  if (owner.roles.includes('STUDENT') && !owner.studentVerified) return 'Student verification is required before submitting a sublet.'
+  if (!approvedPropertyAuthorization(item)) return 'Approved authorization for this full property address is required before this listing can be submitted or published.'
+  return null
+}
+function verificationSummary(record) {
+  return { status: record?.status || 'UNVERIFIED', latest: record ? {
+    id: record.id, kind: record.kind, status: record.status, reason: record.reason,
+    createdAt: record.createdAt, reviewedAt: record.reviewedAt,
+  } : null }
+}
+function landlordVerificationForAdmin(record, detail = false) {
+  return { ...record, moderationReason: record.reason, landlord: { ...record.landlord, emailVerified: users.find(user => user.id === record.userId)?.emailVerified === true }, ...(detail && record.status !== 'REJECTED' ? {
+    identityUrl: `/api/v1/admin/landlord-verifications/${record.id}/identity`,
+    ...(record.kind === 'COMPANY' ? {
+      companyUrl: `/api/v1/admin/landlord-verifications/${record.id}/company`,
+      representativeUrl: `/api/v1/admin/landlord-verifications/${record.id}/representative`,
+    } : {}),
+  } : {}) }
+}
+function propertyAuthorizationForAdmin(record, detail = false) {
+  return { ...record, requesterId: record.userId, addressSnapshot: record.address, moderationReason: record.reason, listing: {
+    ...record.listing, status: listings.find(item => item.id === record.listingId)?.status || 'DRAFT',
+  }, landlord: { ...record.owner }, ...(detail && record.status !== 'REJECTED' ? {
+    proofUrl: `/api/v1/admin/property-authorizations/${record.id}/proof`,
+    ...(record.kind !== 'OWNER' ? { supportingUrl: `/api/v1/admin/property-authorizations/${record.id}/supporting` } : {}),
+  } : {}) }
+}
 function verificationForAdmin(item, detail = false) {
   const applicant = users.find(user => user.id === item.userId)
   return {
@@ -184,12 +250,13 @@ async function api(req, res, url) {
   const path = url.pathname.slice('/api/v1'.length)
   const method = req.method
   const user = currentUser(req)
-  const body = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) && !path.startsWith('/demo-uploads/') ? await bodyOf(req, path === '/verifications' ? 11_000_000 : 5_500_000) : {}
+  const proofRequest = path === '/verifications' || path === '/landlord-verifications/identity' || /^\/landlord-verifications\/listings\/[^/]+$/.test(path)
+  const body = ['POST', 'PATCH', 'PUT', 'DELETE'].includes(method) && !path.startsWith('/demo-uploads/') ? await bodyOf(req, proofRequest ? 16_000_000 : 5_500_000) : {}
 
   if (path === '/auth/me' && method === 'GET') return user ? json(res, 200, user) : fail(res, 401, 'You are not signed in to a demo account.', 'UNAUTHORIZED')
   if (path === '/auth/login' && method === 'POST') {
     const account = users.find(item => item.email.toLowerCase() === String(body.email || '').toLowerCase())
-    if (!account || body.password !== demoPassword || account.status !== 'ACTIVE') return fail(res, 401, 'Incorrect demo email or password. Use student@demo.local, verification-demo@student.uts.edu.my, landlord@demo.local, or admin@demo.local. The password is Demo12345!', 'INVALID_CREDENTIALS')
+    if (!account || body.password !== demoPassword || account.status !== 'ACTIVE') return fail(res, 401, 'Incorrect demo email or password. Use student@demo.local, verification-demo@student.uts.edu.my, landlord@demo.local, landlord-applicant@demo.local, or admin@demo.local. The password is Demo12345!', 'INVALID_CREDENTIALS')
     const token = randomUUID()
     sessions.set(token, { id: id('session'), userId: account.id, createdAt: now() })
     res.setHeader('Set-Cookie', `demo_session=${token}; HttpOnly; SameSite=Strict; Path=/`)
@@ -200,8 +267,29 @@ async function api(req, res, url) {
     res.setHeader('Set-Cookie', 'demo_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
     return json(res, 200, { message: 'Signed out of the demo account.' })
   }
-  if (path === '/auth/register' && method === 'POST') return fail(res, 400, 'This local preview does not send verification emails. Use one of the preset demo accounts.', 'DEMO_ONLY')
-  if (['/auth/verify-email', '/auth/forgot-password', '/auth/reset-password'].includes(path) && method === 'POST') return fail(res, 400, 'This local preview does not send email or reset real passwords. Use a preset demo account.', 'DEMO_ONLY')
+  if (path === '/auth/register' && method === 'POST') {
+    if (body.role !== 'LANDLORD') return fail(res, 400, 'This local preview simulates landlord registration only. Use a preset student account for student verification.', 'DEMO_ONLY')
+    const name = String(body.name || '').trim()
+    const email = String(body.email || '').trim().toLowerCase()
+    const phone = String(body.phone || '').trim()
+    if (name.length < 2 || name.length > 120 || !/^[a-z0-9._+-]+@demo\.local$/.test(email) || !/^\+?[0-9][0-9 ()-]*$/.test(phone) || !/^\d{7,15}$/.test(phone.replace(/\D/g, '')) || body.password !== demoPassword || body.acceptTerms !== true) return fail(res, 400, 'For this fictional local preview, use a name, an unused @demo.local email, a valid phone number, the password Demo12345!, and accept the terms.', 'DEMO_ONLY')
+    if (users.some(item => item.email.toLowerCase() === email)) return fail(res, 409, 'This demo email is already registered.', 'EMAIL_EXISTS')
+    const account = { id: id('landlord'), name, email, roles: ['LANDLORD'], emailVerified: false, studentVerified: false, status: 'ACTIVE' }
+    users.push(account)
+    profiles.set(account.id, { displayName: name, name, email, phone, verificationStatus: 'UNVERIFIED' })
+    const token = randomUUID()
+    demoEmailTokens.set(token, account.id)
+    return json(res, 201, { id: account.id, email, verificationRequired: true, demoVerificationToken: token })
+  }
+  if (path === '/auth/verify-email' && method === 'POST') {
+    const accountId = demoEmailTokens.get(String(body.token || ''))
+    const account = users.find(item => item.id === accountId)
+    if (!account) return fail(res, 400, 'The demo email verification token is invalid or was already used.', 'INVALID_TOKEN')
+    account.emailVerified = true
+    demoEmailTokens.delete(body.token)
+    return json(res, 200, { verified: true })
+  }
+  if (['/auth/forgot-password', '/auth/reset-password'].includes(path) && method === 'POST') return fail(res, 400, 'This local preview does not send email or reset real passwords. Use a preset demo account.', 'DEMO_ONLY')
 
   if (path === '/campuses' && method === 'GET') return json(res, 200, { items: campuses.filter(campus => campus.active).map(({ id, name, university }) => ({ id, name, university })) })
   if (path === '/amenities' && method === 'GET') return json(res, 200, { items: amenities })
@@ -298,9 +386,17 @@ async function api(req, res, url) {
     if (user.id !== item.ownerId && !user.roles.includes('ADMIN')) return fail(res, 403, 'You can only manage your own demo listings.', 'FORBIDDEN')
     if (!action && method === 'PATCH') {
       if (body.address !== undefined && (typeof body.address !== 'string' || body.address.trim().length < 10 || body.address.trim().length > 250)) return fail(res, 400, 'Enter a full property address between 10 and 250 characters.')
+      const addressChanged = body.address !== undefined && body.address.trim() !== item.address
       const { id: ignoredId, ownerId: ignoredOwner, owner: ignoredOwnerObject, photoKeys: ignoredKeys, newPhotoKeys, removePhotoIds, ...changes } = body
       Object.assign(item, changes)
       if (body.address !== undefined) item.address = body.address.trim()
+      if (addressChanged) {
+        if (['PUBLISHED', 'PAUSED', 'PENDING_REVIEW'].includes(item.status)) item.status = 'DRAFT'
+        for (const authorization of propertyAuthorizations) if (authorization.listingId === item.id && ['PENDING', 'APPROVED'].includes(authorization.status)) {
+          authorization.status = 'REJECTED'
+          authorization.reason = 'Property address changed; submit new proof.'
+        }
+      }
       item.latitude = null
       item.longitude = null
       if (Array.isArray(removePhotoIds)) item.photos = item.photos.filter(photo => !removePhotoIds.includes(photo.id))
@@ -311,6 +407,8 @@ async function api(req, res, url) {
     if (!action && method === 'DELETE') { item.status = 'ARCHIVED'; item.updatedAt = now(); return json(res, 200, item) }
     if (action === 'submit' && method === 'POST') {
       if (!item.photos.length) return fail(res, 400, 'Add at least one demo photo before submitting for review.')
+      const proofError = requiredListingProof(item)
+      if (proofError) return fail(res, 403, proofError, 'VERIFICATION_REQUIRED')
       item.status = 'PENDING_REVIEW'; item.updatedAt = now(); return json(res, 200, item)
     }
     if (action === 'availability' && method === 'POST') { item.lastConfirmedAt = now(); return json(res, 200, item) }
@@ -375,6 +473,18 @@ async function api(req, res, url) {
       if (body.phone !== null && (typeof body.phone !== 'string' || !/^\+?[0-9][0-9 ()-]*$/.test(body.phone.trim()) || body.phone.trim().length > 25 || !/^\d{7,15}$/.test(body.phone.replace(/\D/g, '')))) return fail(res, 400, 'Enter a valid phone number with 7 to 15 digits.', 'VALIDATION_ERROR')
       body.phone = body.phone?.trim() || null
     }
+    if (user.roles.includes('LANDLORD')) {
+      if (body.phone === null) return fail(res, 400, 'Landlord accounts need a contact phone number.', 'PHONE_REQUIRED')
+      const nameChanged = typeof body.displayName === 'string' && body.displayName.trim() !== user.name
+      if (nameChanged) {
+        const identity = latestIdentity(user.id)
+        if (identity && ['PENDING', 'APPROVED'].includes(identity.status)) {
+          identity.status = 'REJECTED'
+          identity.reason = 'Legal name changed; submit new identity documents.'
+        }
+        revokePropertyReviews(user.id, 'Landlord legal name changed; submit new property proof.')
+      }
+    }
     const profile = { ...profiles.get(user.id), ...body, email: user.email, name: body.displayName || user.name }
     profiles.set(user.id, profile)
     user.name = body.displayName || user.name
@@ -395,6 +505,68 @@ async function api(req, res, url) {
     verifications.unshift(record)
     user.studentVerified = false; user.verificationStatus = 'PENDING'
     return json(res, 201, { id: record.id, method: record.method, status: record.status, createdAt: record.createdAt })
+  }
+  if (path === '/landlord-verifications/me' && method === 'GET') {
+    if (!required(res, user, 'LANDLORD')) return
+    return json(res, 200, verificationSummary(latestIdentity(user.id)))
+  }
+  if (path === '/landlord-verifications/identity' && method === 'POST') {
+    if (!required(res, user, 'LANDLORD')) return
+    if (!user.emailVerified) return fail(res, 403, 'Verify your email before uploading identity documents.', 'EMAIL_UNVERIFIED')
+    if (!profiles.get(user.id)?.phone) return fail(res, 400, 'Add your contact phone number before applying.', 'PHONE_REQUIRED')
+    const latest = latestIdentity(user.id)
+    if (latest?.status === 'PENDING') return fail(res, 409, 'Your identity review is already pending.', 'VERIFICATION_PENDING')
+    if (landlordVerifications.filter(item => item.userId === user.id && Date.now() - Date.parse(item.createdAt) < 86_400_000).length >= 3) return fail(res, 429, 'You can apply up to three times in 24 hours.', 'VERIFICATION_RATE_LIMITED')
+    if (!['INDIVIDUAL', 'COMPANY'].includes(body.kind)) return fail(res, 400, 'Choose individual or company verification.', 'INVALID_KIND')
+    if (!await validDemoProof(body.identity, ['image/jpeg', 'image/png'])) return fail(res, 400, 'Upload a valid identity JPG or PNG image no larger than 5 MB.', 'INVALID_PROOF')
+    if (body.kind === 'COMPANY' && (!await validDemoProof(body.companyRegistration, ['application/pdf', 'image/jpeg', 'image/png']) || !await validDemoProof(body.representativeAuthority, ['application/pdf', 'image/jpeg', 'image/png']))) return fail(res, 400, 'Upload valid company registration and representative authority documents, each up to 5 MB.', 'INVALID_PROOF')
+    if (body.kind === 'INDIVIDUAL' && (body.companyRegistration || body.representativeAuthority)) return fail(res, 400, 'Individual identity applications only accept the identity photo.', 'INVALID_PROOF')
+    if (latest?.status === 'APPROVED') {
+      latest.status = 'REJECTED'
+      latest.reason = 'Superseded by a new identity application.'
+      revokePropertyReviews(user.id, 'Landlord identity was resubmitted; submit new property proof.')
+    }
+    const record = {
+      id: id('landlord-identity'), userId: user.id, kind: body.kind, status: 'PENDING',
+      landlord: { id: user.id, name: user.name, email: user.email, phone: profiles.get(user.id)?.phone },
+      reason: null, createdAt: now(), reviewedAt: null,
+    }
+    landlordVerifications.unshift(record)
+    // The request's bytes are deliberately discarded; admin sees generic placeholders.
+    notify('admin-demo', 'LANDLORD_VERIFICATION_SUBMITTED', { verificationId: record.id })
+    return json(res, 201, { id: record.id, kind: record.kind, status: record.status, createdAt: record.createdAt })
+  }
+  const propertyVerificationMatch = path.match(/^\/landlord-verifications\/listings\/([^/]+)$/)
+  if (propertyVerificationMatch && ['GET', 'POST'].includes(method)) {
+    if (!required(res, user)) return
+    if (!user.roles.some(role => role === 'LANDLORD' || role === 'STUDENT')) return fail(res, 403, 'Only a property owner or student subletter may use this form.', 'FORBIDDEN')
+    const item = listings.find(entry => entry.id === propertyVerificationMatch[1] && entry.ownerId === user.id)
+    if (!item) return fail(res, 404, 'Your demo listing could not be found.', 'NOT_FOUND')
+    if (method === 'GET') return json(res, 200, verificationSummary(latestPropertyAuthorization(item.id)))
+    if (!user.emailVerified) return fail(res, 403, 'Verify your account email before uploading property documents.', 'EMAIL_UNVERIFIED')
+    if (user.roles.includes('LANDLORD') && latestIdentity(user.id)?.status !== 'APPROVED') return fail(res, 403, 'Landlord identity approval is required before submitting property documents.', 'IDENTITY_REQUIRED')
+    if (user.roles.includes('STUDENT') && !user.studentVerified) return fail(res, 403, 'Student verification is required before submitting subletting documents.', 'STUDENT_VERIFICATION_REQUIRED')
+    const latest = latestPropertyAuthorization(item.id)
+    if (latest?.status === 'PENDING' && latest.address === item.address) return fail(res, 409, 'Property authorization review is already pending.', 'VERIFICATION_PENDING')
+    if (propertyAuthorizations.filter(record => record.listingId === item.id && Date.now() - Date.parse(record.createdAt) < 86_400_000).length >= 3) return fail(res, 429, 'You can apply up to three times in 24 hours.', 'VERIFICATION_RATE_LIMITED')
+    if (!['OWNER', 'AGENT', 'SUBLETTING'].includes(body.kind) || (user.roles.includes('STUDENT') && body.kind !== 'SUBLETTING')) return fail(res, 400, 'Choose a valid property authority type.', 'INVALID_KIND')
+    const documentTypes = ['application/pdf', 'image/jpeg', 'image/png']
+    if (!await validDemoProof(body.proof, documentTypes) || (body.kind !== 'OWNER' && !await validDemoProof(body.supporting, documentTypes)) || (body.kind === 'OWNER' && body.supporting)) return fail(res, 400, 'Upload the required property documents as PDF, JPG or PNG files up to 5 MB each.', 'INVALID_PROOF')
+    if (latest?.status === 'APPROVED') {
+      latest.status = 'REJECTED'
+      latest.reason = 'Superseded by a new property authorization application.'
+      if (item.status === 'PUBLISHED') item.status = 'PAUSED'
+    }
+    const record = {
+      id: id('property-authorization'), listingId: item.id, userId: user.id,
+      listing: { id: item.id, title: item.title, address: item.address },
+      owner: { id: user.id, name: user.name, email: user.email },
+      address: item.address, kind: body.kind, status: 'PENDING', reason: null,
+      createdAt: now(), reviewedAt: null,
+    }
+    propertyAuthorizations.unshift(record)
+    notify('admin-demo', 'PROPERTY_AUTHORIZATION_SUBMITTED', { authorizationId: record.id, listingId: item.id })
+    return json(res, 201, { id: record.id, kind: record.kind, status: record.status, createdAt: record.createdAt })
   }
   if (path === '/roommates/profile' && method === 'GET') { if (!required(res, user, 'STUDENT')) return; return json(res, 200, roommateProfiles.get(user.id) || {}) }
   if (path === '/roommates/profile' && method === 'PATCH') { if (!required(res, user, 'STUDENT')) return; const current = roommateProfiles.get(user.id) || {}; const profile = { ...current, ...body, visibility: { ...current.visibility, ...body.visibility, university: false } }; roommateProfiles.set(user.id, profile); return json(res, 200, profile) }
@@ -457,6 +629,49 @@ async function api(req, res, url) {
 
   if (path.startsWith('/admin/')) {
     if (!required(res, user, 'ADMIN')) return
+    const landlordDocumentMatch = path.match(/^\/admin\/(landlord-verifications|property-authorizations)\/([^/]+)\/(identity|company|representative|proof|supporting)$/)
+    if (landlordDocumentMatch && method === 'GET') {
+      const [, kind, documentId, document] = landlordDocumentMatch
+      const record = (kind === 'landlord-verifications' ? landlordVerifications : propertyAuthorizations).find(item => item.id === documentId)
+      const allowed = kind === 'landlord-verifications' ? (document === 'identity' || record?.kind === 'COMPANY' && ['company', 'representative'].includes(document)) : (document === 'proof' || record?.kind !== 'OWNER' && document === 'supporting')
+      if (!record || record.status === 'REJECTED' || !allowed) return fail(res, 404, 'The demo verification document is unavailable.', 'NOT_FOUND')
+      const safeLabel = ({ identity: 'Identity', company: 'Company registration', representative: 'Representative authority', proof: 'Property proof', supporting: 'Supporting authority' })[document]
+      const sample = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="720" height="420" fill="#f4f7fb"/><rect x="42" y="42" width="636" height="336" rx="20" fill="#fff" stroke="#203569" stroke-width="3"/><text x="72" y="134" fill="#203569" font-family="Arial" font-size="34" font-weight="bold">${safeLabel} — DEMO ONLY</text><text x="72" y="200" fill="#374151" font-family="Arial" font-size="21">Uploaded files are checked, then discarded.</text><text x="72" y="242" fill="#374151" font-family="Arial" font-size="21">This placeholder contains no personal information.</text></svg>`
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Content-Disposition': `attachment; filename="demo-${document}.svg"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' })
+      return res.end(sample)
+    }
+    const landlordQueueMatch = path.match(/^\/admin\/(landlord-verifications|property-authorizations)(?:\/([^/]+))?$/)
+    if (landlordQueueMatch) {
+      const [, kind, recordId] = landlordQueueMatch
+      const isIdentity = kind === 'landlord-verifications'
+      const collection = isIdentity ? landlordVerifications : propertyAuthorizations
+      const format = isIdentity ? landlordVerificationForAdmin : propertyAuthorizationForAdmin
+      if (!recordId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status')).map(item => format(item)), url))
+      const record = collection.find(item => item.id === recordId)
+      if (!record) return fail(res, 404, 'The demo verification request could not be found.', 'NOT_FOUND')
+      if (method === 'GET') return json(res, 200, format(record, true))
+      if (method === 'PATCH') {
+        if (!['APPROVED', 'REJECTED'].includes(body.status) || body.status === 'REJECTED' && String(body.reason || '').trim().length < 3) return fail(res, 400, 'Choose approve or reject and explain a rejection.', 'INVALID_DECISION')
+        if (record.status !== 'PENDING') return fail(res, 409, 'This request has already been reviewed.', 'ALREADY_REVIEWED')
+        if (record.userId === user.id) return fail(res, 403, 'You cannot review your own request.', 'FORBIDDEN')
+        if (body.status === 'APPROVED' && isIdentity) {
+          const account = users.find(item => item.id === record.userId)
+          if (!account?.emailVerified || !profiles.get(record.userId)?.phone) return fail(res, 400, 'The landlord needs a verified email and phone before identity approval.', 'ACCOUNT_INCOMPLETE')
+        }
+        if (body.status === 'APPROVED' && !isIdentity) {
+          const item = listings.find(entry => entry.id === record.listingId)
+          if (!item || item.ownerId !== record.userId || item.address !== record.address || item.status === 'ARCHIVED') return fail(res, 400, 'The property address or listing changed. Ask for a new authorization request.', 'LISTING_CHANGED')
+          const owner = users.find(entry => entry.id === record.userId)
+          if (!owner?.emailVerified || owner.roles.includes('LANDLORD') && latestIdentity(owner.id)?.status !== 'APPROVED' || owner.roles.includes('STUDENT') && !owner.studentVerified) return fail(res, 400, 'Verify the property owner account before reviewing its authorization.', 'IDENTITY_REQUIRED')
+        }
+        record.status = body.status
+        record.reason = String(body.reason || '').trim() || null
+        record.reviewedAt = now()
+        record.reviewedById = user.id
+        notify(record.userId, isIdentity ? 'LANDLORD_IDENTITY' : 'PROPERTY_AUTHORIZATION', { status: record.status, requestId: record.id })
+        return json(res, 200, format(record, true))
+      }
+    }
     const demoDocumentMatch = path.match(/^\/admin\/verifications\/([^/]+)\/(student-id|offer-letter)$/)
     if (demoDocumentMatch && method === 'GET') {
       const verification = verifications.find(item => item.id === demoDocumentMatch[1] && item.method === 'DOCUMENTS')
@@ -468,6 +683,8 @@ async function api(req, res, url) {
     }
     if (path === '/admin/overview' && method === 'GET') return json(res, 200, {
       pendingVerifications: verifications.filter(item => item.status === 'PENDING').length,
+      pendingLandlordVerifications: landlordVerifications.filter(item => item.status === 'PENDING').length,
+      pendingPropertyAuthorizations: propertyAuthorizations.filter(item => item.status === 'PENDING').length,
       landlordAccounts: users.filter(item => item.roles.includes('LANDLORD')).length,
       pendingListings: listings.filter(item => item.status === 'PENDING_REVIEW').length,
       pendingReviews: reviews.filter(item => item.status === 'PENDING').length,
@@ -499,6 +716,10 @@ async function api(req, res, url) {
           const applicant = users.find(account => account.id === item.userId)
           const domain = applicant?.email.toLowerCase().split('@')[1]
           if (body.status === 'APPROVED' && (item.method !== 'DOCUMENTS' || !applicant?.emailVerified || !campuses.some(campus => campus.active && campus.domains.some(allowed => allowed.toLowerCase() === domain)))) return fail(res, 400, 'A verified school email and both demo document checks are required.', 'PROOF_REQUIRED')
+        }
+        if (kind === 'listings' && ['APPROVED', 'PUBLISHED'].includes(body.status)) {
+          const proofError = requiredListingProof(item)
+          if (proofError) return fail(res, 403, proofError, 'VERIFICATION_REQUIRED')
         }
         item.status = body.status; item.moderationReason = String(body.reason || ''); item.moderatedAt = now(); item.moderatedBy = { name: user.name }
         if (kind === 'verifications') {

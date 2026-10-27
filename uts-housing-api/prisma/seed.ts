@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import argon2 from 'argon2'
+import sharp from 'sharp'
 import { prisma } from '../src/core/db.js'
 
 if (process.env.NODE_ENV === 'production' || process.env.CONFIRM_DEMO_SEED !== '1') {
@@ -24,6 +25,10 @@ const ids = {
   listing: '30000000-0000-4000-8000-000000000001',
   photo: '40000000-0000-4000-8000-000000000001',
   photoKey: '50000000-0000-4000-8000-000000000001',
+  landlordVerification: '60000000-0000-4000-8000-000000000001',
+  identityKey: '60000000-0000-4000-8000-000000000002.png',
+  propertyAuthorization: '70000000-0000-4000-8000-000000000001',
+  authorityKey: '70000000-0000-4000-8000-000000000002.png',
 } as const
 
 try {
@@ -51,12 +56,15 @@ try {
     await prisma.profile.upsert({
       where: { userId: person.id },
       update: {},
-      create: { userId: person.id, displayName: person.name, university: person.role === 'STUDENT' ? 'University of Technology Sarawak' : null },
+      create: { userId: person.id, displayName: person.name, phone: person.role === 'LANDLORD' ? '+60 00-000 0000' : null, university: person.role === 'STUDENT' ? 'University of Technology Sarawak' : null },
     })
     await prisma.notificationPreference.upsert({
       where: { userId: person.id }, update: {}, create: { userId: person.id },
     })
   }
+  // Older local demo databases may predate the landlord-phone requirement.
+  // Fill only this fictional account's missing number; keep any entered value.
+  await prisma.profile.updateMany({ where: { userId: ids.landlord, phone: null }, data: { phone: '+60 00-000 0000' } })
 
   await prisma.campus.upsert({
     where: { id: ids.campus },
@@ -163,7 +171,8 @@ try {
       address: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak',
       showExactLocation: false,
       furnished: true,
-      status: 'PUBLISHED',
+      status: 'PAUSED',
+      moderationReason: 'Identity and property authority review required.',
       lastConfirmedAt: now,
       photos: { create: { id: ids.photo, storageKey: ids.photoKey, mimeType: 'image/png' } },
       amenities: { create: [
@@ -176,6 +185,57 @@ try {
     where: { id: ids.listing, address: null },
     data: { address: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak', latitude: null, longitude: null },
   })
+
+  // These are generated generic local fixtures, never a real person's documents.
+  // Create the sample reviews only once. A later rejection or new application must
+  // not be undone merely because a developer runs the seed script again.
+  const landlordDirectory = resolve(process.env.MEDIA_PRIVATE_DIR || './data/private', 'landlord-verifications')
+  await mkdir(landlordDirectory, { recursive: true, mode: 0o700 })
+  const makeDemoProof = async (label: string) => sharp(Buffer.from(
+    `<svg width="960" height="540" xmlns="http://www.w3.org/2000/svg"><rect width="960" height="540" fill="#edf2fa"/><text x="60" y="170" fill="#162b59" font-family="Arial" font-size="44">SYNTHETIC DEMO ONLY</text><text x="60" y="260" fill="#162b59" font-family="Arial" font-size="30">${label}</text><text x="60" y="340" fill="#5b6475" font-family="Arial" font-size="24">Not an identity or ownership document</text></svg>`,
+  )).png().toBuffer()
+  const existingIdentity = await prisma.landlordVerification.findUnique({ where: { id: ids.landlordVerification } })
+  const existingAuthorization = await prisma.propertyAuthorization.findUnique({ where: { id: ids.propertyAuthorization } })
+  for (const item of [
+    { key: ids.identityKey, purpose: 'LANDLORD_IDENTITY', label: 'Placeholder identity evidence', needed: !existingIdentity },
+    { key: ids.authorityKey, purpose: 'PROPERTY_AUTHORIZATION', label: 'Placeholder rental authority evidence', needed: !existingAuthorization },
+  ]) {
+    if (!item.needed) continue
+    const bytes = await makeDemoProof(item.label)
+    await writeFile(resolve(landlordDirectory, item.key), bytes, { mode: 0o600 })
+    await prisma.mediaUpload.upsert({
+      where: { storageKey: item.key },
+      update: { size: bytes.length, mimeType: 'image/png', purpose: item.purpose, status: 'READY' },
+      create: { ownerId: ids.landlord, storageKey: item.key, mimeType: 'image/png', size: bytes.length, purpose: item.purpose, status: 'READY' },
+    })
+  }
+  await prisma.landlordVerification.upsert({
+    where: { id: ids.landlordVerification },
+    update: {},
+    create: { id: ids.landlordVerification, userId: ids.landlord, kind: 'INDIVIDUAL', identityKey: ids.identityKey, status: 'APPROVED', reviewedById: ids.admin, reviewedAt: now },
+  })
+  await prisma.propertyAuthorization.upsert({
+    where: { id: ids.propertyAuthorization },
+    update: {},
+    create: { id: ids.propertyAuthorization, listingId: ids.listing, requesterId: ids.landlord, kind: 'OWNER', proofKey: ids.authorityKey, addressSnapshot: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak', status: 'APPROVED', reviewedById: ids.admin, reviewedAt: now },
+  })
+  const [demoOwner, demoListing, latestIdentity, latestAuthorization] = await Promise.all([
+    prisma.user.findUniqueOrThrow({ where: { id: ids.landlord }, include: { profile: true } }),
+    prisma.listing.findUniqueOrThrow({ where: { id: ids.listing } }),
+    prisma.landlordVerification.findFirst({ where: { userId: ids.landlord }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
+    prisma.propertyAuthorization.findFirst({ where: { listingId: ids.listing }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
+  ])
+  const mayPublishDemo = demoOwner.status === 'ACTIVE' && demoOwner.emailVerifiedAt && demoOwner.profile?.phone &&
+    latestIdentity?.status === 'APPROVED' && latestAuthorization?.status === 'APPROVED' &&
+    latestAuthorization.requesterId === demoOwner.id && latestAuthorization.addressSnapshot === demoListing.address
+  // Only lift the one-time pause caused by the migration when these fictional
+  // reviews have just been created. Never override a later administrator pause.
+  const newlyReviewedSample = !existingIdentity || !existingAuthorization
+  if (mayPublishDemo && newlyReviewedSample && demoListing.status === 'PAUSED' && demoListing.moderationReason === 'Identity and property authority review required.') {
+    await prisma.listing.update({ where: { id: ids.listing }, data: { status: 'PUBLISHED', moderationReason: null, reviewedAt: now } })
+  } else if (!mayPublishDemo && demoListing.status === 'PUBLISHED') {
+    await prisma.listing.update({ where: { id: ids.listing }, data: { status: 'PAUSED', moderationReason: 'Identity and property authority review required.', reviewedAt: null } })
+  }
 
   process.stdout.write('Seeded local fictional demo accounts, campus, amenities and one sample listing.\n')
   process.stdout.write('Accounts: admin@demo.local, landlord@demo.local, student@demo.local, candidate@demo.local\n')

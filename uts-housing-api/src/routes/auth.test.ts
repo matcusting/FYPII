@@ -65,8 +65,15 @@ describe('school email registration', () => {
   })
 
   it('keeps landlord registration available with a personal email', async () => {
-    const result = await register({ ...base, email: 'landlord@example.com', role: 'LANDLORD' })
+    const result = await register({ ...base, email: 'landlord@example.com', role: 'LANDLORD', phone: '+60 12-345 6789' })
     expect(result.status).toBe(201)
     expect(database.campus.findMany).not.toHaveBeenCalled()
+    expect(database.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ profile: { create: { displayName: base.name, phone: '+60 12-345 6789' } } }) }))
+  })
+
+  it('requires a valid contact number for landlord registration', async () => {
+    expect((await register({ ...base, email: 'landlord@example.com', role: 'LANDLORD' })).data).toMatchObject({ error: { code: 'PHONE_REQUIRED' } })
+    expect((await register({ ...base, email: 'landlord@example.com', role: 'LANDLORD', phone: '123' })).status).toBe(400)
+    expect(database.user.create).not.toHaveBeenCalled()
   })
 })

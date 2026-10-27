@@ -18,6 +18,7 @@ describe('account forms', () => {
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Name'), 'Student A')
     expect(screen.getByText(/Use your university-issued student email/)).toBeTruthy()
+    expect(screen.getByPlaceholderText('studentid@student.uts.edu.my')).toBeTruthy()
     await user.type(screen.getByLabelText('University Student Email'), 'student-test@student.uts.edu.my')
     await user.type(screen.getByLabelText('Password', { exact: true }), 'GoodPass123')
     await user.type(screen.getByLabelText('Confirm Password'), 'WrongPass123')
@@ -35,6 +36,28 @@ describe('account forms', () => {
       body: JSON.stringify({ name: 'Student A', email: 'student-test@student.uts.edu.my', password: 'GoodPass123', role: 'STUDENT', acceptTerms: true }),
     })))
     expect(await screen.findByText(/Registration submitted/)).toBeTruthy()
+  })
+
+  it('requires a landlord phone number and sends it with registration', async () => {
+    apiMock.mockResolvedValue({})
+    render(<MemoryRouter><RegisterPage /></MemoryRouter>)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('radio', { name: 'Landlord' }))
+    expect(screen.getByText(/Use the name shown on your identity document/)).toBeTruthy()
+    await user.type(screen.getByLabelText('Full Legal Name'), 'Demo Landlord')
+    await user.type(screen.getByLabelText('Email'), 'landlord@example.com')
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'GoodPass123')
+    await user.type(screen.getByLabelText('Confirm Password'), 'GoodPass123')
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('button', { name: 'Create Account' }))
+    expect(await screen.findByText('Enter a valid phone number.')).toBeTruthy()
+    expect(apiMock).not.toHaveBeenCalled()
+    await user.type(screen.getByLabelText('Phone Number *'), '+60 12-345 6789')
+    await user.click(screen.getByRole('button', { name: 'Create Account' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/register', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ name: 'Demo Landlord', email: 'landlord@example.com', phone: '+60 12-345 6789', password: 'GoodPass123', role: 'LANDLORD', acceptTerms: true }),
+    })))
   })
 
   it('rejects malformed login details and ignores an external return URL', async () => {

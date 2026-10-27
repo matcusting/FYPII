@@ -6,7 +6,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const db = vi.hoisted(() => ({
-  findPending: vi.fn(), countSubmissions: vi.fn(), findCampuses: vi.fn(), createMedia: vi.fn(), createVerification: vi.fn(), updateUser: vi.fn(), transaction: vi.fn(), lock: vi.fn(),
+  findPending: vi.fn(), countSubmissions: vi.fn(), findCampuses: vi.fn(), createMedia: vi.fn(), createVerification: vi.fn(), updateUser: vi.fn(), findUser: vi.fn(), transaction: vi.fn(), lock: vi.fn(),
 }))
 vi.mock('../core/db.js', () => ({ prisma: {
   studentVerification: { findFirst: db.findPending, count: db.countSubmissions }, campus: { findMany: db.findCampuses }, $transaction: db.transaction,
@@ -55,8 +55,9 @@ beforeEach(async () => {
   db.createMedia.mockResolvedValue({})
   db.createVerification.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({ ...data, id: 'verification-1', createdAt: new Date() }))
   db.updateUser.mockResolvedValue({})
+  db.findUser.mockResolvedValue({ ...student, status: 'ACTIVE' })
   db.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
-    $queryRaw: db.lock, mediaUpload: { create: db.createMedia }, studentVerification: { create: db.createVerification, findFirst: db.findPending, count: db.countSubmissions }, user: { update: db.updateUser },
+    $queryRaw: db.lock, mediaUpload: { create: db.createMedia }, studentVerification: { create: db.createVerification, findFirst: db.findPending, count: db.countSubmissions }, user: { findUnique: db.findUser, update: db.updateUser },
   }))
 })
 afterEach(async () => {
@@ -93,5 +94,14 @@ describe('two-document student verification', () => {
     const result = await submit()
     expect(result.status).toBe(429)
     expect(db.transaction).not.toHaveBeenCalled()
+  })
+
+  it('discards uploaded files if the account was deleted before the transaction', async () => {
+    db.findUser.mockResolvedValue({ ...student, status: 'DELETED' })
+    const result = await submit()
+    expect(result.status).toBe(409)
+    expect(result.data).toMatchObject({ error: { code: 'ACCOUNT_CHANGED' } })
+    expect(db.createMedia).not.toHaveBeenCalled()
+    expect(await readdir(join(privateDir, 'verifications'))).toHaveLength(0)
   })
 })

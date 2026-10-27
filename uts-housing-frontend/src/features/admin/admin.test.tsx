@@ -18,6 +18,43 @@ function renderPage(page: React.ReactNode) {
 afterEach(() => { cleanup(); apiMock.mockReset() })
 
 describe('admin moderation', () => {
+  it('shows all required company identity evidence in the landlord review queue', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/landlord-verifications?')) return { items: [{ id: 'identity-1', kind: 'COMPANY', status: 'PENDING', landlord: { name: 'Example Company' } }] }
+      if (path === '/admin/landlord-verifications/identity-1') return {
+        id: 'identity-1', kind: 'COMPANY', status: 'PENDING', landlord: { name: 'Example Company', email: 'example@demo.local', emailVerified: true, phone: '+60123456789' },
+        identityUrl: '/api/v1/admin/landlord-verifications/identity-1/identity',
+        companyUrl: '/api/v1/admin/landlord-verifications/identity-1/company',
+        representativeUrl: '/api/v1/admin/landlord-verifications/identity-1/representative',
+      }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="landlord-verifications" />)
+    expect(await screen.findByText('Example Company')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Open private document (review only)' })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect(await screen.findAllByRole('link', { name: 'Open private document (review only)' })).toHaveLength(3)
+  })
+
+  it('refuses property approval when an evidence link leaves the private admin route', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/property-authorizations?')) return { items: [{ id: 'authority-1', kind: 'SUBLETTING', status: 'PENDING', listing: { title: 'Demo room' } }] }
+      if (path === '/admin/property-authorizations/authority-1') return {
+        id: 'authority-1', kind: 'SUBLETTING', status: 'PENDING', addressSnapshot: '12 Jalan Demo, Sibu', listing: { title: 'Demo room' },
+        proofUrl: '/api/v1/admin/property-authorizations/authority-1/proof',
+        supportingUrl: 'https://external.example/consent.pdf',
+      }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="property-authorizations" />)
+    expect(await screen.findByText('Demo room')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect(await screen.findByText('Document unavailable')).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('Required property authorization documents must be available before approval.')
+    expect(apiMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
+  })
+
   it('shows both student documents only after opening a verification detail', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-docs', status: 'PENDING', student: { name: 'Student A' } }], pages: 1 }

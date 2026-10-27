@@ -13,6 +13,7 @@ import listingsRouter from './routes/listings.js'
 import communityRouter from './routes/community.js'
 import roommatesRouter from './routes/roommates.js'
 import verificationsRouter from './routes/verifications.js'
+import landlordVerificationsRouter from './routes/landlord-verifications.js'
 import adminRouter from './routes/admin.js'
 
 const configuredOrigins = (process.env.FRONTEND_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173')
@@ -51,6 +52,7 @@ app.get('/health/ready', async (_req, res) => {
 app.use('/api/v1/auth', authRouter)
 app.use('/api/v1', profileRouter)
 app.use('/api/v1/verifications', verificationsRouter)
+app.use('/api/v1/landlord-verifications', landlordVerificationsRouter)
 app.use('/api/v1', listingsRouter)
 app.use('/api/v1', communityRouter)
 app.use('/api/v1', roommatesRouter)

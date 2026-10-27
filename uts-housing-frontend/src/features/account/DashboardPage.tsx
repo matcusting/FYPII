@@ -49,6 +49,7 @@ export function DashboardPage() {
   const isLandlord = hasRole(user, 'LANDLORD') && !isStudent && !isAdmin
   const inquiries = useQuery({ queryKey: ['inquiries'], queryFn: () => api<unknown>('/inquiries'), enabled: !!user && !isAdmin })
   const ownedListings = useQuery({ queryKey: ['my-listings'], queryFn: () => api<unknown>('/listings?mine=true&limit=100'), enabled: isLandlord })
+  const landlordIdentity = useQuery({ queryKey: ['landlord-identity'], queryFn: () => api<{ status: string }>('/landlord-verifications/me'), enabled: isLandlord })
   const overview = useQuery({ queryKey: ['admin-overview'], queryFn: () => api<Overview>('/admin/overview'), enabled: isAdmin })
   const recentInquiries = itemsOf<InquirySummary>(inquiries.data).slice(0, 3)
   const activeListings = itemsOf<OwnedListing>(ownedListings.data).filter(listing => ['PUBLISHED', 'ACTIVE'].includes((listing.status || '').toUpperCase())).length
@@ -130,8 +131,9 @@ export function DashboardPage() {
         <span className="text-sm font-bold text-[#1d4ed8]">{t('Active Listings →')}</span>
       </Link>
       <Link to="/profile" className="rounded-xl border border-[#bbf7d0] bg-[#f0fdf4] p-6 transition hover:shadow-md">
-        <span className="mb-2 block text-4xl font-bold text-[#15803d]">{user?.emailVerified ? '✓' : '—'}</span>
-        <span className="text-sm font-bold text-[#15803d]">{t('Account Verification →')}</span>
+        <span className="mb-2 block text-4xl font-bold text-[#15803d]">{landlordIdentity.data?.status === 'APPROVED' ? '✓' : landlordIdentity.isPending ? '…' : '—'}</span>
+        <span className="text-sm font-bold text-[#15803d]">{t('Landlord Identity →')}</span>
+        <span className="mt-1 block text-xs text-[#166534]">{t('Email: {status}', { status: t(user?.emailVerified ? 'Verified' : 'Not verified') })} · {t('Identity: {status}', { status: t(landlordIdentity.data?.status === 'APPROVED' ? 'Approved' : landlordIdentity.data?.status === 'PENDING' ? 'Pending review' : landlordIdentity.data?.status === 'REJECTED' ? 'Rejected' : 'Not verified') })}</span>
       </Link>
       <Link to="/requests" className="rounded-xl border border-[#fef08a] bg-[#fefce8] p-6 transition hover:shadow-md">
         <span className="mb-2 block text-4xl font-bold text-[#a16207]">{inquiries.isPending ? '…' : inquiries.isError ? '—' : itemsOf<InquirySummary>(inquiries.data).length}</span>
@@ -146,6 +148,8 @@ export function DashboardPage() {
 
   const adminQueues = [
     { label: 'Student Verifications', to: '/admin/verifications', count: overviewNumber(overview.data, 'pendingVerifications', 'verificationsPending') },
+    { label: 'Landlord Identity Review', to: '/admin/landlord-verifications', count: overviewNumber(overview.data, 'pendingLandlordVerifications', 'landlordVerificationsPending') },
+    { label: 'Property Authorization Review', to: '/admin/property-authorizations', count: overviewNumber(overview.data, 'pendingPropertyAuthorizations', 'propertyAuthorizationsPending') },
     { label: 'Listing Reviews', to: '/admin/listings', count: overviewNumber(overview.data, 'pendingListings', 'listingsPending') },
     { label: 'Review Moderation', to: '/admin/reviews', count: overviewNumber(overview.data, 'pendingReviews', 'reviewsPending') },
     { label: 'User Reports', to: '/admin/reports', count: overviewNumber(overview.data, 'openReports', 'pendingReports') },

@@ -5,6 +5,7 @@ import { prisma } from '../core/db.js'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
 import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, saveUpload, type UploadPurpose } from '../storage/listings.js'
+import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 
 const router = Router()
 
@@ -88,6 +89,41 @@ export function serializeListing(record: ListingRecord, user: User | null) {
 
 function hasFullAddress(address: string | null | undefined) {
   return fullAddress.safeParse(address).success
+}
+
+async function publishClearance(db: Prisma.TransactionClient, owner: User, listing: { id: string; address: string | null }) {
+  if (owner.status !== 'ACTIVE' || !owner.emailVerifiedAt) return 'ACCOUNT_VERIFICATION_REQUIRED'
+  if (owner.roles.includes('LANDLORD')) {
+    const identity = await db.landlordVerification.findFirst({ where: { userId: owner.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
+    if (identity?.status !== 'APPROVED') return 'LANDLORD_IDENTITY_REQUIRED'
+  } else if (!owner.roles.includes('STUDENT') || !owner.studentVerified) return 'STUDENT_VERIFICATION_REQUIRED'
+  const authorization = await db.propertyAuthorization.findFirst({ where: { listingId: listing.id, requesterId: owner.id, addressSnapshot: listing.address || '' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
+  return authorization?.status === 'APPROVED' ? null : 'PROPERTY_AUTHORIZATION_REQUIRED'
+}
+
+async function submitForReview(listingId: string, ownerId: string, allowed: Array<'DRAFT' | 'REJECTED' | 'RENTED' | 'PAUSED'>) {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerId}))::text`
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${listingId}))::text`
+    const [owner, listing] = await Promise.all([
+      tx.user.findUnique({ where: { id: ownerId } }),
+      tx.listing.findUnique({ where: { id: listingId }, include: { _count: { select: { photos: true } } } }),
+    ])
+    if (!owner || !listing || listing.ownerId !== ownerId) return 'NOT_FOUND' as const
+    if (!allowed.includes(listing.status as typeof allowed[number]) || listing._count.photos < 1) return 'INVALID_STATUS' as const
+    if (!hasFullAddress(listing.address)) return 'ADDRESS_REQUIRED' as const
+    const clearance = await publishClearance(tx, owner, listing)
+    if (clearance) return clearance
+    await tx.listing.update({ where: { id: listing.id }, data: { status: 'PENDING_REVIEW', moderationReason: null, reviewedAt: null, lastConfirmedAt: new Date() } })
+    return null
+  })
+}
+
+function submitError(res: Response, code: string) {
+  if (code === 'NOT_FOUND') return fail(res, 404, 'This property could not be found.', code)
+  if (code === 'INVALID_STATUS') return fail(res, 409, 'Add at least one photo to an eligible draft before submitting.', code)
+  if (code === 'ADDRESS_REQUIRED') return fail(res, 400, 'Enter the full property address before publishing.', code)
+  return fail(res, 403, code === 'LANDLORD_IDENTITY_REQUIRED' ? 'Approve your landlord identity before submitting a listing.' : code === 'PROPERTY_AUTHORIZATION_REQUIRED' ? 'Approve property authorization before submitting a listing.' : 'Verify your account before submitting a listing.', code)
 }
 
 async function validAmenities(ids: string[]) {
@@ -276,10 +312,14 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (Object.keys(req.body as Record<string, unknown>).some(key => key !== 'status')) { failValidation(res, 'Change listing status separately from its details.'); return }
     const allowed = (existing.status === 'PUBLISHED' && ['PAUSED', 'RENTED'].includes(value.status)) || (existing.status === 'PAUSED' && value.status === 'PUBLISHED')
     if (!allowed) { fail(res, 409, 'This listing status change is not allowed.', 'INVALID_STATUS'); return }
-    if (value.status === 'PUBLISHED' && !hasFullAddress(existing.address)) { failValidation(res, 'Enter the full property address before publishing.'); return }
-    // An owner may request republication, but cannot undo an admin pause without review.
-    const nextStatus = existing.status === 'PAUSED' && value.status === 'PUBLISHED' && !isAdmin(user) ? 'PENDING_REVIEW' : value.status
-    await prisma.listing.update({ where: { id: existing.id }, data: { status: nextStatus, ...(nextStatus === 'PENDING_REVIEW' ? { reviewedAt: null } : {}) } })
+    if (existing.status === 'PAUSED') {
+      // Re-listing always passes the same account and property checks as a new submission.
+      if (existing.ownerId !== user.id) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+      const error = await submitForReview(existing.id, user.id, ['PAUSED'])
+      if (error) { submitError(res, error); return }
+    } else {
+      await prisma.listing.updateMany({ where: { id: existing.id, status: 'PUBLISHED' }, data: { status: value.status } })
+    }
   } else {
     if (!hasFullAddress(value.address ?? existing.address)) { failValidation(res, 'Enter a full property address between 10 and 250 characters.'); return }
     if (value.amenityIds && !await validAmenities(value.amenityIds)) { failValidation(res, 'Choose valid facilities.'); return }
@@ -293,6 +333,7 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     const newPhotos = await validPhotoUploads(value.newPhotoKeys || [], user.id)
     if (!newPhotos || currentPhotos.length - removePhotoIds.length + newPhotos.length > 8) { failValidation(res, 'A listing can have up to eight valid photos.'); return }
     const update: Prisma.ListingUncheckedUpdateInput = {}
+    const addressChanged = value.address !== undefined && value.address !== existing.address
     if (value.title !== undefined) update.title = value.title
     if (value.description !== undefined) update.description = value.description
     if (value.campusId !== undefined) update.campusId = value.campusId
@@ -308,9 +349,19 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (value.contactMethod !== undefined) update.contactMethod = value.contactMethod
     if (value.furnished !== undefined) update.furnished = value.furnished
     if (Object.keys(update).length || value.amenityIds !== undefined || removePhotoIds.length || newPhotos.length) {
-      if (existing.status === 'PUBLISHED' || existing.status === 'PAUSED') { update.status = 'PENDING_REVIEW'; update.reviewedAt = null }
-      if (existing.status === 'REJECTED') update.status = 'DRAFT'
-      await prisma.$transaction(async tx => {
+      if (existing.status === 'PUBLISHED' || existing.status === 'PAUSED') { update.status = addressChanged ? 'DRAFT' : 'PENDING_REVIEW'; update.reviewedAt = null }
+      if (existing.status === 'REJECTED' || (addressChanged && existing.status === 'PENDING_REVIEW')) update.status = 'DRAFT'
+      const revokedKeys: string[] = []
+      try { await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.id}))::text`
+        const fresh = await tx.listing.findUniqueOrThrow({ where: { id: existing.id }, select: { address: true, status: true } })
+        if (fresh.address !== existing.address || fresh.status !== existing.status) throw new Error('LISTING_CHANGED')
+        if (addressChanged) {
+          const previous = await tx.propertyAuthorization.findMany({ where: { listingId: existing.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { proofKey: true, supportingKey: true } })
+          revokedKeys.push(...previous.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
+          await tx.propertyAuthorization.updateMany({ where: { listingId: existing.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Property address changed; submit new proof.', proofKey: null, supportingKey: null } })
+          if (revokedKeys.length) await tx.mediaUpload.deleteMany({ where: { storageKey: { in: revokedKeys } } })
+        }
         await tx.listing.update({ where: { id: existing.id }, data: update })
         if (value.amenityIds !== undefined) {
           await tx.listingAmenity.deleteMany({ where: { listingId: existing.id } })
@@ -318,7 +369,11 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
         }
         if (removePhotoIds.length) await tx.listingPhoto.deleteMany({ where: { listingId: existing.id, id: { in: removePhotoIds } } })
         if (newPhotos.length) await tx.listingPhoto.createMany({ data: newPhotos.map(({ key, mimeType }, index) => ({ listingId: existing.id, storageKey: key, mimeType, sortOrder: currentPhotos.length - removePhotoIds.length + index })) })
-      })
+      }) } catch (error) {
+        if (error instanceof Error && error.message === 'LISTING_CHANGED') { fail(res, 409, 'The listing changed while you edited it. Refresh and try again.', 'LISTING_CHANGED'); return }
+        throw error
+      }
+      if (revokedKeys.length) await removeStoredLandlordDocuments(revokedKeys)
     }
   }
   const result = await prisma.listing.findUniqueOrThrow({ where: { id: existing.id }, include: listingInclude })
@@ -335,12 +390,9 @@ router.delete('/listings/:id', requireAuth, withErrors(async (req, res) => {
 
 router.post('/listings/:id/submit', requireAuth, withErrors(async (req, res) => {
   const user = currentUser(req)!
-  const existing = await prisma.listing.findUnique({ where: { id: req.params.id }, include: { _count: { select: { photos: true } } } })
-  if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
-  if (!user.emailVerifiedAt || (user.roles.includes('STUDENT') && !user.studentVerified && !isAdmin(user))) { fail(res, 403, 'Verify your account before submitting a listing.', 'FORBIDDEN'); return }
-  if (!['DRAFT', 'REJECTED', 'RENTED'].includes(existing.status) || existing._count.photos < 1) { fail(res, 409, 'Add at least one photo to an eligible draft before submitting.', 'INVALID_STATUS'); return }
-  if (!hasFullAddress(existing.address)) { failValidation(res, 'Enter the full property address before publishing.'); return }
-  const updated = await prisma.listing.update({ where: { id: existing.id }, data: { status: 'PENDING_REVIEW', moderationReason: null, lastConfirmedAt: new Date() }, include: listingInclude })
+  const error = await submitForReview(req.params.id, user.id, ['DRAFT', 'REJECTED', 'RENTED', 'PAUSED'])
+  if (error) { submitError(res, error); return }
+  const updated = await prisma.listing.findUniqueOrThrow({ where: { id: req.params.id }, include: listingInclude })
   ok(res, serializeListing(updated, user))
 }))
 

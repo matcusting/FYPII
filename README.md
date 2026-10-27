@@ -1,6 +1,6 @@
 # UTS Housing & Roommate Finder
 
-A local development build of the student housing project. The React website and Express/PostgreSQL API cover accounts, student verification, moderated property listings, search and favorites, roommate matching, inquiries and consent-based messaging, rental-proof reviews, reports, notifications, and administration. The website keeps its existing visual style. English is the default interface language; users can switch to Bahasa Melayu or Simplified Chinese. The seeded accounts and property are fictional.
+A local development build of the student housing project. The React website and Express/PostgreSQL API cover accounts, student and landlord verification, property authorization, moderated property listings, search and favorites, roommate matching, inquiries and consent-based messaging, rental-proof reviews, reports, notifications, and administration. The website keeps its existing visual style. English is the default interface language; users can switch to Bahasa Melayu or Simplified Chinese. The seeded accounts and property are fictional.
 
 ## Open locally on Windows
 
@@ -50,6 +50,16 @@ Student account settings collect a private phone number alongside the student's 
 A new student account must use an email address whose **exact domain** appears on an active campus in the admin settings. The fictional UTS campus seed includes `student.uts.edu.my` for testing the domain rule. After registration, the student opens the verification link sent to that address, signs in, then submits **both** a student ID photo (JPG/PNG) and an offer letter (PDF/JPG/PNG) from Profile Settings. Each file may be up to 5 MB. An administrator reviews the two private files and approves or rejects the request; school-email ownership alone does not grant verified-student access. A rejected applicant can submit a new request.
 
 The seeded `student@demo.local` and `candidate@demo.local` accounts are already marked verified for local feature testing; they do not test this new application flow. The local email worker writes links to `uts-housing-api/data/outbox` when SMTP is absent. Use fictional files for local tests, and never add real student IDs or offer letters to Git, the demo seed, or a preview ZIP. Production use needs working SMTP and private-file storage with suitable access controls and retention rules.
+
+## Landlord verification and listing authorization
+
+A landlord registers with a name, personal or business email, phone number, and password, then verifies ownership of that email through the emailed link. Providing a phone number does not mean the number has been verified by SMS. The landlord can prepare draft listings while verification is pending.
+
+Before a landlord listing can be published, an administrator must review two separate applications: the landlord's identity (individual identity document, or company registration and representative authority documents) and evidence of the right to rent out **that specific property**. A property owner, agent, or subletter chooses the corresponding authorization path and supplies the required proof. Verified students who sublet must also submit property authorization. Property authorization is tied to the listing and its complete address; changing the address or authorization evidence requires another review. The admin also reviews the listing content and photos before publication. An email-verified account or approved identity alone does not grant publication rights.
+
+Applying the new database migration pauses previously published listings because they have not passed these new checks. Their owners must submit evidence and ask for a fresh listing review. The fictional sample listing created by the local seed has its own explicit synthetic review records so the demonstration remains browsable.
+
+Identity and authorization documents are submitted privately by applicants and can be downloaded only by authorized administrators; applicants can see their review status and reason. The documents are never shown in public listings. A review badge means an administrator assessed submitted evidence; it is not a guarantee that a property or document is authentic. Use only fictional documents in local tests and the preview. Before processing real identity documents, set up secure private storage, SMTP, access and retention policies, and a process for disputed or revoked authorization. No environment is deployed by these repository changes.
 
 ## Property addresses and location privacy
 

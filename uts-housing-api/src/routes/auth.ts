@@ -11,9 +11,12 @@ import { queueEmail } from '../core/mail.js'
 const router = Router()
 const email = z.email().max(254).transform(value => value.trim().toLowerCase())
 const password = z.string().min(8).max(128)
+const phone = z.string().trim().min(7).max(25)
+  .regex(/^\+?[0-9][0-9 ()-]*$/)
+  .refine(value => { const digits = value.replace(/\D/g, '').length; return digits >= 7 && digits <= 15 })
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(100), email, password,
-  role: z.enum(['STUDENT', 'LANDLORD']), acceptTerms: z.literal(true),
+  role: z.enum(['STUDENT', 'LANDLORD']), phone: phone.optional(), acceptTerms: z.literal(true),
 })
 const loginSchema = z.object({ email, password: z.string().min(1).max(128) })
 const tokenSchema = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/i) })
@@ -39,7 +42,8 @@ function authUrl(path: string, token: string) {
 router.post('/register', limiter(10), asyncRoute(async (req, res) => {
   const parsed = registerSchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Enter a valid name, email, password and account type, then accept the terms.', 'VALIDATION_ERROR')
-  const { name, email: address, password: rawPassword, role } = parsed.data
+  const { name, email: address, password: rawPassword, role, phone: contactPhone } = parsed.data
+  if (role === 'LANDLORD' && !contactPhone) return fail(res, 400, 'Enter a contact phone number for a landlord account.', 'PHONE_REQUIRED')
   if (/^(password|password123|12345678|qwerty123)$/i.test(rawPassword)) return fail(res, 400, 'Choose a less common password.', 'WEAK_PASSWORD')
   if (role === 'STUDENT') {
     const emailDomain = address.split('@')[1]
@@ -52,7 +56,7 @@ router.post('/register', limiter(10), asyncRoute(async (req, res) => {
   const token = randomBytes(32).toString('hex')
   const hash = await argon2.hash(rawPassword, { type: argon2.argon2id })
   const user = await prisma.$transaction(async tx => {
-    const created = await tx.user.create({ data: { name, email: address, passwordHash: hash, roles: [role], profile: { create: { displayName: name } }, notificationPreference: { create: {} } } })
+    const created = await tx.user.create({ data: { name, email: address, passwordHash: hash, roles: [role], profile: { create: { displayName: name, phone: role === 'LANDLORD' ? contactPhone : null } }, notificationPreference: { create: {} } } })
     await tx.authToken.create({ data: { userId: created.id, tokenHash: tokenHash(token), kind: 'EMAIL_VERIFY', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
     return created
   })

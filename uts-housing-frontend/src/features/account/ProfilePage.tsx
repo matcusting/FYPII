@@ -7,6 +7,7 @@ import { useI18n } from '../../lib/i18n'
 import { ErrorNotice, LoadingNotice, Panel } from './shared'
 import { inputClass, labelForStatus } from './format'
 import { AccountControls } from './AccountControls'
+import { LandlordVerification } from './LandlordVerification'
 
 interface AccountProfile {
   displayName?: string | null
@@ -73,7 +74,14 @@ export function ProfilePage() {
     }),
     onSuccess: async () => {
       setSaveMessage('Profile saved.')
-      await queryClient.invalidateQueries({ queryKey: ['profile'] })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['profile'] }),
+        ...(isLandlord ? [
+          queryClient.invalidateQueries({ queryKey: ['landlord-identity'] }),
+          queryClient.invalidateQueries({ queryKey: ['property-authorization'] }),
+          queryClient.invalidateQueries({ queryKey: ['my-listings'] }),
+        ] : []),
+      ])
       setEdits({})
       await refresh()
     },
@@ -106,7 +114,7 @@ export function ProfilePage() {
 
   function submitProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!fields.displayName.trim()) { setFormError('Enter your name.'); return }
+    if (fields.displayName.trim().length < 2) { setFormError('Enter at least 2 characters for your name.'); return }
     if (isLandlord || (isStudent && fields.phone.trim())) {
       const phone = fields.phone.trim()
       if (!/^\+?[0-9][0-9 ()-]*$/.test(phone) || phone.replace(/\D/g, '').length < 7 || phone.replace(/\D/g, '').length > 15) { setFormError('Enter a valid phone number.'); return }
@@ -204,6 +212,7 @@ export function ProfilePage() {
               </form>}
       </Panel>}
       {isStudent && <Panel title={t('Roommate Profile & Privacy')}><p className="mb-4 text-sm text-gray-600">{t('Manage lifestyle habits, matching preferences and visibility.')}</p><Link className="text-sm font-semibold text-[#203569] underline underline-offset-2" to="/roommates/profile">{t('Manage Roommate Profile →')}</Link></Panel>}
+      {isLandlord && <LandlordVerification />}
       <AccountControls />
     </div>
   </div>
