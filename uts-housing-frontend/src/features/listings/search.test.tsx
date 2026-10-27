@@ -2,9 +2,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ListingsPage } from './search'
+import { ListingDetailPage } from './detail'
 
 const apiMock = vi.hoisted(() => vi.fn())
 vi.mock('../../lib/api', async importOriginal => ({ ...(await importOriginal<typeof import('../../lib/api')>()), api: apiMock }))
@@ -24,5 +25,29 @@ describe('listing search', () => {
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('campusId=campus-1')))
     expect(apiMock.mock.calls.some(([path]) => typeof path === 'string' && path.includes('maxRent=700'))).toBe(true)
+  })
+
+  it('warns students about stale availability in search and on the listing detail', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path === '/campuses') return { items: [] }
+      if (path.startsWith('/listings?')) return { items: [
+        { id: 'stale-listing', title: 'Older listing', rent: 650, status: 'PUBLISHED', availabilityStale: true },
+        { id: 'fresh-listing', title: 'Recently confirmed listing', rent: 700, status: 'PUBLISHED', availabilityStale: false },
+      ], total: 2, page: 1, pages: 1 }
+      if (path === '/listings/stale-listing') return { id: 'stale-listing', title: 'Older listing', rent: 650, status: 'PUBLISHED', availabilityStale: true, lastConfirmedAt: null }
+      if (path === '/listings/stale-listing/reviews?page=1&limit=10') return { items: [], total: 0, page: 1, pages: 1 }
+      throw new Error(`Unexpected API call: ${path}`)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/listings']}><Routes>
+      <Route path="/listings" element={<ListingsPage />} />
+      <Route path="/listings/:id" element={<ListingDetailPage />} />
+    </Routes></MemoryRouter></QueryClientProvider>)
+    expect(await screen.findByText('Older listing')).toBeTruthy()
+    expect(screen.getAllByText('Availability needs reconfirmation.')).toHaveLength(1)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('link', { name: 'View listing: Older listing' }))
+    expect(await screen.findByText("The owner has not confirmed this listing's availability within the last 30 days. Check with them before arranging a viewing.")).toBeTruthy()
+    expect(screen.getByText('Availability needs reconfirmation.')).toBeTruthy()
   })
 })

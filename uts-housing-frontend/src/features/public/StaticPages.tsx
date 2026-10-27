@@ -6,6 +6,8 @@ export type StaticPageKind = 'privacy' | 'terms' | 'help'
 
 export function StaticPage({ kind }: { kind: StaticPageKind }) {
   const { t } = useI18n()
+  const supportEmail = String(import.meta.env.VITE_SUPPORT_EMAIL || '').trim()
+  const validSupportEmail = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(supportEmail)
   if (kind === 'privacy') return (
     <div className="mx-4 my-8 max-w-[1000px] rounded-xl border border-slate-200 bg-white px-6 py-9 text-slate-800 shadow-sm sm:mx-auto sm:w-[calc(100%-2rem)] sm:px-10 sm:py-11">
       <h1 className="border-b border-slate-200 pb-5 text-2xl font-bold text-[#203569]">{t("Privacy Notice")}</h1>
@@ -35,7 +37,9 @@ export function StaticPage({ kind }: { kind: StaticPageKind }) {
         <section><h2 className="text-xl font-semibold">{t("How do I find housing?")}</h2><p className="mt-2">{t("Use")}{' '}<Link to="/listings" className="font-semibold text-[#203569] underline">{t("Listing Search")}</Link>{' '}{t("to filter by area, rent and other criteria. Confirm the listing status and move-in date with the owner.")}</p></section>
         <section><h2 className="text-xl font-semibold">{t("How do I find a roommate?")}</h2><p className="mt-2">{t("Create a student account, complete the required verification and opt in to discovery in your profile settings. A match percentage shows how similar your preferences are; it does not guarantee a good living arrangement.")}</p></section>
         <section><h2 className="text-xl font-semibold">{t("How do I list a property?")}</h2><p className="mt-2">{t("After registering, create a draft in")}{' '}<Link to="/my-listings" className="font-semibold text-[#203569] underline">{t("My Listings")}</Link>{t(", add the details and photos, then submit property authorization documents. Landlords must also complete identity review. Students who sublet must provide their lease and the owner's consent. After authorization is approved, submit the listing for publication review.")}</p></section>
-        <section><h2 className="text-xl font-semibold">{t("Having trouble with your account?")}</h2><p className="mt-2">{t("You can")}{' '}<Link to="/forgot-password" className="font-semibold text-[#203569] underline">{t("reset your password")}</Link>{t(". Support channels and the formal feedback process still need to be configured by the project owner.")}</p></section>
+        <section><h2 className="text-xl font-semibold">{t("Having trouble with your account?")}</h2><p className="mt-2">{t("You can")}{' '}<Link to="/forgot-password" className="font-semibold text-[#203569] underline">{t("reset your password")}</Link>{validSupportEmail ? '.' : t(". Support channels and the formal feedback process still need to be configured by the project owner.")}</p>
+          {validSupportEmail && <p className="mt-3 text-sm text-slate-700">{t('For help, email')} <a href={`mailto:${supportEmail}`} className="font-semibold text-[#203569] underline">{supportEmail}</a>.</p>}
+        </section>
       </div>
     </div>
   )

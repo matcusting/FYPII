@@ -6,6 +6,7 @@ import multer from 'multer'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
 import { currentUser, requireAuth } from '../core/auth.js'
+import { approvalIsCurrent, effectiveApprovalStatus } from '../core/approval.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
 
 const router = Router()
@@ -50,8 +51,8 @@ async function storeProofs(proofs: Proof[], written: string[]) {
   }
 }
 
-function latestOf(row: { id: string; kind: string; status: string; reason: string | null; createdAt: Date; reviewedAt: Date | null } | null) {
-  return row ? { id: row.id, kind: row.kind, status: row.status, reason: row.reason, createdAt: row.createdAt, reviewedAt: row.reviewedAt } : null
+function latestOf(row: { id: string; kind: string; status: string; reason: string | null; createdAt: Date; reviewedAt: Date | null; expiresAt: Date | null; revokedAt: Date | null } | null) {
+  return row ? { id: row.id, kind: row.kind, status: effectiveApprovalStatus(row), reason: row.reason, createdAt: row.createdAt, reviewedAt: row.reviewedAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt } : null
 }
 
 function uploadFields(fields: Array<{ name: string; maxCount: number }>) {
@@ -67,7 +68,7 @@ router.get('/me', requireAuth, asyncRoute(async (req, res) => {
   const user = currentUser(req)!
   if (!user.roles.includes('LANDLORD')) return fail(res, 403, 'Only landlords can request identity verification.', 'FORBIDDEN')
   const latest = await prisma.landlordVerification.findFirst({ where: { userId: user.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
-  return ok(res, { status: latest?.status || 'UNVERIFIED', latest: latestOf(latest) })
+  return ok(res, { status: effectiveApprovalStatus(latest), latest: latestOf(latest) })
 }))
 
 router.post('/identity', requireAuth, uploadFields([
@@ -103,6 +104,12 @@ router.post('/identity', requireAuth, uploadFields([
       if (await tx.landlordVerification.findFirst({ where: { userId: user.id, status: 'PENDING' } })) throw new PendingConflict()
       const recent = await tx.landlordVerification.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
       if (recent >= MAX_DAILY_SUBMISSIONS) throw new SubmissionLimitConflict()
+      const oldRevoked = await tx.landlordVerification.findMany({ where: { userId: user.id, status: 'REVOKED' }, select: { identityKey: true, companyKey: true, representationKey: true } })
+      superseded.push(...oldRevoked.flatMap(item => [item.identityKey, item.companyKey, item.representationKey]).filter((key): key is string => Boolean(key)))
+      await tx.landlordVerification.updateMany({ where: { userId: user.id, status: 'REVOKED' }, data: { identityKey: null, companyKey: null, representationKey: null } })
+      const oldRevokedProperties = await tx.propertyAuthorization.findMany({ where: { requesterId: user.id, status: 'REVOKED' }, select: { proofKey: true, supportingKey: true } })
+      superseded.push(...oldRevokedProperties.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
+      await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: 'REVOKED' }, data: { proofKey: null, supportingKey: null } })
       const previous = await tx.landlordVerification.findFirst({ where: { userId: user.id, status: 'APPROVED' } })
       if (previous) {
         const old = await tx.landlordVerification.findMany({ where: { userId: user.id, status: 'APPROVED' }, select: { identityKey: true, companyKey: true, representationKey: true } })
@@ -111,9 +118,9 @@ router.post('/identity', requireAuth, uploadFields([
         superseded.push(...oldProperties.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
         await tx.landlordVerification.updateMany({ where: { userId: user.id, status: 'APPROVED' }, data: { status: 'REJECTED', reason: 'Superseded by a new identity application.', identityKey: null, companyKey: null, representationKey: null } })
         await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Landlord identity changed; submit new property proof.', proofKey: null, supportingKey: null } })
-        if (superseded.length) await tx.mediaUpload.deleteMany({ where: { ownerId: user.id, storageKey: { in: superseded } } })
         await tx.listing.updateMany({ where: { ownerId: user.id, status: 'PUBLISHED' }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Landlord identity must be reviewed again.' } })
       }
+      if (superseded.length) await tx.mediaUpload.deleteMany({ where: { ownerId: user.id, storageKey: { in: superseded } } })
       for (const proof of proofs) await tx.mediaUpload.create({ data: { ownerId: user.id, storageKey: proof.storageKey, mimeType: proof.mimeType, size: proof.file.size, purpose: 'LANDLORD_IDENTITY', status: 'READY' } })
       return tx.landlordVerification.create({ data: { userId: user.id, kind: kind.data, identityKey: identity.storageKey, companyKey: company?.storageKey, representationKey: representative?.storageKey } })
     })
@@ -134,7 +141,7 @@ router.get('/listings/:id', requireAuth, asyncRoute(async (req, res) => {
   const listing = await prisma.listing.findUnique({ where: { id: req.params.id }, select: { id: true, ownerId: true, address: true } })
   if (!listing || (listing.ownerId !== user.id && !user.roles.includes('ADMIN'))) return fail(res, 404, 'This listing could not be found.', 'NOT_FOUND')
   const latest = await prisma.propertyAuthorization.findFirst({ where: { listingId: listing.id, addressSnapshot: listing.address || '' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
-  return ok(res, { status: latest?.status || 'UNVERIFIED', latest: latestOf(latest) })
+  return ok(res, { status: effectiveApprovalStatus(latest), latest: latestOf(latest) })
 }))
 
 router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCount: 1 }, { name: 'supporting', maxCount: 1 }]), async (req, res, next) => {
@@ -152,7 +159,7 @@ router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCoun
     if (!isLandlord && !isVerifiedStudent) return void fail(res, 403, 'Only verified landlords or students can submit property authorization.', 'FORBIDDEN')
     if (isLandlord) {
       const identity = await prisma.landlordVerification.findFirst({ where: { userId: user.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
-      if (identity?.status !== 'APPROVED') return void fail(res, 403, 'Approve your landlord identity before submitting a property authorization.', 'LANDLORD_IDENTITY_REQUIRED')
+      if (!approvalIsCurrent(identity)) return void fail(res, 403, 'Approve your landlord identity before submitting a property authorization.', 'LANDLORD_IDENTITY_REQUIRED')
     }
     if (!listing.address || listing.address.trim().length < 10 || listing.address.trim().length > 250) return void fail(res, 400, 'Enter the full property address first.', 'ADDRESS_REQUIRED')
     const kind = z.enum(['OWNER', 'AGENT', 'SUBLETTING']).safeParse(req.body?.kind)
@@ -168,12 +175,15 @@ router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCoun
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${listing.id}))::text`
       const freshOwner = await tx.user.findUniqueOrThrow({ where: { id: user.id } })
       const freshIdentity = isLandlord ? await tx.landlordVerification.findFirst({ where: { userId: user.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }) : null
-      if (freshOwner.status !== 'ACTIVE' || !freshOwner.emailVerifiedAt || !(isLandlord ? freshOwner.roles.includes('LANDLORD') && freshIdentity?.status === 'APPROVED' : freshOwner.roles.includes('STUDENT') && freshOwner.studentVerified)) throw new Error('IDENTITY_CHANGED')
+      if (freshOwner.status !== 'ACTIVE' || !freshOwner.emailVerifiedAt || !(isLandlord ? freshOwner.roles.includes('LANDLORD') && approvalIsCurrent(freshIdentity) : freshOwner.roles.includes('STUDENT') && freshOwner.studentVerified)) throw new Error('IDENTITY_CHANGED')
       const fresh = await tx.listing.findUniqueOrThrow({ where: { id: listing.id }, select: { address: true, status: true } })
       if (fresh.address !== listing.address || fresh.status === 'ARCHIVED') throw new Error('LISTING_CHANGED')
       if (await tx.propertyAuthorization.findFirst({ where: { listingId: listing.id, addressSnapshot: listing.address!, status: 'PENDING' } })) throw new PendingConflict()
       const recent = await tx.propertyAuthorization.count({ where: { listingId: listing.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
       if (recent >= MAX_DAILY_SUBMISSIONS) throw new SubmissionLimitConflict()
+      const revoked = await tx.propertyAuthorization.findMany({ where: { listingId: listing.id, status: 'REVOKED' }, select: { proofKey: true, supportingKey: true } })
+      superseded.push(...revoked.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
+      await tx.propertyAuthorization.updateMany({ where: { listingId: listing.id, status: 'REVOKED' }, data: { proofKey: null, supportingKey: null } })
       const old = await tx.propertyAuthorization.findMany({ where: { listingId: listing.id, status: 'APPROVED' }, select: { proofKey: true, supportingKey: true } })
       superseded.push(...old.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
       await tx.propertyAuthorization.updateMany({ where: { listingId: listing.id, status: 'APPROVED' }, data: { status: 'REJECTED', reason: 'Superseded by a new property authorization application.', proofKey: null, supportingKey: null } })

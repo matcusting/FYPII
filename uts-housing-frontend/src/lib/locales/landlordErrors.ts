@@ -1,5 +1,9 @@
 /** API errors surfaced by landlord identity, property authorization and listing review. */
 export const landlordErrorTranslations: Record<string, { ms: string; zh: string }> = {
+  'Choose a valid expiry date within the configured maximum approval period.': { ms: 'Pilih tarikh tamat tempoh yang sah dalam tempoh maksimum kelulusan yang ditetapkan.', zh: '请选择不超过已配置批准最长期限的有效日期。' },
+  'Choose approve, reject or revoke and explain a rejection or revocation.': { ms: 'Pilih luluskan, tolak atau batalkan, dan nyatakan sebab penolakan atau pembatalan.', zh: '请选择批准、拒绝或撤销，并说明拒绝或撤销的原因。' },
+  'This identity request cannot be changed to that status.': { ms: 'Permohonan identiti ini tidak boleh ditukar kepada status tersebut.', zh: '该身份申请不能更改为这个状态。' },
+  'This property authorization cannot be changed to that status.': { ms: 'Kebenaran hartanah ini tidak boleh ditukar kepada status tersebut.', zh: '该房屋授权不能更改为这个状态。' },
   'Each verification document must be no larger than 5 MB.': { ms: 'Setiap dokumen pengesahan mestilah tidak melebihi 5 MB.', zh: '每份认证文件不得超过 5 MB。' },
   'Upload only the requested verification documents.': { ms: 'Muat naik hanya dokumen pengesahan yang diminta.', zh: '请只上传要求的认证文件。' },
   'Only landlords can request identity verification.': { ms: 'Hanya tuan rumah boleh memohon pengesahan identiti.', zh: '只有房东可以申请身份认证。' },

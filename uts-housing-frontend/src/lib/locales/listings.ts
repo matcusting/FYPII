@@ -46,6 +46,7 @@ export const listingsTranslations: Record<string, { ms: string; zh: string }> = 
   'Availability confirmed': { ms: 'Ketersediaan disahkan', zh: '可租状态已确认' },
   'Availability is provided by the landlord and may change.': { ms: 'Maklumat ketersediaan diberikan oleh tuan rumah dan mungkin berubah.', zh: '可租信息由房东提供，可能发生变化。' },
   'Availability needs reconfirmation.': { ms: 'Ketersediaan perlu disahkan semula.', zh: '可租状态需要再次确认。' },
+  "The owner has not confirmed this listing's availability within the last 30 days. Check with them before arranging a viewing.": { ms: 'Pemilik belum mengesahkan ketersediaan iklan ini dalam tempoh 30 hari yang lalu. Semak dengan mereka sebelum mengatur lawatan.', zh: '房东在过去 30 天内未确认这套房屋是否仍可出租。安排看房前请向房东确认。' },
   'Available By': { ms: 'Tersedia Sebelum', zh: '最迟可入住日期' },
   'Available From': { ms: 'Tersedia Mulai', zh: '可入住日期' },
   'Back to Manage Properties': { ms: 'Kembali ke Urus Rumah', zh: '返回房源管理' },

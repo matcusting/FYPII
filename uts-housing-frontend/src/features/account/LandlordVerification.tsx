@@ -4,13 +4,13 @@ import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
-import { inputClass, labelForStatus } from './format'
+import { formatDate, inputClass, labelForStatus } from './format'
 import { ErrorNotice, LoadingNotice, Panel } from './shared'
 
 type IdentityKind = 'INDIVIDUAL' | 'COMPANY'
 interface IdentityStatus {
   status: string
-  latest: { id: string; kind: IdentityKind; status: string; reason?: string | null; createdAt?: string; reviewedAt?: string | null } | null
+  latest: { id: string; kind: IdentityKind; status: string; reason?: string | null; createdAt?: string; reviewedAt?: string | null; expiresAt?: string | null } | null
 }
 
 function validFile(file: File | null, imageOnly: boolean): boolean {
@@ -76,7 +76,9 @@ export function LandlordVerification() {
   return <Panel title={t('Landlord Identity Verification')}>
     {status.isPending ? <LoadingNotice /> : status.isError ? <ErrorNotice error={status.error} onRetry={() => void status.refetch()} /> : <div className="space-y-4 text-sm">
       <p className="text-gray-600">{t('Current status:')} <strong>{labelForStatus(state)}</strong></p>
-      {status.data?.latest?.reason && state === 'REJECTED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Reason: {reason}', { reason: t(status.data.latest.reason) })}</p>}
+      {status.data?.latest?.expiresAt && <p className="text-gray-600">{t('Valid until:')} {formatDate(status.data.latest.expiresAt)}</p>}
+      {status.data?.latest?.reason && (state === 'REJECTED' || state === 'REVOKED') && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Reason: {reason}', { reason: t(status.data.latest.reason) })}</p>}
+      {state === 'EXPIRED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Your identity approval expired. Submit fresh documents for another review.')}</p>}
       {approved && !replaceApproved ? <div className="space-y-3"><p className="text-green-700">{t('Your identity has been reviewed. Each property still needs its own authorization review before publication.')}</p><button type="button" onClick={() => setReplaceApproved(true)} className="font-semibold text-[#203569] underline">{t('Replace Identity Documents')}</button></div>
         : pending ? <p className="text-gray-600">{t('Your identity documents are being reviewed. You can save property drafts while you wait.')}</p>
           : user?.emailVerified !== true ? <p className="text-amber-800">{t('Verify your email before submitting identity documents.')} <Link to="/verify-email" className="font-semibold underline">{t('Verify Email')}</Link></p>

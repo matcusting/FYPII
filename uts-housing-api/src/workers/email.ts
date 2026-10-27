@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import nodemailer from 'nodemailer'
 import { prisma } from '../core/db.js'
+import { pauseListingsWithoutCurrentApproval } from './approval-expiry.js'
 
 function message(template: string, payload: Record<string, unknown>) {
   const name = typeof payload.name === 'string' ? payload.name : 'there'
@@ -58,8 +59,14 @@ export async function processEmailJobs() {
 async function run() {
   if (process.env.NODE_ENV === 'production' && !process.env.SMTP_HOST) throw new Error('SMTP_HOST is required in production.')
   console.info('Email worker started.')
+  let lastApprovalSweep = 0
   for (;;) {
     await processEmailJobs()
+    if (Date.now() - lastApprovalSweep >= 60_000) {
+      try { await pauseListingsWithoutCurrentApproval() }
+      catch (error) { console.error('Approval expiry sweep failed:', error instanceof Error ? error.name : 'unknown') }
+      lastApprovalSweep = Date.now()
+    }
     await new Promise(resolve => setTimeout(resolve, 10_000))
   }
 }

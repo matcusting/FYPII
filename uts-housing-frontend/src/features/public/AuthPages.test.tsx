@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { LoginPage, RegisterPage } from './AuthPages'
+import { ForgotPasswordPage, LoginPage, RegisterPage, VerifyEmailPage } from './AuthPages'
 
 const { apiMock, signInMock } = vi.hoisted(() => ({ apiMock: vi.fn(), signInMock: vi.fn() }))
 vi.mock('../../lib/api', async importOriginal => ({ ...(await importOriginal<typeof import('../../lib/api')>()), api: apiMock }))
@@ -12,6 +12,40 @@ vi.mock('../../lib/auth', () => ({ useAuth: () => ({ user: null, signIn: signInM
 afterEach(() => { cleanup(); apiMock.mockReset(); signInMock.mockReset() })
 
 describe('account forms', () => {
+  it('allows a new verification link to be requested after an expired link', async () => {
+    apiMock.mockResolvedValue({ accepted: true })
+    render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Resend Verification Link' }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Enter a valid email address.')
+    expect(apiMock).not.toHaveBeenCalled()
+    await user.type(screen.getByLabelText('Email'), 'student@student.uts.edu.my')
+    await user.click(screen.getByRole('button', { name: 'Resend Verification Link' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/resend-verification', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ email: 'student@student.uts.edu.my' }),
+    })))
+    expect(await screen.findByText(/If this address belongs to an unverified account/)).toBeTruthy()
+  })
+
+  it('shows local-only verification and reset links returned by the preview', async () => {
+    apiMock.mockResolvedValueOnce({ accepted: true, demoVerificationToken: 'demo-verify-token' })
+    const { unmount } = render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Email'), 'preview-student@student.uts.edu.my')
+    await user.click(screen.getByRole('button', { name: 'Resend Verification Link' }))
+    const verificationLink = await screen.findByRole('link', { name: 'Open the demo email verification link' })
+    expect(verificationLink.getAttribute('href')).toBe('/verify-email?token=demo-verify-token')
+    await user.click(verificationLink)
+    expect(screen.getByLabelText('Verification Token')).toHaveProperty('value', 'demo-verify-token')
+    unmount()
+
+    apiMock.mockResolvedValueOnce({ accepted: true, demoResetToken: 'demo-reset-token' })
+    render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>)
+    await user.type(screen.getByLabelText('Email'), 'preview-student@student.uts.edu.my')
+    await user.click(screen.getByRole('button', { name: 'Send Reset Instructions' }))
+    expect((await screen.findByRole('link', { name: 'Open the demo password reset link' })).getAttribute('href')).toBe('/reset-password?token=demo-reset-token')
+  })
+
   it('blocks invalid registration and submits only validated, accepted details', async () => {
     apiMock.mockResolvedValue({})
     render(<MemoryRouter><RegisterPage /></MemoryRouter>)

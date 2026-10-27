@@ -26,12 +26,14 @@ const configuration: Record<ModerationKind, {
   'landlord-verifications': {
     title: 'Landlord Identity Review', description: 'Review landlord identity documents privately before the landlord can request property authorization.', singular: 'landlord identity request',
     approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve identity', rejectLabel: 'Reject identity',
-    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
+    extraAction: { value: 'REVOKED', label: 'Revoke approval' },
+    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'EXPIRED', label: 'Expired' }, { value: 'REVOKED', label: 'Revoked' }, { value: 'REJECTED', label: 'Rejected' }],
   },
   'property-authorizations': {
     title: 'Property Authorization Review', description: 'Check the full address and evidence of the right to list each property before publication.', singular: 'property authorization request',
     approve: 'APPROVED', reject: 'REJECTED', approveLabel: 'Approve authorization', rejectLabel: 'Reject authorization',
-    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'REJECTED', label: 'Rejected' }],
+    extraAction: { value: 'REVOKED', label: 'Revoke approval' },
+    statuses: [{ value: 'PENDING', label: 'Pending review' }, { value: 'APPROVED', label: 'Approved' }, { value: 'EXPIRED', label: 'Expired' }, { value: 'REVOKED', label: 'Revoked' }, { value: 'REJECTED', label: 'Rejected' }],
   },
   listings: {
     title: 'Listing Review', description: 'Check each listing\'s content, location, and details before deciding whether it can be published.', singular: 'listing',
@@ -60,6 +62,7 @@ const statusLabels: Record<string, string> = {
   PENDING: 'Pending review', PENDING_REVIEW: 'Pending review', SUBMITTED: 'Submitted', OPEN: 'Open',
   APPROVED: 'Approved', VERIFIED: 'Verified', PUBLISHED: 'Published',
   REJECTED: 'Rejected', RESOLVED: 'Resolved', DISMISSED: 'Dismissed',
+  EXPIRED: 'Expired', REVOKED: 'Revoked',
   PAUSED: 'Paused', ARCHIVED: 'Archived',
   ACTIVE: 'Active', SUSPENDED: 'Suspended',
 }
@@ -172,6 +175,7 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Phone Number', value: nestedText(row, 'landlord', 'phone') },
       { label: 'Email verification', value: typeof emailVerified === 'boolean' ? t(emailVerified ? 'Verified' : 'Unverified') : '' },
       { label: 'Account holder type', value: t(firstText(row, 'kind') === 'COMPANY' ? 'Company' : 'Individual') },
+      { label: 'Valid until', value: row.expiresAt ? dateText(row.expiresAt) : '' },
     )
   } else if (kind === 'property-authorizations') {
     const right = firstText(row, 'kind')
@@ -180,6 +184,7 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Full Property Address', value: firstText(row, 'addressSnapshot') || nestedText(row, 'listing', 'address') },
       { label: 'Applicant', value: nestedText(row, 'landlord', 'name', 'email') },
       { label: 'Your right to offer this property', value: t(right === 'OWNER' ? 'Owner' : right === 'AGENT' ? 'Authorized agent' : 'Subletting tenant') },
+      { label: 'Valid until', value: row.expiresAt ? dateText(row.expiresAt) : '' },
     )
   } else if (kind === 'listings') {
     details.push(
@@ -256,6 +261,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [decision, setDecision] = useState(config.approve)
   const [reason, setReason] = useState('')
+  const [validUntil, setValidUntil] = useState('')
+  const [studentIdMatchesEmail, setStudentIdMatchesEmail] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [validation, setValidation] = useState<string | null>(null)
 
@@ -274,9 +281,9 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   })
 
   const mutation = useMutation({
-    mutationFn: ({ id, nextStatus, explanation }: { id: string; nextStatus: string; explanation: string }) =>
+    mutationFn: ({ id, nextStatus, explanation, expiry, idMatchesEmail }: { id: string; nextStatus: string; explanation: string; expiry: string; idMatchesEmail: boolean }) =>
       api<unknown>(`/admin/${kind}/${encodeURIComponent(id)}`, {
-        method: 'PATCH', body: JSON.stringify({ status: nextStatus, reason: explanation }),
+        method: 'PATCH', body: JSON.stringify({ status: nextStatus, reason: explanation, ...(expiry && nextStatus === 'APPROVED' ? { validUntil: expiry } : {}), ...(kind === 'verifications' && nextStatus === 'APPROVED' ? { studentIdMatchesEmail: idMatchesEmail } : {}) }),
       }),
     onSuccess: async () => {
       await Promise.all([
@@ -286,6 +293,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
       setNotice(t('Decision saved for this {item}.', { item: t(config.singular) }))
       setSelectedId(null)
       setReason('')
+      setValidUntil('')
+      setStudentIdMatchesEmail(false)
       setValidation(null)
     },
   })
@@ -293,8 +302,10 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   function openForm(id: string, currentStatus: string) {
     if (selectedId === id) { setSelectedId(null); return }
     setSelectedId(id)
-    setDecision(kind === 'accounts' && currentStatus === 'ACTIVE' ? config.reject : kind === 'listings' && currentStatus === 'PUBLISHED' ? 'PAUSED' : config.approve)
+    setDecision(kind === 'accounts' && currentStatus === 'ACTIVE' ? config.reject : kind === 'listings' && currentStatus === 'PUBLISHED' ? 'PAUSED' : (kind === 'landlord-verifications' || kind === 'property-authorizations') && currentStatus === 'APPROVED' ? 'REVOKED' : config.approve)
     setReason('')
+    setValidUntil('')
+    setStudentIdMatchesEmail(false)
     setValidation(null)
     setNotice(null)
     mutation.reset()
@@ -307,6 +318,10 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     if (decision === config.approve && selectedVerification && firstText(selectedVerification, 'verificationMethod', 'method') === 'DOCUMENTS' &&
       (!privateVerificationUrl(selectedVerification, 'studentIdUrl', 'student-id') || !privateVerificationUrl(selectedVerification, 'offerLetterUrl', 'offer-letter'))) {
       setValidation('Both student documents must be available before approval.')
+      return
+    }
+    if (kind === 'verifications' && decision === 'APPROVED' && !studentIdMatchesEmail) {
+      setValidation('Confirm that the Student ID on the card matches the school email before approval.')
       return
     }
     const reviewed = asRecord(detail.data)
@@ -330,7 +345,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     }
     if (!selectedId) return
     setValidation(null)
-    mutation.mutate({ id: selectedId, nextStatus: decision, explanation })
+    mutation.mutate({ id: selectedId, nextStatus: decision, explanation, expiry: validUntil, idMatchesEmail: studentIdMatchesEmail })
   }
 
   return (
@@ -359,6 +374,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                 const id = firstText(row, 'id')
                 const currentStatus = firstText(row, 'status')
                 const audit = auditInfo(row, t)
+                const lifecycleReview = kind === 'landlord-verifications' || kind === 'property-authorizations'
+                const canDecide = !lifecycleReview || currentStatus === 'PENDING' || currentStatus === 'APPROVED'
                 return (
                   <FragmentRow key={id || index}>
                     <tr className="border-b border-slate-100 align-top">
@@ -380,21 +397,23 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                           <QueryState loading={detail.isPending} error={detail.error ? messageOf(detail.error) : null} empty={!asRecord(detail.data)} emptyText="The server did not provide details for this record." onRetry={() => { void detail.refetch() }} />
                           {asRecord(detail.data) && !detail.error && <ModerationDetails kind={kind} row={asRecord(detail.data)!} />}
                         </>}
-                        <form onSubmit={submit} noValidate className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
+                        {canDecide ? <form onSubmit={submit} noValidate className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end">
                           <div className="field">
                             <label htmlFor={`decision-${kind}-${id}`}>{t('Decision')}</label>
                             <select id={`decision-${kind}-${id}`} value={decision} onChange={event => { setDecision(event.target.value); setValidation(null) }}>
-                              <option value={config.approve}>{t(config.approveLabel)}</option>
-                              <option value={config.reject}>{t(config.rejectLabel)}</option>
-                              {config.extraAction && <option value={config.extraAction.value}>{t(config.extraAction.label)}</option>}
+                              {(!lifecycleReview || currentStatus === 'PENDING') && <option value={config.approve}>{t(config.approveLabel)}</option>}
+                              {(!lifecycleReview || currentStatus === 'PENDING') && <option value={config.reject}>{t(config.rejectLabel)}</option>}
+                              {config.extraAction && (!lifecycleReview || currentStatus === 'APPROVED') && <option value={config.extraAction.value}>{t(config.extraAction.label)}</option>}
                             </select>
                           </div>
                           <div className="field">
                             <label htmlFor={`reason-${kind}-${id}`}>{t('Reason')}{t(decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)')}</label>
                             <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder={t('Record your review findings and explain any rejection or suspension')} />
                           </div>
+                          {lifecycleReview && decision === config.approve && <div className="field md:col-span-3"><label htmlFor={`valid-until-${kind}-${id}`}>{t('Valid until (optional, Malaysia time)')}</label><input id={`valid-until-${kind}-${id}`} type="date" value={validUntil} onChange={event => setValidUntil(event.currentTarget.value)} /><p className="mt-1 text-xs text-slate-600">{t('Leave blank to use the configured maximum. Choose an earlier date if the supporting document expires sooner.')}</p></div>}
+                          {kind === 'verifications' && decision === 'APPROVED' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={studentIdMatchesEmail} onChange={event => setStudentIdMatchesEmail(event.target.checked)} className="mt-1" /><span>{t('I compared the Student ID on the card with the part of the school email before @.')}</span></label>}
                           <button type="submit" className="button" disabled={mutation.isPending || (['verifications', 'landlord-verifications', 'property-authorizations'].includes(kind) && (detail.isPending || detail.isError))}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
-                        </form>
+                        </form> : <p className="mt-4 text-sm text-slate-600">{t('This approval is no longer active. The applicant must submit a new request.')}</p>}
                       </td></tr>
                     )}
                   </FragmentRow>

@@ -103,7 +103,9 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     expect(privateDocument.headers.get('cache-control')).toContain('no-store')
     expect(Buffer.from(await privateDocument.arrayBuffer())).toEqual(pdf)
 
-    const approved = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.' }))
+    const unchecked = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.' }))
+    expect(unchecked.status).toBe(400)
+    const approved = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.', studentIdMatchesEmail: true }))
     expect(approved.status).toBe(200)
     const account = await (await request('/auth/me', 'student')).json() as { data: { studentVerified: boolean } }
     expect(account.data.studentVerified).toBe(true)

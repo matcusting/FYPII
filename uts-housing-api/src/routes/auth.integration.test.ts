@@ -61,14 +61,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
       const response = await fetch(base + path, { method, headers, body: body ? JSON.stringify(body) : undefined })
       return { response, payload: await response.json() as { data?: Record<string, unknown>; error?: { code: string } } }
     }
-    const emailToken = async (subject: string) => {
+    const emailToken = async (subject: string, exclude?: string) => {
       await processEmailJobs()
-      const files = await readdir(outbox)
+      const files = (await readdir(outbox)).sort().reverse()
       for (const file of files) {
         const text = await readFile(join(outbox, file), 'utf8')
         if (text.includes(`To: ${email}`) && text.includes(`Subject: ${subject}`)) {
           const match = text.match(/token=([a-f0-9]{64})/)
-          if (match) return match[1]
+          if (match && match[1] !== exclude) return match[1]
         }
       }
       throw new Error(`Missing ${subject} email`)
@@ -78,7 +78,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
     expect(personalEmail.response.status).toBe(400)
     expect(personalEmail.payload.error?.code).toBe('STUDENT_EMAIL_REQUIRED')
     expect((await request('/auth/register', 'POST', { name: 'Integration Student', email, password, role: 'STUDENT', acceptTerms: true })).response.status).toBe(201)
-    const verificationToken = await emailToken('Verify your UTS Housing email')
+    const firstVerificationToken = await emailToken('Verify your UTS Housing email')
+    const student = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } })
+    await prisma.authToken.updateMany({ where: { userId: student.id, kind: 'EMAIL_VERIFY' }, data: { createdAt: new Date(Date.now() - 11 * 60_000) } })
+    expect((await request('/auth/resend-verification', 'POST', { email })).payload.data?.accepted).toBe(true)
+    const verificationToken = await emailToken('Verify your UTS Housing email', firstVerificationToken)
+    expect(verificationToken).not.toBe(firstVerificationToken)
+    expect((await request('/auth/verify-email', 'POST', { token: firstVerificationToken })).response.status).toBe(400)
     expect((await request('/auth/verify-email', 'POST', { token: verificationToken })).response.status).toBe(200)
     expect((await request('/auth/verify-email', 'POST', { token: verificationToken })).response.status).toBe(400)
     const signed = await request('/auth/login', 'POST', { email, password })

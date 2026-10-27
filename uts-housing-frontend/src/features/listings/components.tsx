@@ -54,7 +54,7 @@ export function FavoriteButton({ listingId, compact = false }: { listingId: stri
   </span>
 }
 
-export function ListingCard({ listing }: { listing: Listing }) {
+export function ListingCard({ listing }: { listing: Listing & { availabilityStale?: boolean } }) {
   const { t } = useI18n()
   const photo = listing.photos?.[0]
   const secondTag = listing.furnished ? t('Fully Furnished') : listing.amenities?.[0] ? t(listing.amenities[0]) : labelOf(roomTypes, listing.roomType)
@@ -66,6 +66,7 @@ export function ListingCard({ listing }: { listing: Listing }) {
     <div className="flex min-w-0 flex-1 flex-col justify-center">
       <h3 className="truncate pr-8 text-[1.1rem] font-bold text-[#203569] group-hover:text-blue-700"><Link to={`/listings/${encodeURIComponent(String(listing.id))}`} className="focus:outline-none focus:underline">{listing.title}</Link></h3>
       <p className="mt-1 truncate text-[13px] text-gray-500">{listing.owner?.name ? t('Landlord · {name}', { name: listing.owner.name }) : t('Landlord')}</p>
+      {listing.availabilityStale && <p className="mt-2 w-fit rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">{t('Availability needs reconfirmation.')}</p>}
       <div className="mt-3 flex flex-wrap items-end justify-between gap-2 sm:flex-nowrap">
         <div className="flex min-w-0 flex-wrap gap-2 sm:flex-nowrap">{listing.deposit != null && <span className="whitespace-nowrap rounded border border-gray-200 bg-[#f8f9fa] px-2 py-1 text-[10px] font-bold text-gray-600">{t('Deposit:')} {money(listing.deposit, listing.currency)}</span>}{secondTag && <span className="max-w-[130px] truncate rounded border border-gray-200 bg-[#f8f9fa] px-2 py-1 text-[10px] font-bold text-gray-600">{secondTag}</span>}</div>
         <strong className="ml-auto shrink-0 whitespace-nowrap text-[1.05rem] text-[#16a34a]">{money(listing.rent, listing.currency)}<span className="text-sm font-medium text-gray-500">{t('/mo')}</span></strong>

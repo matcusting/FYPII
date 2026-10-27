@@ -2,6 +2,7 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
 import { currentUser, requireAuth, requireEmailVerified } from '../core/auth.js'
+import { publicListingWhere } from '../core/approval.js'
 import { fail, ok } from '../core/http.js'
 import { queueEmail } from '../core/mail.js'
 
@@ -81,7 +82,7 @@ router.post('/listings/:listingId/inquiries', requireAuth, requireEmailVerified,
   const parsed = inquirySchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Write an inquiry between 10 and 2,000 characters.', 'VALIDATION_ERROR')
   const listing = await prisma.listing.findUnique({ where: { id: String(req.params.listingId) }, select: { id: true, title: true, ownerId: true, status: true } })
-  if (!listing || listing.status !== 'PUBLISHED') return fail(res, 404, 'This property is not available for inquiries.', 'NOT_FOUND')
+  if (!listing || !await prisma.listing.count({ where: { id: listing.id, ...publicListingWhere() } })) return fail(res, 404, 'This property is not available for inquiries.', 'NOT_FOUND')
   if (listing.ownerId === user.id) return fail(res, 400, 'You cannot inquire about your own property.', 'SELF_INQUIRY')
   const recent = await prisma.inquiry.count({ where: { senderId: user.id, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } } })
   if (recent >= 10) return fail(res, 429, 'Please wait before sending more property inquiries.', 'RATE_LIMITED')
@@ -201,7 +202,7 @@ router.get('/listings/:listingId/reviews', asyncRoute(async (req, res) => {
   const listingId = String(req.params.listingId)
   const listing = await prisma.listing.findUnique({ where: { id: listingId }, select: { id: true, ownerId: true, status: true } })
   const viewer = currentUser(req)
-  if (!listing || (listing.status !== 'PUBLISHED' && listing.ownerId !== viewer?.id && !viewer?.roles.includes('ADMIN'))) return fail(res, 404, 'Property not found.', 'NOT_FOUND')
+  if (!listing || (listing.ownerId !== viewer?.id && !viewer?.roles.includes('ADMIN') && !await prisma.listing.count({ where: { id: listing.id, ...publicListingWhere() } }))) return fail(res, 404, 'Property not found.', 'NOT_FOUND')
   const { page, limit, skip } = pageOf(req)
   const where = { listingId, status: 'APPROVED' as const, active: true }
   const [reviews, total] = await Promise.all([
@@ -235,7 +236,7 @@ router.post('/listings/:listingId/reviews', requireAuth, requireEmailVerified, a
   if (!parsed.success) return fail(res, 400, 'Enter a rating, a written review, rental experience details and proof of that experience.', 'VALIDATION_ERROR')
   const listingId = String(req.params.listingId)
   const listing = await prisma.listing.findUnique({ where: { id: listingId }, select: { id: true, ownerId: true, status: true } })
-  if (!listing || listing.status !== 'PUBLISHED') return fail(res, 404, 'Property not found.', 'NOT_FOUND')
+  if (!listing || !await prisma.listing.count({ where: { id: listing.id, ...publicListingWhere() } })) return fail(res, 404, 'Property not found.', 'NOT_FOUND')
   if (listing.ownerId === user.id) return fail(res, 403, 'You cannot review your own property.', 'FORBIDDEN')
   const proof = await prisma.mediaUpload.findFirst({ where: {
     storageKey: parsed.data.experienceProofKey, ownerId: user.id, purpose: 'REVIEW_EVIDENCE', status: 'UPLOADED',
@@ -310,7 +311,7 @@ router.post('/reports', requireAuth, asyncRoute(async (req, res) => {
   const parsed = reportSchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Choose a target and describe the issue in 10 to 1,000 characters.', 'VALIDATION_ERROR')
   const { targetType, targetId, category, reason } = parsed.data
-  const exists = targetType === 'LISTING' ? !!(await prisma.listing.findFirst({ where: { id: targetId, OR: [{ status: 'PUBLISHED' }, { ownerId: user.id }] }, select: { id: true } }))
+  const exists = targetType === 'LISTING' ? !!(await prisma.listing.findFirst({ where: { id: targetId, OR: [publicListingWhere(), { ownerId: user.id }] }, select: { id: true } }))
     : targetType === 'USER' ? !!(await prisma.user.findFirst({ where: { id: targetId, status: 'ACTIVE' }, select: { id: true } }))
       : !!(await prisma.review.findFirst({ where: { id: targetId, OR: [{ status: 'APPROVED', active: true }, { authorId: user.id }, { listing: { ownerId: user.id } }] }, select: { id: true } }))
   if (!exists) return fail(res, 404, 'The content you want to report could not be found.', 'NOT_FOUND')

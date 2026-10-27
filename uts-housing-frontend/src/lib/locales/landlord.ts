@@ -1,5 +1,15 @@
 /** Landlord registration, identity, and per-property authorization copy. */
 export const landlordTranslations: Record<string, { ms: string; zh: string }> = {
+  'Expired': { ms: 'Tamat tempoh', zh: '已到期' },
+  'Revoked': { ms: 'Dibatalkan', zh: '已撤销' },
+  'Revoke approval': { ms: 'Batalkan kelulusan', zh: '撤销批准' },
+  'Valid until': { ms: 'Sah sehingga', zh: '有效期至' },
+  'Valid until:': { ms: 'Sah sehingga：', zh: '有效期至：' },
+  'Valid until (optional, Malaysia time)': { ms: 'Sah sehingga (pilihan, waktu Malaysia)', zh: '有效期至（可选，马来西亚时间）' },
+  'Leave blank to use the configured maximum. Choose an earlier date if the supporting document expires sooner.': { ms: 'Biarkan kosong untuk menggunakan tempoh maksimum yang ditetapkan. Pilih tarikh lebih awal jika dokumen sokongan tamat tempoh lebih awal.', zh: '留空则使用已配置的最长期限；如果证明文件更早到期，请选择更早的日期。' },
+  'This approval is no longer active. The applicant must submit a new request.': { ms: 'Kelulusan ini tidak lagi aktif. Pemohon perlu mengemukakan permohonan baharu.', zh: '该批准已失效，申请人需要重新提交申请。' },
+  'Your identity approval expired. Submit fresh documents for another review.': { ms: 'Kelulusan identiti anda telah tamat tempoh. Hantar dokumen terkini untuk semakan baharu.', zh: '你的身份认证已到期，请提交最新文件重新审核。' },
+  'This property authorization expired. Submit fresh evidence for another review.': { ms: 'Kebenaran hartanah ini telah tamat tempoh. Hantar bukti terkini untuk semakan baharu.', zh: '该房屋授权已到期，请提交最新证明重新审核。' },
   'Students register with a university-issued email, verify it, then submit a Student ID photo and offer letter for review. Landlords verify their email, then submit identity and property authorization documents for review.': { ms: 'Pelajar mendaftar menggunakan e-mel universiti, mengesahkannya, kemudian menghantar foto kad pelajar dan surat tawaran untuk semakan. Tuan rumah mengesahkan e-mel, kemudian menghantar dokumen identiti dan kebenaran hartanah untuk semakan.', zh: '学生使用学校邮箱注册并验证邮箱，然后提交学生证照片和录取通知书审核。房东验证邮箱后，须提交身份证明和房屋出租授权材料审核。' },
   'Landlords: after verifying your email, sign in and submit your identity documents from Profile Settings. Each property also needs authorization review before publication.': { ms: 'Tuan rumah: selepas mengesahkan e-mel, log masuk dan hantar dokumen identiti dalam Tetapan Profil. Setiap hartanah juga memerlukan semakan kebenaran sebelum diterbitkan.', zh: '房东：验证邮箱后，请登录并在个人资料设置中提交身份证明。每套房屋发布前还须单独审核出租授权。' },
   'Use your university-issued student email. The part before @ should be your Student ID, for example studentid@student.uts.edu.my.': { ms: 'Gunakan e-mel pelajar yang diberikan oleh universiti. Bahagian sebelum @ sepatutnya nombor ID pelajar anda, contohnya studentid@student.uts.edu.my.', zh: '请使用学校提供的学生邮箱。@ 前应为你的学生 ID，例如 studentid@student.uts.edu.my。' },

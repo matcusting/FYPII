@@ -125,9 +125,14 @@ export function VerifyEmailPage() {
   const { t } = useI18n()
   const [searchParams, setSearchParams] = useSearchParams()
   const [token, setToken] = useState(searchParams.get('token') || '')
+  const [email, setEmail] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [complete, setComplete] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [resendError, setResendError] = useState<string | null>(null)
+  const [resendComplete, setResendComplete] = useState(false)
+  const [demoResendToken, setDemoResendToken] = useState('')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -146,15 +151,42 @@ export function VerifyEmailPage() {
     }
   }
 
+  async function resend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const address = email.trim()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) { setResendError('Enter a valid email address.'); return }
+    setResending(true)
+    setResendError(null)
+    setResendComplete(false)
+    setDemoResendToken('')
+    try {
+      const result = await api<{ demoVerificationToken?: string }>('/auth/resend-verification', { method: 'POST', body: JSON.stringify({ email: address }) })
+      setDemoResendToken(result?.demoVerificationToken || '')
+      setResendComplete(true)
+    } catch (failure) {
+      setResendError(messageOf(failure))
+    } finally {
+      setResending(false)
+    }
+  }
+
   return (
     <AuthLayout title="Verify Email" description="Use the link or verification code in your email to verify your address.">
-      {complete ? <div className="space-y-5"><FormNotice success="Email verified. You can now sign in." /><Link to="/login" className={primaryButtonClass}>{t('Go to Login')}</Link></div> : (
+      {complete ? <div className="space-y-5"><FormNotice success="Email verified. You can now sign in." /><Link to="/login" className={primaryButtonClass}>{t('Go to Login')}</Link></div> : <>
         <form onSubmit={submit} noValidate className="space-y-5">
           <FormNotice error={error} />
           <div><label htmlFor="verification-token" className="font-medium text-slate-800">{t('Verification Token')}</label><input id="verification-token" name="token" type="text" autoComplete="one-time-code" required value={token} onChange={event => setToken(event.target.value)} className={fieldClass} /><p className="mt-2 text-sm text-slate-600">{t('If the link already includes a token, select Verify Email.')}</p></div>
           <button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{busy ? t('Verifying…') : t('Verify Email')}</button>
         </form>
-      )}
+        <form onSubmit={resend} noValidate className="mt-7 space-y-4 border-t border-slate-200 pt-6">
+          <h2 className="font-semibold text-slate-800">{t('Need a new verification link?')}</h2>
+          <p className="text-sm text-slate-600">{t('If your link expired or did not arrive, enter the email address you registered with. You can request a new link every 10 minutes.')}</p>
+          <FormNotice error={resendError} success={resendComplete ? demoResendToken ? 'A new local preview verification link is ready below.' : 'If this address belongs to an unverified account, a new verification link will be sent when eligible. Check your inbox and spam folder.' : null} />
+          {demoResendToken && <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{t('Local preview only:')} <Link to={`/verify-email?token=${encodeURIComponent(demoResendToken)}`} onClick={() => setToken(demoResendToken)} className="font-semibold underline">{t('Open the demo email verification link')}</Link></p>}
+          <div><label htmlFor="resend-email" className="font-medium text-slate-800">{t('Email')}</label><input id="resend-email" name="email" type="email" autoComplete="email" maxLength={254} required value={email} onChange={event => setEmail(event.target.value)} className={fieldClass} /></div>
+          <button type="submit" disabled={resending} className={`${primaryButtonClass} w-full`}>{resending ? t('Sending…') : t('Resend Verification Link')}</button>
+        </form>
+      </>}
     </AuthLayout>
   )
 }
@@ -165,6 +197,7 @@ export function ForgotPasswordPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [complete, setComplete] = useState(false)
+  const [demoResetToken, setDemoResetToken] = useState('')
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -174,7 +207,8 @@ export function ForgotPasswordPage() {
     setBusy(true)
     setError(null)
     try {
-      await api('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: address }) })
+      const result = await api<{ demoResetToken?: string }>('/auth/forgot-password', { method: 'POST', body: JSON.stringify({ email: address }) })
+      setDemoResetToken(result?.demoResetToken || '')
       setComplete(true)
     } catch (failure) {
       setError(messageOf(failure))
@@ -185,7 +219,7 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthLayout title="Reset Password" description="Enter your account email address and we will send reset instructions.">
-      {complete ? <div className="space-y-5"><FormNotice success="If this email address is registered, you will receive a password reset email. Check your inbox and spam folder." /><Link to="/login" className="font-semibold text-blue-800 underline">{t('Back to Login')}</Link></div> : (
+      {complete ? <div className="space-y-5"><FormNotice success={demoResetToken ? 'A local preview password reset link is ready below.' : 'If this email address is registered, you will receive a password reset email. Check your inbox and spam folder.'} />{demoResetToken && <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{t('Local preview only:')} <Link to={`/reset-password?token=${encodeURIComponent(demoResetToken)}`} className="font-semibold underline">{t('Open the demo password reset link')}</Link></p>}<Link to="/login" className="font-semibold text-blue-800 underline">{t('Back to Login')}</Link></div> : (
         <form onSubmit={submit} noValidate className="space-y-5"><FormNotice error={error} /><div><label htmlFor="forgot-email" className="font-medium text-slate-800">{t('Email')}</label><input id="forgot-email" name="email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} className={fieldClass} /></div><button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{busy ? t('Sending…') : t('Send Reset Instructions')}</button></form>
       )}
     </AuthLayout>

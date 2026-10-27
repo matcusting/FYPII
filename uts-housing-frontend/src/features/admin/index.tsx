@@ -1,5 +1,7 @@
 export { AdminOverviewPage } from './AdminOverviewPage'
 export { AdminCampusesPage } from './AdminCampusesPage'
+export { AdminDeletionRequestsPage } from './AdminDeletionRequestsPage'
+export { AdminAuditLogsPage } from './AdminAuditLogsPage'
 export { AdminModerationPage } from './AdminModerationPage'
 
 import { AdminModerationPage } from './AdminModerationPage'

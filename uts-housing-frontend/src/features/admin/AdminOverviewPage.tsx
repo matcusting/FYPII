@@ -13,6 +13,7 @@ const metrics = [
   { label: 'Listings pending review', path: '/admin/listings', keys: ['pendingListings', 'listingsPending'] },
   { label: 'Reviews pending moderation', path: '/admin/reviews', keys: ['pendingReviews', 'reviewsPending'] },
   { label: 'Open reports', path: '/admin/reports', keys: ['openReports', 'pendingReports', 'reportsOpen'] },
+  { label: 'Account deletion requests pending', path: '/admin/deletion-requests', keys: ['pendingDeletionRequests'] },
 ] as const
 
 function metricValue(data: DataRecord | null, keys: readonly string[], locale: string): string {

@@ -6,7 +6,7 @@ const database = vi.hoisted(() => ({
   inquiryMessage: { findMany: vi.fn(), count: vi.fn() },
   connectionRequest: { findUnique: vi.fn() },
   userBlock: { findFirst: vi.fn() },
-  listing: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() },
+  listing: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
   review: { findMany: vi.fn(), count: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
   mediaUpload: { findFirst: vi.fn() },
   user: { findMany: vi.fn(), findFirst: vi.fn() },
@@ -25,7 +25,7 @@ vi.mock('../core/auth.js', () => ({
 import router from './community.js'
 
 const student = { id: 'student-1', roles: ['STUDENT'], studentVerified: true }
-beforeEach(() => vi.clearAllMocks())
+beforeEach(() => { vi.clearAllMocks(); database.listing.count.mockResolvedValue(1) })
 
 function call(method: string, path: string, body?: unknown) {
   const parsed = new URL(path, 'http://example.test')
@@ -76,7 +76,7 @@ describe('community privacy boundaries', () => {
 
     const response = await call('POST', '/reports', { targetType: 'LISTING', targetId: 'private-listing', reason: 'This information is inaccurate.' })
     expect(response.status).toBe(404)
-    expect(database.listing.findFirst).toHaveBeenCalledWith({ where: { id: 'private-listing', OR: [{ status: 'PUBLISHED' }, { ownerId: student.id }] }, select: { id: true } })
+    expect(database.listing.findFirst).toHaveBeenCalledWith({ where: { id: 'private-listing', OR: [expect.objectContaining({ status: 'PUBLISHED', propertyAuthorizations: expect.any(Object) }), { ownerId: student.id }] }, select: { id: true } })
     expect(database.report.create).not.toHaveBeenCalled()
   })
 

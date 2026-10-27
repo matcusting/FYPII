@@ -1,5 +1,6 @@
 /** Exact error messages returned by the admin, profile and verification API routes. */
 export const apiErrorsAdmin: Record<string, { ms: string; zh: string }> = {
+  'Confirm that the Student ID on the card matches the school email before approval.': { ms: 'Sahkan bahawa ID pelajar pada kad sepadan dengan e-mel universiti sebelum meluluskan.', zh: '批准前请确认学生证上的学号与学校邮箱相符。' },
   'Enter valid campus details, coordinates and email domains.': { ms: 'Masukkan butiran kampus, koordinat dan domain e-mel yang sah.', zh: '请输入有效的校区资料、坐标和邮箱域名。' },
   'This campus does not exist.': { ms: 'Kampus ini tidak wujud.', zh: '此校区不存在。' },
   'The verification ID is invalid.': { ms: 'ID pengesahan tidak sah.', zh: '认证编号无效。' },

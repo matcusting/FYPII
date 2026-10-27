@@ -212,13 +212,17 @@ try {
   await prisma.landlordVerification.upsert({
     where: { id: ids.landlordVerification },
     update: {},
-    create: { id: ids.landlordVerification, userId: ids.landlord, kind: 'INDIVIDUAL', identityKey: ids.identityKey, status: 'APPROVED', reviewedById: ids.admin, reviewedAt: now },
+    create: { id: ids.landlordVerification, userId: ids.landlord, kind: 'INDIVIDUAL', identityKey: ids.identityKey, status: 'APPROVED', reviewedById: ids.admin, reviewedAt: now, expiresAt: new Date(now.getTime() + 365 * 86_400_000) },
   })
   await prisma.propertyAuthorization.upsert({
     where: { id: ids.propertyAuthorization },
     update: {},
-    create: { id: ids.propertyAuthorization, listingId: ids.listing, requesterId: ids.landlord, kind: 'OWNER', proofKey: ids.authorityKey, addressSnapshot: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak', status: 'APPROVED', reviewedById: ids.admin, reviewedAt: now },
+    create: { id: ids.propertyAuthorization, listingId: ids.listing, requesterId: ids.landlord, kind: 'OWNER', proofKey: ids.authorityKey, addressSnapshot: '12 Demo Road, Sibu Jaya, 96000 Sibu, Sarawak', status: 'APPROVED', reviewedById: ids.admin, reviewedAt: now, expiresAt: new Date(now.getTime() + 180 * 86_400_000) },
   })
+  // The fictional fixture can be renewed after a migration expires historical
+  // approvals. Never alter a rejected or revoked review.
+  await prisma.landlordVerification.updateMany({ where: { id: ids.landlordVerification, status: 'APPROVED', expiresAt: { lte: now } }, data: { expiresAt: new Date(now.getTime() + 365 * 86_400_000) } })
+  await prisma.propertyAuthorization.updateMany({ where: { id: ids.propertyAuthorization, status: 'APPROVED', expiresAt: { lte: now } }, data: { expiresAt: new Date(now.getTime() + 180 * 86_400_000) } })
   const [demoOwner, demoListing, latestIdentity, latestAuthorization] = await Promise.all([
     prisma.user.findUniqueOrThrow({ where: { id: ids.landlord }, include: { profile: true } }),
     prisma.listing.findUniqueOrThrow({ where: { id: ids.listing } }),

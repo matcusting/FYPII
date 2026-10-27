@@ -4,7 +4,9 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 const database = vi.hoisted(() => ({
   campus: { findMany: vi.fn() },
   user: { findUnique: vi.fn(), create: vi.fn() },
-  authToken: { create: vi.fn() },
+  authToken: { create: vi.fn(), findFirst: vi.fn(), updateMany: vi.fn() },
+  emailJob: { create: vi.fn() },
+  queryRaw: vi.fn(),
   transaction: vi.fn(),
 }))
 const queueEmail = vi.hoisted(() => vi.fn())
@@ -21,8 +23,8 @@ vi.mock('../core/mail.js', () => ({ queueEmail }))
 
 import router from './auth.js'
 
-function register(body: Record<string, unknown>) {
-  const request = { method: 'POST', url: '/register', originalUrl: '/register', body } as unknown as Request
+function post(path: string, body: Record<string, unknown>) {
+  const request = { method: 'POST', url: path, originalUrl: path, body } as unknown as Request
   return new Promise<{ status: number; data: Record<string, unknown> }>((resolve, reject) => {
     let statusCode = 200
     const responseMethods = {
@@ -32,6 +34,7 @@ function register(body: Record<string, unknown>) {
     router(request, responseMethods as unknown as Response, ((error?: unknown) => reject(error || new Error('No route matched'))) as NextFunction)
   })
 }
+const register = (body: Record<string, unknown>) => post('/register', body)
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -39,8 +42,45 @@ beforeEach(() => {
   database.user.findUnique.mockResolvedValue(null)
   database.user.create.mockResolvedValue({ id: 'new-user', name: 'New Student', email: 'bcs123@student.uts.edu.my' })
   database.authToken.create.mockResolvedValue({ id: 'token' })
-  database.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({ user: database.user, authToken: database.authToken }))
+  database.authToken.findFirst.mockResolvedValue(null)
+  database.authToken.updateMany.mockResolvedValue({ count: 1 })
+  database.emailJob.create.mockResolvedValue({ id: 'email-job' })
+  database.queryRaw.mockResolvedValue([])
+  database.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({ user: database.user, authToken: database.authToken, emailJob: database.emailJob, $queryRaw: database.queryRaw }))
   queueEmail.mockResolvedValue(undefined)
+})
+
+describe('resending email verification', () => {
+  const address = 'new.student@student.uts.edu.my'
+
+  it('uses the same response for unknown and already verified accounts', async () => {
+    const missing = await post('/resend-verification', { email: address })
+    expect(missing).toEqual({ status: 200, data: { data: { accepted: true } } })
+    database.user.findUnique.mockResolvedValueOnce({ id: 'student-1' }).mockResolvedValueOnce({ email: address, name: 'Student', status: 'ACTIVE', emailVerifiedAt: new Date() })
+    const verified = await post('/resend-verification', { email: address })
+    expect(verified).toEqual(missing)
+    expect(database.authToken.create).not.toHaveBeenCalled()
+    expect(database.emailJob.create).not.toHaveBeenCalled()
+  })
+
+  it('rejects malformed addresses and applies a per-account cooldown', async () => {
+    expect((await post('/resend-verification', { email: 'not-an-email' })).status).toBe(400)
+    database.user.findUnique.mockResolvedValueOnce({ id: 'student-1' }).mockResolvedValueOnce({ email: address, name: 'Student', status: 'ACTIVE', emailVerifiedAt: null })
+    database.authToken.findFirst.mockResolvedValue({ createdAt: new Date() })
+    expect((await post('/resend-verification', { email: address })).status).toBe(200)
+    expect(database.authToken.updateMany).not.toHaveBeenCalled()
+    expect(database.emailJob.create).not.toHaveBeenCalled()
+  })
+
+  it('expires previous links and queues a replacement after the cooldown', async () => {
+    database.user.findUnique.mockResolvedValueOnce({ id: 'student-1' }).mockResolvedValueOnce({ email: address, name: 'Student', status: 'ACTIVE', emailVerifiedAt: null })
+    database.authToken.findFirst.mockResolvedValue({ createdAt: new Date(Date.now() - 11 * 60_000) })
+    const result = await post('/resend-verification', { email: address.toUpperCase() })
+    expect(result).toEqual({ status: 200, data: { data: { accepted: true } } })
+    expect(database.authToken.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: 'student-1', kind: 'EMAIL_VERIFY', usedAt: null } }))
+    expect(database.authToken.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 'student-1', kind: 'EMAIL_VERIFY' }) }))
+    expect(database.emailJob.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ to: address, template: 'email-verification' }) }))
+  })
 })
 
 describe('school email registration', () => {

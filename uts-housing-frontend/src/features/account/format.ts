@@ -12,7 +12,7 @@ export function formatDate(value: string | undefined | null) {
 export function labelForStatus(status: string | undefined | null) {
   const labels: Record<string, string> = {
     UNVERIFIED: 'Not verified', PENDING: 'Pending', PENDING_REVIEW: 'Pending review', APPROVED: 'Approved', ACCEPTED: 'Accepted',
-    REJECTED: 'Rejected', DECLINED: 'Declined', CLOSED: 'Closed', PUBLISHED: 'Published',
+    REJECTED: 'Rejected', REVOKED: 'Revoked', EXPIRED: 'Expired', DECLINED: 'Declined', CLOSED: 'Closed', PUBLISHED: 'Published',
     DRAFT: 'Draft', PAUSED: 'Paused', RENTED: 'Rented', ARCHIVED: 'Archived',
   }
   return translate(status ? (labels[status.toUpperCase()] || status) : 'Status unknown')

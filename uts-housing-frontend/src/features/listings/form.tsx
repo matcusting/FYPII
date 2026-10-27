@@ -15,7 +15,7 @@ interface SignedUpload {
 }
 
 type AuthorizationKind = 'OWNER' | 'AGENT' | 'SUBLETTING'
-interface ReviewStatus { status: string; latest: { id: string; kind: AuthorizationKind; status: string; reason?: string | null } | null }
+interface ReviewStatus { status: string; latest: { id: string; kind: AuthorizationKind; status: string; reason?: string | null; expiresAt?: string | null } | null }
 const proofTypes = ['application/pdf', 'image/jpeg', 'image/png']
 function validProof(file: File | null) { return !!file && file.size > 0 && file.size <= 5_000_000 && proofTypes.includes(file.type) }
 
@@ -67,8 +67,10 @@ function PropertyAuthorization({ listingId, isStudent, canUpload, addressChanged
   const current = status?.status || 'UNVERIFIED'
   return <section className="space-y-4 rounded-lg border border-gray-200 bg-[#fcfcfd] p-4 sm:p-5" aria-labelledby="property-authorization-heading">
     <div><h2 id="property-authorization-heading" className="text-[13px] font-bold text-[#374151]">{t('Property Authorization')}</h2><p className="mt-1 text-xs text-gray-600">{t('This address needs its own private authorization review before the listing can be submitted for publication.')}</p></div>
-    <p className="text-sm text-gray-700">{t('Current status:')} <strong>{t(current === 'UNVERIFIED' ? 'Not verified' : current === 'PENDING' ? 'Pending review' : current === 'APPROVED' ? 'Approved' : current === 'REJECTED' ? 'Rejected' : current)}</strong></p>
-    {status?.latest?.reason && current === 'REJECTED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('Reason: {reason}', { reason: t(status.latest.reason) })}</p>}
+    <p className="text-sm text-gray-700">{t('Current status:')} <strong>{t(current === 'UNVERIFIED' ? 'Not verified' : current === 'PENDING' ? 'Pending review' : current === 'APPROVED' ? 'Approved' : current === 'REJECTED' ? 'Rejected' : current === 'REVOKED' ? 'Revoked' : current === 'EXPIRED' ? 'Expired' : current)}</strong></p>
+    {status?.latest?.expiresAt && <p className="text-sm text-gray-600">{t('Valid until:')} {status.latest.expiresAt.slice(0, 10)}</p>}
+    {status?.latest?.reason && (current === 'REJECTED' || current === 'REVOKED') && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('Reason: {reason}', { reason: t(status.latest.reason) })}</p>}
+    {current === 'EXPIRED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('This property authorization expired. Submit fresh evidence for another review.')}</p>}
     {submitted && <p role="status" className="text-sm text-green-700">{t('Property documents submitted for review.')}</p>}
     {addressChanged && <p className="text-sm text-amber-800">{t('Save the changed address before uploading property documents. A new address needs a new review.')}</p>}
     {current === 'APPROVED' && !addressChanged && !replaceApproved ? <div className="space-y-2"><p className="text-sm text-green-700">{t('This address has been reviewed. Changing the full address will require new authorization.')}</p><button type="button" onClick={() => setReplaceApproved(true)} className="text-sm font-semibold text-[#203569] underline">{t('Replace Property Documents')}</button></div>

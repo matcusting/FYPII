@@ -3,18 +3,20 @@
  * Start after `npm run build`: node preview/demo-server.mjs
  */
 import { createServer } from 'node:http'
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto'
 import { readFile, stat } from 'node:fs/promises'
 import { dirname, extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const port = 4173
+const port = Number(process.env.PREVIEW_PORT || 4173)
 const host = '127.0.0.1'
 const dist = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'dist')
 const now = () => new Date().toISOString()
 const id = prefix => `${prefix}-${randomUUID().slice(0, 8)}`
 const seedDate = '2026-10-01T09:00:00.000Z'
 const demoPassword = 'Demo12345!'
+const DAY_MS = 24 * 60 * 60 * 1000
+const studentPreviewEmail = /^demo-[a-z0-9][a-z0-9._+-]{0,54}@student\.uts\.edu\.my$/
 const users = [
   { id: 'student-demo', name: 'Demo Student', email: 'student@demo.local', roles: ['STUDENT'], emailVerified: true, studentVerified: true, verificationStatus: 'APPROVED', status: 'ACTIVE' },
   { id: 'landlord-demo', name: 'Demo Landlord', email: 'landlord@demo.local', roles: ['LANDLORD'], emailVerified: true, studentVerified: false, status: 'ACTIVE' },
@@ -25,6 +27,31 @@ const users = [
 ]
 const sessions = new Map()
 const demoEmailTokens = new Map()
+const demoResetTokens = new Map()
+function hashPassword(password) {
+  const salt = randomBytes(16)
+  return `${salt.toString('hex')}:${scryptSync(password, salt, 32).toString('hex')}`
+}
+function validPassword(password, digest) {
+  if (typeof password !== 'string' || !digest) return false
+  const [saltHex, hashHex] = digest.split(':')
+  const expected = Buffer.from(hashHex, 'hex')
+  const actual = scryptSync(password, Buffer.from(saltHex, 'hex'), expected.length)
+  return actual.length === expected.length && timingSafeEqual(actual, expected)
+}
+const demoPasswordHashes = new Map(users.map(account => [account.id, hashPassword(demoPassword)]))
+function createDemoToken(tokens, userId, lifetimeMs) {
+  for (const [value, record] of tokens) if (record.userId === userId) tokens.delete(value)
+  const token = randomBytes(32).toString('hex')
+  tokens.set(token, { userId, expiresAt: Date.now() + lifetimeMs })
+  return token
+}
+function consumeDemoToken(tokens, value) {
+  const record = tokens.get(value)
+  if (!record) return null
+  tokens.delete(value)
+  return record.expiresAt > Date.now() ? users.find(account => account.id === record.userId) || null : null
+}
 const uploads = new Map()
 const campuses = [
   { id: 'uts-sibu', name: 'UTS Sibu Campus', university: 'University of Technology Sarawak', latitude: 2.286, longitude: 111.835, domains: ['student.uts.edu.my'], active: true },
@@ -77,22 +104,24 @@ const roommateRequests = [{ id: 'demo-request-1', senderId: 'student-candidate',
 const inquiryMessages = new Map([['demo-inquiry-1', [{ id: 'demo-inquiry-message-1', senderId: 'student-demo', body: inquiries[0].message, createdAt: seedDate }]]])
 const roommateMessages = new Map()
 const notifications = []
+const auditLogs = []
 const reviews = [{ id: 'demo-review-1', listingId: 'demo-listing-1', listing: { id: 'demo-listing-1', title: 'Room Near UTS (Demo)' }, authorId: 'student-candidate', author: { name: 'Demo Roommate' }, rating: 4, body: 'Demo review: A convenient location and a student-friendly room. This is not based on a real stay.', status: 'APPROVED', moderationStatus: 'APPROVED', createdAt: seedDate }]
 const reports = [{ id: 'demo-report-1', targetType: 'LISTING', targetId: 'demo-listing-2', category: 'INACCURATE', reason: 'Demo report: Please check that the photos match the description.', reporter: { name: 'Demo Student' }, status: 'OPEN', createdAt: seedDate }]
 const verifications = []
+const deletionRequests = []
 // These fictional records keep the pre-existing preview properties available.
 // New applicants must complete the two independent review steps themselves.
 const landlordVerifications = [{
   id: 'demo-landlord-identity-1', userId: 'landlord-demo', kind: 'INDIVIDUAL', status: 'APPROVED',
   landlord: { id: 'landlord-demo', name: 'Demo Landlord', email: 'landlord@demo.local', phone: '+60 12-345 6789' },
-  reason: null, createdAt: seedDate, reviewedAt: seedDate,
+  reason: null, createdAt: seedDate, reviewedAt: seedDate, expiresAt: new Date(Date.now() + 365 * DAY_MS).toISOString(), revokedAt: null,
 }]
 const propertyAuthorizations = listings.map(item => ({
-  id: `demo-property-auth-${item.id}`, listingId: item.id, userId: item.ownerId,
+  id: `demo-property-auth-${item.id}`, listingId: item.id, userId: item.ownerId, requesterId: item.ownerId,
   listing: { id: item.id, title: item.title, address: item.address },
   owner: { id: item.ownerId, name: item.owner.name, email: 'landlord@demo.local' },
   address: item.address, kind: 'OWNER', status: 'APPROVED', reason: null,
-  createdAt: seedDate, reviewedAt: seedDate,
+  createdAt: seedDate, reviewedAt: seedDate, expiresAt: new Date(Date.now() + 180 * DAY_MS).toISOString(), revokedAt: null,
 }))
 const preferences = new Map()
 
@@ -162,8 +191,23 @@ function messagePage(messages, url) {
 function notify(userId, type, payload = {}) {
   notifications.unshift({ id: id('notification'), userId, type, payload, readAt: null, createdAt: now() })
 }
+function recordAudit(actor, action, targetType, targetId, before, after) {
+  auditLogs.unshift({ id: id('audit'), actorId: actor.id, actor: { id: actor.id, name: actor.name, email: actor.email },
+    action, targetType, targetId, before, after, createdAt: now() })
+}
 function ownerOf(item) { return users.find(user => user.id === item.ownerId) }
 function latestIdentity(userId) { return landlordVerifications.find(item => item.userId === userId) || null }
+function approvalIsCurrent(record) { return record?.status === 'APPROVED' && Number.isFinite(Date.parse(record.expiresAt)) && Date.parse(record.expiresAt) > Date.now() }
+function effectiveApprovalStatus(record) { return record?.status === 'APPROVED' && !approvalIsCurrent(record) ? 'EXPIRED' : record?.status || 'UNVERIFIED' }
+function approvalExpiresAt(kind, validUntil) {
+  const latest = Date.now() + (kind === 'identity' ? 365 : 180) * DAY_MS
+  if (!validUntil) return new Date(latest).toISOString()
+  if (typeof validUntil !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) return null
+  const calendarDate = new Date(`${validUntil}T00:00:00.000Z`)
+  if (!Number.isFinite(calendarDate.getTime()) || calendarDate.toISOString().slice(0, 10) !== validUntil) return null
+  const chosen = Date.parse(`${validUntil}T15:59:59.999Z`)
+  return chosen > Date.now() && chosen <= latest ? new Date(chosen).toISOString() : null
+}
 function revokePropertyReviews(userId, reason) {
   for (const authorization of propertyAuthorizations) {
     if (authorization.userId !== userId || !['PENDING', 'APPROVED'].includes(authorization.status)) continue
@@ -174,30 +218,51 @@ function revokePropertyReviews(userId, reason) {
     if (listing.ownerId === userId && ['PUBLISHED', 'PENDING_REVIEW'].includes(listing.status)) listing.status = 'PAUSED'
   }
 }
+function revokeApprovedPropertyReviews(userId, reason) {
+  for (const authorization of propertyAuthorizations) {
+    if (authorization.userId !== userId || authorization.status !== 'APPROVED') continue
+    authorization.status = 'REVOKED'
+    authorization.reason = reason
+    authorization.revokedAt = now()
+    authorization.expiresAt = null
+  }
+  for (const listing of listings) {
+    if (listing.ownerId === userId && ['PUBLISHED', 'PENDING_REVIEW'].includes(listing.status)) {
+      listing.status = 'PAUSED'
+      listing.moderationReason = reason
+    }
+  }
+}
 function latestPropertyAuthorization(listingId) {
   const listing = listings.find(item => item.id === listingId)
   return propertyAuthorizations.find(item => item.listingId === listingId && item.address === listing?.address) || null
 }
 function approvedPropertyAuthorization(item) {
   const latest = latestPropertyAuthorization(item.id)
-  return latest?.userId === item.ownerId && latest.status === 'APPROVED'
+  return latest?.userId === item.ownerId && approvalIsCurrent(latest)
+}
+function publicListingCurrent(item) {
+  const owner = ownerOf(item)
+  return item.status === 'PUBLISHED' && owner?.status === 'ACTIVE' && owner.emailVerified &&
+    (owner.roles.includes('LANDLORD') ? approvalIsCurrent(latestIdentity(owner.id)) : owner.roles.includes('STUDENT') && owner.studentVerified) &&
+    approvedPropertyAuthorization(item)
 }
 function requiredListingProof(item) {
   const owner = ownerOf(item)
   if (!owner?.emailVerified) return 'Verify your account email before submitting a property.'
-  if (owner.roles.includes('LANDLORD') && latestIdentity(owner.id)?.status !== 'APPROVED') return 'Your landlord identity must be approved before this listing can be submitted or published.'
+  if (owner.roles.includes('LANDLORD') && !approvalIsCurrent(latestIdentity(owner.id))) return 'Your landlord identity must be approved before this listing can be submitted or published.'
   if (owner.roles.includes('STUDENT') && !owner.studentVerified) return 'Student verification is required before submitting a sublet.'
   if (!approvedPropertyAuthorization(item)) return 'Approved authorization for this full property address is required before this listing can be submitted or published.'
   return null
 }
 function verificationSummary(record) {
-  return { status: record?.status || 'UNVERIFIED', latest: record ? {
-    id: record.id, kind: record.kind, status: record.status, reason: record.reason,
-    createdAt: record.createdAt, reviewedAt: record.reviewedAt,
+  return { status: effectiveApprovalStatus(record), latest: record ? {
+    id: record.id, kind: record.kind, status: effectiveApprovalStatus(record), reason: record.reason,
+    createdAt: record.createdAt, reviewedAt: record.reviewedAt, expiresAt: record.expiresAt || null, revokedAt: record.revokedAt || null,
   } : null }
 }
 function landlordVerificationForAdmin(record, detail = false) {
-  return { ...record, moderationReason: record.reason, landlord: { ...record.landlord, emailVerified: users.find(user => user.id === record.userId)?.emailVerified === true }, ...(detail && record.status !== 'REJECTED' ? {
+  return { ...record, status: effectiveApprovalStatus(record), moderationReason: record.reason, landlord: { ...record.landlord, emailVerified: users.find(user => user.id === record.userId)?.emailVerified === true }, ...(detail && record.status !== 'REJECTED' ? {
     identityUrl: `/api/v1/admin/landlord-verifications/${record.id}/identity`,
     ...(record.kind === 'COMPANY' ? {
       companyUrl: `/api/v1/admin/landlord-verifications/${record.id}/company`,
@@ -206,7 +271,7 @@ function landlordVerificationForAdmin(record, detail = false) {
   } : {}) }
 }
 function propertyAuthorizationForAdmin(record, detail = false) {
-  return { ...record, requesterId: record.userId, addressSnapshot: record.address, moderationReason: record.reason, listing: {
+  return { ...record, status: effectiveApprovalStatus(record), requesterId: record.userId, addressSnapshot: record.address, moderationReason: record.reason, listing: {
     ...record.listing, status: listings.find(item => item.id === record.listingId)?.status || 'DRAFT',
   }, landlord: { ...record.owner }, ...(detail && record.status !== 'REJECTED' ? {
     proofUrl: `/api/v1/admin/property-authorizations/${record.id}/proof`,
@@ -228,7 +293,9 @@ function maySeeExactLocation(item, viewer) {
   return viewer?.id === item.ownerId || viewer?.roles.includes('ADMIN') || (item.showExactLocation === true && viewer?.roles.includes('STUDENT'))
 }
 function decorateListing(item, viewer) {
-  const result = { ...item, campusName: campuses.find(c => c.id === item.campusId)?.name || item.campusName, owner: item.owner || (ownerOf(item) ? { id: item.ownerId, name: ownerOf(item).name } : undefined) }
+  const lastConfirmed = item.lastConfirmedAt ? Date.parse(item.lastConfirmedAt) : NaN
+  const result = { ...item, availabilityStale: !Number.isFinite(lastConfirmed) || Date.now() - lastConfirmed > 30 * 24 * 60 * 60 * 1000,
+    campusName: campuses.find(c => c.id === item.campusId)?.name || item.campusName, owner: item.owner || (ownerOf(item) ? { id: item.ownerId, name: ownerOf(item).name } : undefined) }
   if (!maySeeExactLocation(item, viewer)) {
     delete result.latitude
     delete result.longitude
@@ -256,7 +323,7 @@ async function api(req, res, url) {
   if (path === '/auth/me' && method === 'GET') return user ? json(res, 200, user) : fail(res, 401, 'You are not signed in to a demo account.', 'UNAUTHORIZED')
   if (path === '/auth/login' && method === 'POST') {
     const account = users.find(item => item.email.toLowerCase() === String(body.email || '').toLowerCase())
-    if (!account || body.password !== demoPassword || account.status !== 'ACTIVE') return fail(res, 401, 'Incorrect demo email or password. Use student@demo.local, verification-demo@student.uts.edu.my, landlord@demo.local, landlord-applicant@demo.local, or admin@demo.local. The password is Demo12345!', 'INVALID_CREDENTIALS')
+    if (!account || !validPassword(body.password, demoPasswordHashes.get(account.id)) || account.status !== 'ACTIVE') return fail(res, 401, 'Incorrect demo email or password. Use student@demo.local, verification-demo@student.uts.edu.my, landlord@demo.local, landlord-applicant@demo.local, or admin@demo.local. The password is Demo12345!', 'INVALID_CREDENTIALS')
     const token = randomUUID()
     sessions.set(token, { id: id('session'), userId: account.id, createdAt: now() })
     res.setHeader('Set-Cookie', `demo_session=${token}; HttpOnly; SameSite=Strict; Path=/`)
@@ -268,28 +335,48 @@ async function api(req, res, url) {
     return json(res, 200, { message: 'Signed out of the demo account.' })
   }
   if (path === '/auth/register' && method === 'POST') {
-    if (body.role !== 'LANDLORD') return fail(res, 400, 'This local preview simulates landlord registration only. Use a preset student account for student verification.', 'DEMO_ONLY')
     const name = String(body.name || '').trim()
     const email = String(body.email || '').trim().toLowerCase()
     const phone = String(body.phone || '').trim()
-    if (name.length < 2 || name.length > 120 || !/^[a-z0-9._+-]+@demo\.local$/.test(email) || !/^\+?[0-9][0-9 ()-]*$/.test(phone) || !/^\d{7,15}$/.test(phone.replace(/\D/g, '')) || body.password !== demoPassword || body.acceptTerms !== true) return fail(res, 400, 'For this fictional local preview, use a name, an unused @demo.local email, a valid phone number, the password Demo12345!, and accept the terms.', 'DEMO_ONLY')
+    if (!['LANDLORD', 'STUDENT'].includes(body.role)) return fail(res, 400, 'Choose a student or landlord account.', 'INVALID_ROLE')
     if (users.some(item => item.email.toLowerCase() === email)) return fail(res, 409, 'This demo email is already registered.', 'EMAIL_EXISTS')
-    const account = { id: id('landlord'), name, email, roles: ['LANDLORD'], emailVerified: false, studentVerified: false, status: 'ACTIVE' }
+    if (body.role === 'LANDLORD' && (name.length < 2 || name.length > 120 || !/^[a-z0-9._+-]+@demo\.local$/.test(email) || !/^\+?[0-9][0-9 ()-]*$/.test(phone) || !/^\d{7,15}$/.test(phone.replace(/\D/g, '')) || body.password !== demoPassword || body.acceptTerms !== true)) return fail(res, 400, 'For this fictional local preview, use a name, an unused @demo.local email, a valid phone number, the password Demo12345!, and accept the terms.', 'DEMO_ONLY')
+    if (body.role === 'STUDENT' && (name.length < 2 || name.length > 100 || !studentPreviewEmail.test(email) || typeof body.password !== 'string' || body.password.length < 8 || body.password.length > 128 || body.acceptTerms !== true)) return fail(res, 400, 'For this fictional local preview, use a name, an unused demo-...@student.uts.edu.my email, a password of at least 8 characters, and accept the terms.', 'DEMO_ONLY')
+    const account = { id: id(body.role.toLowerCase()), name, email, roles: [body.role], emailVerified: false, studentVerified: false, verificationStatus: 'UNVERIFIED', status: 'ACTIVE' }
     users.push(account)
-    profiles.set(account.id, { displayName: name, name, email, phone, verificationStatus: 'UNVERIFIED' })
-    const token = randomUUID()
-    demoEmailTokens.set(token, account.id)
+    demoPasswordHashes.set(account.id, hashPassword(body.password))
+    profiles.set(account.id, { displayName: name, name, email, phone: body.role === 'LANDLORD' ? phone : null,
+      university: body.role === 'STUDENT' ? 'University of Technology Sarawak' : '', bio: '', verificationStatus: 'UNVERIFIED' })
+    const token = createDemoToken(demoEmailTokens, account.id, 24 * 60 * 60 * 1000)
     return json(res, 201, { id: account.id, email, verificationRequired: true, demoVerificationToken: token })
   }
   if (path === '/auth/verify-email' && method === 'POST') {
-    const accountId = demoEmailTokens.get(String(body.token || ''))
-    const account = users.find(item => item.id === accountId)
+    const account = consumeDemoToken(demoEmailTokens, String(body.token || ''))
     if (!account) return fail(res, 400, 'The demo email verification token is invalid or was already used.', 'INVALID_TOKEN')
     account.emailVerified = true
-    demoEmailTokens.delete(body.token)
     return json(res, 200, { verified: true })
   }
-  if (['/auth/forgot-password', '/auth/reset-password'].includes(path) && method === 'POST') return fail(res, 400, 'This local preview does not send email or reset real passwords. Use a preset demo account.', 'DEMO_ONLY')
+  if (path === '/auth/resend-verification' && method === 'POST') {
+    const email = String(body.email || '').trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'Enter a valid email address.', 'VALIDATION_ERROR')
+    const account = users.find(item => item.email === email && item.status === 'ACTIVE' && !item.emailVerified)
+    return json(res, 200, { accepted: true, ...(account ? { demoVerificationToken: createDemoToken(demoEmailTokens, account.id, 24 * 60 * 60 * 1000) } : {}) })
+  }
+  if (path === '/auth/forgot-password' && method === 'POST') {
+    const email = String(body.email || '').trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(res, 400, 'Enter a valid email address.', 'VALIDATION_ERROR')
+    const account = users.find(item => item.email === email && item.status === 'ACTIVE')
+    return json(res, 200, { accepted: true, ...(account ? { demoResetToken: createDemoToken(demoResetTokens, account.id, 60 * 60 * 1000) } : {}) })
+  }
+  if (path === '/auth/reset-password' && method === 'POST') {
+    if (typeof body.password !== 'string' || body.password.length < 8 || body.password.length > 128) return fail(res, 400, 'The new demo password must be 8 to 128 characters.', 'VALIDATION_ERROR')
+    const account = consumeDemoToken(demoResetTokens, String(body.token || ''))
+    if (!account) return fail(res, 400, 'The demo reset token is invalid or expired.', 'INVALID_TOKEN')
+    demoPasswordHashes.set(account.id, hashPassword(body.password))
+    for (const [token, session] of sessions) if (session.userId === account.id) sessions.delete(token)
+    res.setHeader('Set-Cookie', 'demo_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0')
+    return json(res, 200, { reset: true })
+  }
 
   if (path === '/campuses' && method === 'GET') return json(res, 200, { items: campuses.filter(campus => campus.active).map(({ id, name, university }) => ({ id, name, university })) })
   if (path === '/amenities' && method === 'GET') return json(res, 200, { items: amenities })
@@ -298,7 +385,7 @@ async function api(req, res, url) {
     if (mine && !required(res, user)) return
     if (url.searchParams.has('maxDistanceKm') || url.searchParams.get('sort') === 'distance') return fail(res, 400, 'Distance search is unavailable. Search by campus or area instead.', 'VALIDATION_ERROR')
     const search = name => (url.searchParams.get(name) || '').toLowerCase()
-    let items = listings.filter(item => mine ? item.ownerId === user.id : item.status === 'PUBLISHED')
+    let items = listings.filter(item => mine ? item.ownerId === user.id : publicListingCurrent(item))
     if (search('q')) items = items.filter(item => `${item.title} ${item.description}`.toLowerCase().includes(search('q')))
     if (search('area')) items = items.filter(item => item.approximateArea.toLowerCase().includes(search('area')))
     if (search('university')) items = items.filter(item => (campuses.find(campus => campus.id === item.campusId)?.university || '').toLowerCase().includes(search('university')))
@@ -357,7 +444,7 @@ async function api(req, res, url) {
     const item = listings.find(entry => entry.id === listingId)
     if (!item) return fail(res, 404, 'This demo listing could not be found.', 'NOT_FOUND')
     if (!action && method === 'GET') {
-      if (item.status !== 'PUBLISHED' && !(user && (user.id === item.ownerId || user.roles.includes('ADMIN')))) return fail(res, 404, 'This public listing could not be found.', 'NOT_FOUND')
+      if (!publicListingCurrent(item) && !(user && (user.id === item.ownerId || user.roles.includes('ADMIN')))) return fail(res, 404, 'This public listing could not be found.', 'NOT_FOUND')
       return json(res, 200, decorateListing(item, user))
     }
     if (action === 'reviews' && method === 'GET') return json(res, 200, paginate(reviews.filter(review => review.listingId === item.id && review.status === 'APPROVED'), url))
@@ -376,6 +463,7 @@ async function api(req, res, url) {
     }
     if (action === 'inquiries' && method === 'POST') {
       if (!required(res, user, 'STUDENT')) return
+      if (!publicListingCurrent(item)) return fail(res, 404, 'This public listing could not be found.', 'NOT_FOUND')
       const record = { id: id('inquiry'), listingId: item.id, listing: { id: item.id, title: item.title }, senderId: user.id, recipientId: item.ownerId, sender: { id: user.id, name: user.name }, recipient: { id: item.ownerId, name: ownerOf(item)?.name || 'Demo Landlord' }, message: String(body.message || ''), status: 'OPEN', createdAt: now() }
       inquiries.unshift(record)
       inquiryMessages.set(record.id, [{ id: id('inquiry-message'), senderId: user.id, body: record.message, createdAt: now() }])
@@ -436,12 +524,14 @@ async function api(req, res, url) {
     return json(res, 200, { uploaded: true })
   }
 
-  if (path === '/favorites' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, { items: listings.filter(item => favorites.get(user.id)?.has(item.id) && item.status === 'PUBLISHED').map(item => decorateListing(item, user)) }) }
+  if (path === '/favorites' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, { items: listings.filter(item => favorites.get(user.id)?.has(item.id) && publicListingCurrent(item)).map(item => decorateListing(item, user)) }) }
   if (path === '/favorites' && ['POST', 'DELETE'].includes(method)) {
     if (!required(res, user)) return
+    const listingId = String(body.listingId || '')
+    if (method === 'POST' && !listings.some(item => item.id === listingId && publicListingCurrent(item))) return fail(res, 404, 'This property could not be found.', 'NOT_FOUND')
     if (!favorites.has(user.id)) favorites.set(user.id, new Set())
-    if (method === 'POST') favorites.get(user.id).add(String(body.listingId))
-    else favorites.get(user.id).delete(String(body.listingId))
+    if (method === 'POST') favorites.get(user.id).add(listingId)
+    else favorites.get(user.id).delete(listingId)
     return json(res, 200, { saved: method === 'POST' })
   }
   if (path === '/inquiries' && method === 'GET') { if (!required(res, user)) return; return json(res, 200, paginate(inquiries.filter(item => item.senderId === user.id || item.recipientId === user.id), url)) }
@@ -529,7 +619,7 @@ async function api(req, res, url) {
     const record = {
       id: id('landlord-identity'), userId: user.id, kind: body.kind, status: 'PENDING',
       landlord: { id: user.id, name: user.name, email: user.email, phone: profiles.get(user.id)?.phone },
-      reason: null, createdAt: now(), reviewedAt: null,
+      reason: null, createdAt: now(), reviewedAt: null, expiresAt: null, revokedAt: null,
     }
     landlordVerifications.unshift(record)
     // The request's bytes are deliberately discarded; admin sees generic placeholders.
@@ -544,7 +634,7 @@ async function api(req, res, url) {
     if (!item) return fail(res, 404, 'Your demo listing could not be found.', 'NOT_FOUND')
     if (method === 'GET') return json(res, 200, verificationSummary(latestPropertyAuthorization(item.id)))
     if (!user.emailVerified) return fail(res, 403, 'Verify your account email before uploading property documents.', 'EMAIL_UNVERIFIED')
-    if (user.roles.includes('LANDLORD') && latestIdentity(user.id)?.status !== 'APPROVED') return fail(res, 403, 'Landlord identity approval is required before submitting property documents.', 'IDENTITY_REQUIRED')
+    if (user.roles.includes('LANDLORD') && !approvalIsCurrent(latestIdentity(user.id))) return fail(res, 403, 'Landlord identity approval is required before submitting property documents.', 'IDENTITY_REQUIRED')
     if (user.roles.includes('STUDENT') && !user.studentVerified) return fail(res, 403, 'Student verification is required before submitting subletting documents.', 'STUDENT_VERIFICATION_REQUIRED')
     const latest = latestPropertyAuthorization(item.id)
     if (latest?.status === 'PENDING' && latest.address === item.address) return fail(res, 409, 'Property authorization review is already pending.', 'VERIFICATION_PENDING')
@@ -558,11 +648,11 @@ async function api(req, res, url) {
       if (item.status === 'PUBLISHED') item.status = 'PAUSED'
     }
     const record = {
-      id: id('property-authorization'), listingId: item.id, userId: user.id,
+      id: id('property-authorization'), listingId: item.id, userId: user.id, requesterId: user.id,
       listing: { id: item.id, title: item.title, address: item.address },
       owner: { id: user.id, name: user.name, email: user.email },
       address: item.address, kind: body.kind, status: 'PENDING', reason: null,
-      createdAt: now(), reviewedAt: null,
+      createdAt: now(), reviewedAt: null, expiresAt: null, revokedAt: null,
     }
     propertyAuthorizations.unshift(record)
     notify('admin-demo', 'PROPERTY_AUTHORIZATION_SUBMITTED', { authorizationId: record.id, listingId: item.id })
@@ -625,7 +715,16 @@ async function api(req, res, url) {
   if (path === '/auth/sessions' && method === 'GET') { if (!required(res, user)) return; const current = currentSession(req); return json(res, 200, { items: [...sessions.values()].filter(item => item.userId === user.id).map(item => ({ id: item.id, device: 'Local Chrome demo session', createdAt: item.createdAt, lastActiveAt: now(), current: item.id === current?.id })) }) }
   const sessionMatch = path.match(/^\/auth\/sessions\/([^/]+)$/)
   if (sessionMatch && method === 'DELETE') { if (!required(res, user)) return; for (const [token, value] of sessions) if (value.id === sessionMatch[1] && value.userId === user.id) sessions.delete(token); return json(res, 200, { ended: true }) }
-  if (path === '/account/deletion-requests' && method === 'POST') { if (!required(res, user)) return; return fail(res, 400, 'This local preview does not process real account deletion requests.', 'DEMO_ONLY') }
+  if (path === '/account/deletion-requests' && method === 'POST') {
+    if (!required(res, user)) return
+    if (body.confirmation !== 'DELETE_ACCOUNT') return fail(res, 400, 'Confirm that you want to request account deletion.', 'VALIDATION_ERROR')
+    let request = deletionRequests.find(item => item.userId === user.id && item.status === 'PENDING')
+    if (!request) {
+      request = { id: id('deletion'), userId: user.id, status: 'PENDING', requestedAt: now(), reason: null }
+      deletionRequests.unshift(request)
+    }
+    return json(res, 200, { status: request.status, requestedAt: request.requestedAt })
+  }
 
   if (path.startsWith('/admin/')) {
     if (!required(res, user, 'ADMIN')) return
@@ -646,14 +745,17 @@ async function api(req, res, url) {
       const isIdentity = kind === 'landlord-verifications'
       const collection = isIdentity ? landlordVerifications : propertyAuthorizations
       const format = isIdentity ? landlordVerificationForAdmin : propertyAuthorizationForAdmin
-      if (!recordId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status')).map(item => format(item)), url))
+      if (!recordId && method === 'GET') return json(res, 200, paginate(collection.filter(item => !url.searchParams.get('status') || effectiveApprovalStatus(item) === url.searchParams.get('status')).map(item => format(item)), url))
       const record = collection.find(item => item.id === recordId)
       if (!record) return fail(res, 404, 'The demo verification request could not be found.', 'NOT_FOUND')
       if (method === 'GET') return json(res, 200, format(record, true))
       if (method === 'PATCH') {
-        if (!['APPROVED', 'REJECTED'].includes(body.status) || body.status === 'REJECTED' && String(body.reason || '').trim().length < 3) return fail(res, 400, 'Choose approve or reject and explain a rejection.', 'INVALID_DECISION')
-        if (record.status !== 'PENDING') return fail(res, 409, 'This request has already been reviewed.', 'ALREADY_REVIEWED')
+        const reason = String(body.reason || '').trim()
+        if (!['APPROVED', 'REJECTED', 'REVOKED'].includes(body.status) || (body.status === 'REJECTED' || body.status === 'REVOKED') && (reason.length < 3 || reason.length > 1000)) return fail(res, 400, 'Choose approve, reject or revoke and explain a rejection or revocation.', 'INVALID_DECISION')
+        if (record.status !== (body.status === 'REVOKED' ? 'APPROVED' : 'PENDING')) return fail(res, 409, 'This request cannot be changed to that status.', 'ALREADY_REVIEWED')
         if (record.userId === user.id) return fail(res, 403, 'You cannot review your own request.', 'FORBIDDEN')
+        const expiresAt = body.status === 'APPROVED' ? approvalExpiresAt(isIdentity ? 'identity' : 'property', body.validUntil) : null
+        if (body.status === 'APPROVED' && !expiresAt) return fail(res, 400, 'Choose a valid expiry date within the configured maximum approval period.', 'INVALID_EXPIRY')
         if (body.status === 'APPROVED' && isIdentity) {
           const account = users.find(item => item.id === record.userId)
           if (!account?.emailVerified || !profiles.get(record.userId)?.phone) return fail(res, 400, 'The landlord needs a verified email and phone before identity approval.', 'ACCOUNT_INCOMPLETE')
@@ -662,12 +764,23 @@ async function api(req, res, url) {
           const item = listings.find(entry => entry.id === record.listingId)
           if (!item || item.ownerId !== record.userId || item.address !== record.address || item.status === 'ARCHIVED') return fail(res, 400, 'The property address or listing changed. Ask for a new authorization request.', 'LISTING_CHANGED')
           const owner = users.find(entry => entry.id === record.userId)
-          if (!owner?.emailVerified || owner.roles.includes('LANDLORD') && latestIdentity(owner.id)?.status !== 'APPROVED' || owner.roles.includes('STUDENT') && !owner.studentVerified) return fail(res, 400, 'Verify the property owner account before reviewing its authorization.', 'IDENTITY_REQUIRED')
+          if (!owner?.emailVerified || owner.roles.includes('LANDLORD') && !approvalIsCurrent(latestIdentity(owner.id)) || owner.roles.includes('STUDENT') && !owner.studentVerified) return fail(res, 400, 'Verify the property owner account before reviewing its authorization.', 'IDENTITY_REQUIRED')
         }
+        const previousStatus = record.status
         record.status = body.status
-        record.reason = String(body.reason || '').trim() || null
+        record.reason = reason || null
         record.reviewedAt = now()
         record.reviewedById = user.id
+        record.expiresAt = expiresAt
+        record.revokedAt = body.status === 'REVOKED' ? now() : null
+        if (body.status === 'REVOKED') {
+          if (isIdentity) revokeApprovedPropertyReviews(record.userId, 'Landlord identity approval was revoked.')
+          else {
+            const item = listings.find(entry => entry.id === record.listingId)
+            if (item && ['PUBLISHED', 'PENDING_REVIEW'].includes(item.status)) { item.status = 'PAUSED'; item.moderationReason = 'Property authorization was revoked.' }
+          }
+        }
+        recordAudit(user, `${isIdentity ? 'LANDLORD_VERIFICATION' : 'PROPERTY_AUTHORIZATION'}_${record.status}`, isIdentity ? 'LANDLORD_VERIFICATION' : 'PROPERTY_AUTHORIZATION', record.id, { status: previousStatus }, { status: record.status, reason: record.reason })
         notify(record.userId, isIdentity ? 'LANDLORD_IDENTITY' : 'PROPERTY_AUTHORIZATION', { status: record.status, requestId: record.id })
         return json(res, 200, format(record, true))
       }
@@ -677,7 +790,9 @@ async function api(req, res, url) {
       const verification = verifications.find(item => item.id === demoDocumentMatch[1] && item.method === 'DOCUMENTS')
       if (!verification) return fail(res, 404, 'The demo verification document is unavailable.', 'NOT_FOUND')
       const label = demoDocumentMatch[2] === 'student-id' ? 'Student ID' : 'Offer Letter'
-      const sample = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="720" height="420" fill="#f4f7fb"/><rect x="42" y="42" width="636" height="336" rx="20" fill="#fff" stroke="#203569" stroke-width="3"/><text x="72" y="134" fill="#203569" font-family="Arial" font-size="34" font-weight="bold">${label} — DEMO ONLY</text><text x="72" y="200" fill="#374151" font-family="Arial" font-size="21">Uploaded documents are checked, then discarded.</text><text x="72" y="242" fill="#374151" font-family="Arial" font-size="21">This placeholder contains no student information.</text></svg>`
+      const fictionalEmailId = /^demo-[a-z0-9._+-]+$|^verification-demo$/.test(verification.student.email.split('@')[0]) ? verification.student.email.split('@')[0] : 'DEMO-ID'
+      const demoIdLine = demoDocumentMatch[2] === 'student-id' ? `Fictional ID for preview: ${fictionalEmailId}` : 'Fictional offer letter for preview.'
+      const sample = `<svg xmlns="http://www.w3.org/2000/svg" width="720" height="420"><rect width="720" height="420" fill="#f4f7fb"/><rect x="42" y="42" width="636" height="336" rx="20" fill="#fff" stroke="#203569" stroke-width="3"/><text x="72" y="134" fill="#203569" font-family="Arial" font-size="34" font-weight="bold">${label} — DEMO ONLY</text><text x="72" y="200" fill="#374151" font-family="Arial" font-size="21">Uploaded documents are checked, then discarded.</text><text x="72" y="242" fill="#374151" font-family="Arial" font-size="21">${demoIdLine}</text><text x="72" y="290" fill="#374151" font-family="Arial" font-size="19">No actual student document is stored or shown.</text></svg>`
       res.writeHead(200, { 'Content-Type': 'image/svg+xml', 'Content-Disposition': `attachment; filename="demo-${demoDocumentMatch[2]}.svg"`, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' })
       return res.end(sample)
     }
@@ -685,11 +800,57 @@ async function api(req, res, url) {
       pendingVerifications: verifications.filter(item => item.status === 'PENDING').length,
       pendingLandlordVerifications: landlordVerifications.filter(item => item.status === 'PENDING').length,
       pendingPropertyAuthorizations: propertyAuthorizations.filter(item => item.status === 'PENDING').length,
+      pendingDeletionRequests: deletionRequests.filter(item => item.status === 'PENDING').length,
       landlordAccounts: users.filter(item => item.roles.includes('LANDLORD')).length,
       pendingListings: listings.filter(item => item.status === 'PENDING_REVIEW').length,
       pendingReviews: reviews.filter(item => item.status === 'PENDING').length,
       openReports: reports.filter(item => item.status === 'OPEN').length,
     })
+    const deletionRequestMatch = path.match(/^\/admin\/deletion-requests(?:\/([^/]+))?$/)
+    if (deletionRequestMatch) {
+      const requestId = deletionRequestMatch[1]
+      if (!requestId && method === 'GET') {
+        const filtered = deletionRequests.filter(item => !url.searchParams.get('status') || item.status === url.searchParams.get('status'))
+        return json(res, 200, paginate(filtered.map(item => ({ ...item, user: users.find(account => account.id === item.userId) })), url))
+      }
+      const request = deletionRequests.find(item => item.id === requestId)
+      if (!request) return fail(res, 404, 'This demo deletion request could not be found.', 'NOT_FOUND')
+      if (method === 'PATCH') {
+        const reason = String(body.reason || '').trim()
+        if (!['APPROVED', 'REJECTED'].includes(body.status) || reason.length < 3 || reason.length > 1000) return fail(res, 400, 'Choose a decision and enter a reason of at least 3 characters.', 'INVALID_DECISION')
+        if (request.status !== 'PENDING') return fail(res, 409, 'This deletion request has already been reviewed.', 'ALREADY_REVIEWED')
+        if (request.userId === user.id) return fail(res, 403, 'You cannot approve your own account deletion.', 'FORBIDDEN')
+        const account = users.find(item => item.id === request.userId)
+        if (body.status === 'APPROVED' && account?.roles.includes('ADMIN') && users.filter(item => item.roles.includes('ADMIN') && item.status === 'ACTIVE').length <= 1) return fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
+        request.status = body.status
+        request.reason = reason
+        request.reviewedAt = now()
+        request.reviewedById = user.id
+        recordAudit(user, `DELETION_REQUEST_${request.status}`, 'DELETION_REQUEST', request.id, { status: 'PENDING' }, { status: request.status, reason })
+        if (body.status === 'APPROVED' && account) {
+          for (const [token, session] of sessions) if (session.userId === account.id) sessions.delete(token)
+          for (const [token, record] of demoEmailTokens) if (record.userId === account.id) demoEmailTokens.delete(token)
+          for (const [token, record] of demoResetTokens) if (record.userId === account.id) demoResetTokens.delete(token)
+          demoPasswordHashes.delete(account.id)
+          profiles.delete(account.id)
+          roommateProfiles.delete(account.id)
+          favorites.delete(account.id)
+          for (const item of listings) if (item.ownerId === account.id) { item.status = 'ARCHIVED'; item.showExactLocation = false; delete item.address }
+          for (let index = verifications.length - 1; index >= 0; index--) if (verifications[index].userId === account.id) verifications.splice(index, 1)
+          for (let index = landlordVerifications.length - 1; index >= 0; index--) if (landlordVerifications[index].userId === account.id) landlordVerifications.splice(index, 1)
+          for (let index = propertyAuthorizations.length - 1; index >= 0; index--) if (propertyAuthorizations[index].requesterId === account.id) propertyAuthorizations.splice(index, 1)
+          account.status = 'DELETED'
+          account.name = 'Deleted account'
+          account.email = `deleted-${account.id}@invalid.local`
+          account.emailVerified = false
+          account.studentVerified = false
+          account.verificationStatus = 'UNVERIFIED'
+        } else if (account) {
+          notify(account.id, 'DELETION_REQUEST', { status: 'REJECTED', reason })
+        }
+        return json(res, 200, { id: request.id, status: request.status, requestedAt: request.requestedAt })
+      }
+    }
     if (path === '/admin/campuses' && method === 'GET') return json(res, 200, { items: campuses })
     if (path === '/admin/campuses' && ['POST', 'PATCH'].includes(method)) {
       if (method === 'PATCH') {
@@ -700,6 +861,12 @@ async function api(req, res, url) {
       }
       const campus = { ...body, id: id('campus'), updatedAt: now(), updatedBy: { name: user.name } }
       campuses.push(campus); return json(res, 201, campus)
+    }
+    if (path === '/admin/audit-logs' && method === 'GET') {
+      const targetType = String(url.searchParams.get('targetType') || '').trim().toUpperCase()
+      const targetId = String(url.searchParams.get('targetId') || '').trim()
+      const filtered = auditLogs.filter(item => (!targetType || item.targetType === targetType) && (!targetId || item.targetId === targetId))
+      return json(res, 200, paginate(filtered, url))
     }
     const moderationMatch = path.match(/^\/admin\/(verifications|listings|reviews|reports|accounts)(?:\/([^/]+))?$/)
     if (moderationMatch) {
@@ -712,6 +879,7 @@ async function api(req, res, url) {
       if (itemId && method === 'PATCH') {
         if (kind === 'verifications') {
           if (!['APPROVED', 'REJECTED'].includes(body.status)) return fail(res, 400, 'Choose approve or reject for student verification.', 'INVALID_STATUS')
+          if (body.status === 'APPROVED' && body.studentIdMatchesEmail !== true) return fail(res, 400, 'Confirm that the Student ID on the card matches the school email before approval.', 'STUDENT_ID_MATCH_REQUIRED')
           if (item.status !== 'PENDING') return fail(res, 409, 'This verification has already been reviewed.', 'ALREADY_REVIEWED')
           const applicant = users.find(account => account.id === item.userId)
           const domain = applicant?.email.toLowerCase().split('@')[1]
@@ -721,7 +889,9 @@ async function api(req, res, url) {
           const proofError = requiredListingProof(item)
           if (proofError) return fail(res, 403, proofError, 'VERIFICATION_REQUIRED')
         }
+        const previousStatus = item.status
         item.status = body.status; item.moderationReason = String(body.reason || ''); item.moderatedAt = now(); item.moderatedBy = { name: user.name }
+        recordAudit(user, `${kind.toUpperCase()}_${item.status}`, kind.toUpperCase(), item.id, { status: previousStatus }, { status: item.status, reason: item.moderationReason })
         if (kind === 'verifications') {
           const student = users.find(account => account.id === item.userId)
           if (student) { student.verificationStatus = body.status; student.studentVerified = body.status === 'APPROVED' }
@@ -774,8 +944,8 @@ try { await stat(resolve(dist, 'index.html')) }
 catch { console.error('Could not find dist/index.html. Run npm ci && npm run build in the frontend directory first.'); process.exit(1) }
 const server = createServer(async (req, res) => {
   try {
-    if (!['127.0.0.1:4173', 'localhost:4173'].includes(req.headers.host)) return fail(res, 403, 'This demo server only accepts local addresses.')
-    if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && !['http://127.0.0.1:4173', 'http://localhost:4173'].includes(req.headers.origin)) return fail(res, 403, 'Cross-origin request rejected.')
+    if (![`${host}:${port}`, `localhost:${port}`].includes(req.headers.host)) return fail(res, 403, 'This demo server only accepts local addresses.')
+    if (!['GET', 'HEAD'].includes(req.method) && req.headers.origin && ![`http://${host}:${port}`, `http://localhost:${port}`].includes(req.headers.origin)) return fail(res, 403, 'Cross-origin request rejected.')
     const url = new URL(req.url, `http://${req.headers.host}`)
     if (url.pathname === '/api/v1' || url.pathname.startsWith('/api/v1/')) return await api(req, res, url)
     if (req.method !== 'GET' && req.method !== 'HEAD') return fail(res, 405, 'This path only serves the demo website.')

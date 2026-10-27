@@ -11,6 +11,8 @@ const navigation = [
   { to: '/admin/reviews', text: 'Review Moderation', icon: '★' },
   { to: '/admin/reports', text: 'Reports', icon: '⚑' },
   { to: '/admin/accounts', text: 'Accounts', icon: '♙' },
+  { to: '/admin/deletion-requests', text: 'Account Deletion Requests', icon: '⌫' },
+  { to: '/admin/audit-logs', text: 'Audit Log', icon: '▤' },
   { to: '/admin/campuses', text: 'Campuses & Domains', icon: '◉' },
 ]
 

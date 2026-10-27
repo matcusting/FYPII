@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../core/db.js'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
+import { approvalIsCurrent, publicListingWhere } from '../core/approval.js'
 import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, saveUpload, type UploadPurpose } from '../storage/listings.js'
 import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 
@@ -95,10 +96,10 @@ async function publishClearance(db: Prisma.TransactionClient, owner: User, listi
   if (owner.status !== 'ACTIVE' || !owner.emailVerifiedAt) return 'ACCOUNT_VERIFICATION_REQUIRED'
   if (owner.roles.includes('LANDLORD')) {
     const identity = await db.landlordVerification.findFirst({ where: { userId: owner.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
-    if (identity?.status !== 'APPROVED') return 'LANDLORD_IDENTITY_REQUIRED'
+    if (!approvalIsCurrent(identity)) return 'LANDLORD_IDENTITY_REQUIRED'
   } else if (!owner.roles.includes('STUDENT') || !owner.studentVerified) return 'STUDENT_VERIFICATION_REQUIRED'
   const authorization = await db.propertyAuthorization.findFirst({ where: { listingId: listing.id, requesterId: owner.id, addressSnapshot: listing.address || '' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
-  return authorization?.status === 'APPROVED' ? null : 'PROPERTY_AUTHORIZATION_REQUIRED'
+  return approvalIsCurrent(authorization) ? null : 'PROPERTY_AUTHORIZATION_REQUIRED'
 }
 
 async function submitForReview(listingId: string, ownerId: string, allowed: Array<'DRAFT' | 'REJECTED' | 'RENTED' | 'PAUSED'>) {
@@ -192,11 +193,12 @@ router.get('/media/:objectKey', withErrors(async (req, res) => {
   const photo = await prisma.listingPhoto.findFirst({ where: { storageKey: req.params.objectKey }, include: { listing: { select: { status: true, ownerId: true } } } })
   const user = currentUser(req)
   if (!photo || (photo.listing.status !== 'PUBLISHED' && photo.listing.ownerId !== user?.id && !isAdmin(user))) { fail(res, 404, 'This photo is unavailable.', 'NOT_FOUND'); return }
+  if (photo.listing.ownerId !== user?.id && !isAdmin(user) && !await prisma.listing.count({ where: { id: photo.listingId, ...publicListingWhere() } })) { fail(res, 404, 'This photo is unavailable.', 'NOT_FOUND'); return }
   const uploaded = await readListingUpload(photo.storageKey)
   if (!uploaded) { fail(res, 404, 'This photo is unavailable.', 'NOT_FOUND'); return }
   res.setHeader('Content-Type', uploaded.mimeType)
   res.setHeader('X-Content-Type-Options', 'nosniff')
-  res.setHeader('Cache-Control', photo.listing.status === 'PUBLISHED' ? 'public, max-age=3600' : 'private, no-store')
+  res.setHeader('Cache-Control', 'private, no-store')
   res.end(uploaded.bytes)
 }))
 
@@ -258,7 +260,7 @@ router.get('/listings', withErrors(async (req, res) => {
   if (numbers.maxDeposit != null) filters.push({ deposit: { lte: numbers.maxDeposit } })
   if (availableBy) filters.push({ availableFrom: { lte: new Date(`${availableBy}T00:00:00.000Z`) } })
   for (const term of terms) filters.push({ amenities: { some: { OR: [{ amenityId: term }, { amenity: { name: { contains: term, mode: 'insensitive' } } }, { amenity: { slug: { contains: term, mode: 'insensitive' } } }] } } })
-  const where: Prisma.ListingWhereInput = { ...(mine ? { ownerId: user!.id } : { status: 'PUBLISHED' }), AND: filters }
+  const where: Prisma.ListingWhereInput = { ...(mine ? { ownerId: user!.id } : publicListingWhere()), AND: filters }
   const orderBy: Prisma.ListingOrderByWithRelationInput[] = sort === 'rent_asc' ? [{ rent: 'asc' }, { createdAt: 'desc' }] : sort === 'rent_desc' ? [{ rent: 'desc' }, { createdAt: 'desc' }] : [{ createdAt: 'desc' }]
   const [total, records] = await Promise.all([
     prisma.listing.count({ where }),
@@ -271,6 +273,10 @@ router.get('/listings/:id', withErrors(async (req, res) => {
   const record = await prisma.listing.findUnique({ where: { id: req.params.id }, include: listingInclude })
   const user = currentUser(req)
   if (!record || (record.status !== 'PUBLISHED' && record.ownerId !== user?.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  if (record.status === 'PUBLISHED' && record.ownerId !== user?.id && !isAdmin(user)) {
+    const visible = await prisma.listing.count({ where: { id: record.id, ...publicListingWhere() } })
+    if (!visible) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  }
   ok(res, serializeListing(record, user))
 }))
 
@@ -407,7 +413,7 @@ router.post('/listings/:id/availability', requireAuth, withErrors(async (req, re
 
 router.get('/favorites', requireAuth, withErrors(async (req, res) => {
   const user = currentUser(req)!
-  const records = await prisma.favorite.findMany({ where: { userId: user.id, listing: { status: 'PUBLISHED' } }, orderBy: { createdAt: 'desc' }, include: { listing: { include: listingInclude } } })
+  const records = await prisma.favorite.findMany({ where: { userId: user.id, listing: publicListingWhere() }, orderBy: { createdAt: 'desc' }, include: { listing: { include: listingInclude } } })
   ok(res, { items: records.map(record => serializeListing(record.listing, user)) })
 }))
 
@@ -415,7 +421,7 @@ router.post('/favorites', requireAuth, withErrors(async (req, res) => {
   const user = currentUser(req)!
   const listingId = typeof req.body?.listingId === 'string' ? req.body.listingId : ''
   const listing = listingId ? await prisma.listing.findUnique({ where: { id: listingId } }) : null
-  if (!listing || listing.status !== 'PUBLISHED') { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
+  if (!listing || !await prisma.listing.count({ where: { id: listing.id, ...publicListingWhere() } })) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
   await prisma.favorite.upsert({ where: { userId_listingId: { userId: user.id, listingId } }, create: { userId: user.id, listingId }, update: {} })
   ok(res, { saved: true })
 }))

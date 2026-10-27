@@ -103,6 +103,9 @@ router.post('/verify-email', limiter(20), asyncRoute(async (req, res) => {
   const token = await prisma.authToken.findUnique({ where: { tokenHash: tokenHash(parsed.data.token) } })
   if (!token || token.kind !== 'EMAIL_VERIFY' || token.usedAt || token.expiresAt <= new Date()) return fail(res, 400, 'The verification token is invalid or expired.', 'INVALID_TOKEN')
   const consumed = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${token.userId}))::text`
+    const account = await tx.user.findUnique({ where: { id: token.userId }, select: { status: true, emailVerifiedAt: true } })
+    if (!account || account.status !== 'ACTIVE' || account.emailVerifiedAt) return false
     const result = await tx.authToken.updateMany({ where: { id: token.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } })
     if (!result.count) return false
     await tx.user.update({ where: { id: token.userId }, data: { emailVerifiedAt: new Date() } })
@@ -110,6 +113,36 @@ router.post('/verify-email', limiter(20), asyncRoute(async (req, res) => {
   })
   if (!consumed) return fail(res, 400, 'The verification token is invalid or expired.', 'INVALID_TOKEN')
   return ok(res, { verified: true })
+}))
+
+// A forgotten or expired registration link must not strand an account. Keep the
+// response identical for unknown, verified and inactive addresses, and limit
+// requests per IP and per account so this cannot become a mail relay.
+router.post('/resend-verification', limiter(5), asyncRoute(async (req, res) => {
+  const parsed = forgotSchema.safeParse(req.body)
+  if (!parsed.success) return fail(res, 400, 'Enter a valid email address.', 'VALIDATION_ERROR')
+  const accepted = { accepted: true }
+  const user = await prisma.user.findUnique({ where: { email: parsed.data.email }, select: { id: true } })
+  if (!user) return ok(res, accepted)
+
+  await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
+    const account = await tx.user.findUnique({ where: { id: user.id }, select: { email: true, name: true, status: true, emailVerifiedAt: true } })
+    if (!account || account.status !== 'ACTIVE' || account.emailVerifiedAt) return
+    const mostRecent = await tx.authToken.findFirst({
+      where: { userId: user.id, kind: 'EMAIL_VERIFY' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+    })
+    if (mostRecent && mostRecent.createdAt > new Date(Date.now() - 10 * 60 * 1000)) return
+
+    const token = randomBytes(32).toString('hex')
+    await tx.authToken.updateMany({ where: { userId: user.id, kind: 'EMAIL_VERIFY', usedAt: null }, data: { usedAt: new Date() } })
+    await tx.authToken.create({ data: { userId: user.id, tokenHash: tokenHash(token), kind: 'EMAIL_VERIFY', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
+    await tx.emailJob.create({ data: {
+      to: account.email, subject: 'Verify your UTS Housing email', template: 'email-verification',
+      payload: { name: account.name, url: authUrl('/verify-email', token) },
+    } })
+  })
+  return ok(res, accepted)
 }))
 
 router.post('/forgot-password', limiter(8), asyncRoute(async (req, res) => {
