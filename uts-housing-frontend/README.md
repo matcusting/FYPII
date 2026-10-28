@@ -4,6 +4,8 @@ React + TypeScript + Vite frontend for the product described in the user's uploa
 
 ## Run locally
 
+On Windows, start the complete application from the repository root with `START-REAL-SITE.cmd`; see [WINDOWS_LOCAL_SETUP.md](../WINDOWS_LOCAL_SETUP.md). It serves this frontend at `http://localhost:5173` with the real API and PostgreSQL. The separate `127.0.0.1:4173` preview discards verification uploads and shows placeholder downloads.
+
 Use Node 24 and npm. From this directory:
 
 ```bash

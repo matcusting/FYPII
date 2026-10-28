@@ -265,6 +265,7 @@ router.get('/verifications/:id/:document', asyncRoute(async (req, res) => {
   const documentFile = await storedVerificationDocument(storageKey, verification.userId, studentId ? ['image/jpeg', 'image/png'] : ['application/pdf', 'image/jpeg', 'image/png'])
   if (!documentFile) return void fail(res, 404, 'This verification document is unavailable.', 'NOT_FOUND')
   const { upload, bytes } = documentFile
+  await prisma.auditLog.create({ data: { actorId: currentUser(req)!.id, action: 'STUDENT_DOCUMENT_VIEWED', targetType: 'STUDENT_VERIFICATION', targetId: id.data, after: { document: document.data } } })
   const extension = upload.mimeType === 'application/pdf' ? '.pdf' : upload.mimeType === 'image/jpeg' ? '.jpg' : '.png'
   res.setHeader('Content-Type', upload.mimeType)
   res.setHeader('Content-Disposition', `attachment; filename="${studentId ? 'student-id' : 'offer-letter'}${extension}"`)

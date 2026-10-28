@@ -2,6 +2,7 @@ import { app } from './app.js'
 import { isAbsolute } from 'node:path'
 
 const port = Number(process.env.PORT || 3001)
+const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1')
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.')
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.DATABASE_URL || !process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
@@ -21,4 +22,4 @@ if (process.env.NODE_ENV === 'production') {
     throw new Error('Set MEDIA_PRIVATE_DIR to a persistent absolute private path in production.')
   }
 }
-app.listen(port, () => { console.info(`UTS Housing API listening on port ${port}`) })
+app.listen(port, host, () => { console.info(`UTS Housing API listening on ${host}:${port}`) })

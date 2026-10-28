@@ -2,46 +2,13 @@
 
 A local development build of the student housing project. The React website and Express/PostgreSQL API cover accounts, student and landlord verification, property authorization, moderated property listings, search and favorites, roommate matching, inquiries and consent-based messaging, rental-proof reviews, reports, notifications, and administration. The website keeps its existing visual style. English is the default interface language; users can switch to Bahasa Melayu or Simplified Chinese. The seeded accounts and property are fictional.
 
-## Open locally on Windows
+## Open the complete site locally on Windows
 
-Install Node.js 24, Git and Docker Desktop. Open PowerShell, clone this branch, and enter the repository folder:
+Use this workflow when you need the administrator to download the same student or landlord documents that an applicant uploaded. Install Node.js 24 and Docker Desktop, start Docker Desktop, then download and extract the [whole `codex/frontend-preview` branch](https://github.com/matcusting/FYPII/archive/refs/heads/codex/frontend-preview.zip). In the extracted project folder, double-click **`START-REAL-SITE.cmd`**. It prepares PostgreSQL, the real API and email worker, the React frontend, and a private local administrator with a randomly generated password shown once in the launcher window. Open **http://localhost:5173** in Chrome and keep the service windows open. The launcher uses its own folder, so it does not depend on PowerShell starting in `C:\Windows\System32`.
 
-```powershell
-git clone -b codex/frontend-preview https://github.com/matcusting/FYPII.git
-cd FYPII
-```
+Follow [WINDOWS_LOCAL_SETUP.md](WINDOWS_LOCAL_SETUP.md) for the first-run steps, the local email outbox, a fictional student and landlord upload exercise, and troubleshooting. The default launcher does not add accounts with publicly documented demo passwords. Stop the API, worker and frontend windows with Ctrl+C; `docker compose down` stops PostgreSQL without deleting its volume. The database and private evidence files remain on this computer. This is local development, not an internet deployment.
 
-Start PostgreSQL and the API:
-
-```powershell
-docker compose up -d postgres
-cd uts-housing-api
-Copy-Item .env.example .env
-npm ci
-npm run db:generate
-npm run db:deploy
-$env:CONFIRM_DEMO_SEED='1'; npm run db:seed
-npm run dev
-```
-
-Keep that window open. Open a second PowerShell window in `uts-housing-api` and start the email worker:
-
-```powershell
-npm run email:worker
-```
-
-Open a third PowerShell window in `uts-housing-frontend`:
-
-```powershell
-npm ci
-npm run dev
-```
-
-Open **http://localhost:5173** in Chrome. The local demo accounts are `student@demo.local`, `candidate@demo.local`, `landlord@demo.local`, and `admin@demo.local`, with password `Demo12345!`. They exist only after the optional seed command. Never use fictional records to arrange a real rental. Stop the API, worker, and Vite with Ctrl+C; stop PostgreSQL with `docker compose down` when finished.
-
-The application uses the real local API and database. The older `uts-housing-frontend/preview` server is a separate, temporary in-memory UI preview. Changes made in that preview disappear when it stops.
-
-For a no-install Windows UI demonstration, download and extract [`preview-downloads/FYPII-Windows-Chrome-preview.zip`](preview-downloads/FYPII-Windows-Chrome-preview.zip), then double-click `START-WEBSITE.cmd`. That preview simulates student and landlord registration, verification, password recovery and administrator decisions with fictional data; it does not send email or retain uploaded evidence.
+The separate [`FYPII-Windows-Chrome-preview.zip`](preview-downloads/FYPII-Windows-Chrome-preview.zip) opens at `http://127.0.0.1:4173/` and only simulates the workflow: it discards uploaded files and gives administrators placeholder downloads. It cannot be used to inspect an actual student ID, offer letter, landlord identity document or rental authorization. Use only fictional test documents in either local workflow until email delivery, private-file backups, access policy and retention have been arranged.
 
 The language selector is available in the site navigation and role dashboards. It remembers the choice in this browser. Chat messages and user-entered listing text stay in their original language. If you switch accounts in another browser tab, the message composer resets its draft; reload any older tab before sending a reply. The API checks that the sender shown by the browser is still the signed-in account.
 

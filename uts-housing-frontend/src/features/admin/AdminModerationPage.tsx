@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, apiResourceUrl, itemsOf, messageOf } from '../../lib/api'
 import { useI18n } from '../../lib/i18n'
+import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
 import { AdminShell, Notice, QueryState } from './shared'
 import { asRecord, dateText, firstText, nestedText, type DataRecord } from './data'
 
@@ -232,6 +233,7 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
   return (
     <div className="mb-5 rounded-lg border border-slate-200 bg-white p-4">
       <h3 className="font-semibold text-slate-900">{t('Review details')}</h3>
+      {(kind === 'verifications' || kind === 'landlord-verifications' || kind === 'property-authorizations') && <div className="mt-3"><PreviewDocumentNotice reviewer /></div>}
       <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
         {details.filter(item => item.value).map(item => <div key={item.label} className="min-w-0"><dt className="font-semibold text-slate-700">{t(item.label)}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-900">{item.value}</dd></div>)}
       </dl>

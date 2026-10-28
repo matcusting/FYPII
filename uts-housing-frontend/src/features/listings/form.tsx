@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api, messageOf } from '../../lib/api'
 import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
+import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
 import { hasRole, useAuth } from '../../lib/auth'
 import { Field, inputClass, Notice, primaryButton, QueryState, secondaryButton } from './components'
 import { getList, propertyTypes, roomTypes, statusNames, type Amenity, type Campus, type ListingDetails } from './model'
@@ -67,6 +68,7 @@ function PropertyAuthorization({ listingId, isStudent, canUpload, addressChanged
   const current = status?.status || 'UNVERIFIED'
   return <section className="space-y-4 rounded-lg border border-gray-200 bg-[#fcfcfd] p-4 sm:p-5" aria-labelledby="property-authorization-heading">
     <div><h2 id="property-authorization-heading" className="text-[13px] font-bold text-[#374151]">{t('Property Authorization')}</h2><p className="mt-1 text-xs text-gray-600">{t('This address needs its own private authorization review before the listing can be submitted for publication.')}</p></div>
+    <PreviewDocumentNotice />
     <p className="text-sm text-gray-700">{t('Current status:')} <strong>{t(current === 'UNVERIFIED' ? 'Not verified' : current === 'PENDING' ? 'Pending review' : current === 'APPROVED' ? 'Approved' : current === 'REJECTED' ? 'Rejected' : current === 'REVOKED' ? 'Revoked' : current === 'EXPIRED' ? 'Expired' : current)}</strong></p>
     {status?.latest?.expiresAt && <p className="text-sm text-gray-600">{t('Valid until:')} {status.latest.expiresAt.slice(0, 10)}</p>}
     {status?.latest?.reason && (current === 'REJECTED' || current === 'REVOKED') && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{t('Reason: {reason}', { reason: t(status.latest.reason) })}</p>}

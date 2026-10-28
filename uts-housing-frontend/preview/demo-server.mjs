@@ -935,9 +935,14 @@ async function staticFile(req, res, url) {
     file = resolve(dist, 'index.html')
   }
   const content = await readFile(file)
+  // The same built frontend is used with the real API. Mark only pages served
+  // by this in-memory preview so document warnings never appear in real mode.
+  const responseBody = file.endsWith('index.html')
+    ? Buffer.from(content.toString('utf8').replace('</head>', '<meta name="uts-housing-preview" content="true"></head>'))
+    : content
   const type = mime[extname(file)] || 'application/octet-stream'
   res.writeHead(200, { 'Content-Type': type, 'Cache-Control': file.endsWith('index.html') ? 'no-store' : 'public, max-age=3600', 'X-Content-Type-Options': 'nosniff' })
-  return res.end(content)
+  return res.end(responseBody)
 }
 
 try { await stat(resolve(dist, 'index.html')) }

@@ -141,6 +141,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     const submittedProperty = await request(`/landlord-verifications/listings/${listingId}`, 'landlord', 'POST', propertyForm())
     expect(submittedProperty.status).toBe(201)
     const propertyId = (await prisma.propertyAuthorization.findFirstOrThrow({ where: { listingId } })).id
+
+    // Verify that both kinds of landlord evidence survive an API restart.
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    const { app } = await import('../app.js')
+    server = await new Promise<Server>(resolve => {
+      const started = app.listen(0, '127.0.0.1', () => resolve(started))
+    })
+    const restartedAddress = server.address()
+    if (!restartedAddress || typeof restartedAddress === 'string') throw new Error('Test server failed to restart.')
+    base = `http://127.0.0.1:${restartedAddress.port}/api/v1`
+    const persistedIdentity = await request(`/admin/landlord-verifications/${identityId}/identity`, 'admin')
+    expect(persistedIdentity.status).toBe(200)
+    expect(Buffer.from(await persistedIdentity.arrayBuffer())).toEqual(jpeg)
+
     expect((await request(`/admin/property-authorizations/${propertyId}/proof`, 'landlord')).status).toBe(403)
     const propertyDocument = await request(`/admin/property-authorizations/${propertyId}/proof`, 'admin')
     expect(propertyDocument.status).toBe(200)

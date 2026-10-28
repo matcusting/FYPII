@@ -6,6 +6,7 @@ import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
 import { formatDate, inputClass, labelForStatus } from './format'
 import { ErrorNotice, LoadingNotice, Panel } from './shared'
+import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
 
 type IdentityKind = 'INDIVIDUAL' | 'COMPANY'
 interface IdentityStatus {
@@ -76,6 +77,7 @@ export function LandlordVerification() {
   return <Panel title={t('Landlord Identity Verification')}>
     {status.isPending ? <LoadingNotice /> : status.isError ? <ErrorNotice error={status.error} onRetry={() => void status.refetch()} /> : <div className="space-y-4 text-sm">
       <p className="text-gray-600">{t('Current status:')} <strong>{labelForStatus(state)}</strong></p>
+      <PreviewDocumentNotice />
       {status.data?.latest?.expiresAt && <p className="text-gray-600">{t('Valid until:')} {formatDate(status.data.latest.expiresAt)}</p>}
       {status.data?.latest?.reason && (state === 'REJECTED' || state === 'REVOKED') && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Reason: {reason}', { reason: t(status.data.latest.reason) })}</p>}
       {state === 'EXPIRED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Your identity approval expired. Submit fresh documents for another review.')}</p>}

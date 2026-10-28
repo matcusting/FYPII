@@ -4,6 +4,10 @@ export const adminTranslations: Record<string, { ms: string; zh: string }> = {
   'Admin navigation': { ms: 'Navigasi pentadbir', zh: '管理导航' },
   'Overview': { ms: 'Ringkasan', zh: '概览' },
   'Student Verification': { ms: 'Pengesahan Pelajar', zh: '学生认证' },
+  'Local preview only: these downloads are sample placeholders. Applicants’ uploaded files were discarded, so real documents cannot be reviewed here. Do not treat preview approvals as real verification.': {
+    ms: 'Pratonton setempat sahaja: muat turun ini ialah contoh gantian. Fail yang dimuat naik oleh pemohon telah dibuang, jadi dokumen sebenar tidak boleh disemak di sini. Jangan anggap kelulusan pratonton sebagai pengesahan sebenar.',
+    zh: '仅限本地预览：这些下载文件只是示例占位内容。申请人上传的原件已被丢弃，无法在此审核真实文件。预览版的批准不能当作真实认证。',
+  },
   'Listing Review': { ms: 'Semakan Iklan Rumah', zh: '房源审核' },
   'Review Moderation': { ms: 'Penyederhanaan Ulasan', zh: '评价审核' },
   'Reports': { ms: 'Laporan', zh: '举报' },

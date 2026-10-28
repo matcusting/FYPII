@@ -1,11 +1,13 @@
 # Windows Chrome 演示包
 
+这个 ZIP 只模拟认证，上传的学生证、录取通知书及房东资料会立即丢弃，管理员下载的是占位图。若要在自己的电脑保存并审核原始文件，请下载完整仓库，按 [Windows 本机完整启动说明](../WINDOWS_LOCAL_SETUP.md) 运行 `START-REAL-SITE.cmd`，打开 `http://localhost:5173/`。
+
 从 GitHub 下载 `FYPII-Windows-Chrome-preview.zip`，在 Windows 文件管理器中右键选择“全部解压”，然后在解压后的文件夹中双击 `START-WEBSITE.cmd`。使用网站期间保持 **UTS Housing Preview Server** 窗口开着。启动文件会尝试自动打开 Chrome；如未打开，请在同一台电脑的 Chrome 输入 `http://127.0.0.1:4173/`。
 
 ZIP 内含已构建的前端、内存演示 API，以及官方 Windows x64 Node.js v20.19.5 运行程序；无需安装 Node.js 或运行 `npm`。ZIP 的 SHA-256 为：
 
 ```text
-deb149b5087660ecd0d92d0ea2f48155b27141ebaaac6740e3e532cac90c164c
+9b7dbb9f903ff605839c1154046d985c088dd84012b9e8e82690e967a3b41d4b
 ```
 
 演示账号为 `student@demo.local`、`landlord@demo.local`、`admin@demo.local`，以及待认证学生 `verification-demo@student.uts.edu.my` 和待认证房东 `landlord-applicant@demo.local`；密码均为 `Demo12345!`。所有数据均为虚构示例，重启服务后恢复初始状态。网站默认显示英文，可切换马来文或简体中文。这个 ZIP 使用独立的内存演示服务；仓库中的 Express/PostgreSQL 后端需按根目录 README 另行启动。

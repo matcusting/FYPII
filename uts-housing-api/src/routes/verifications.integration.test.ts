@@ -89,6 +89,16 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     const storedFiles = await readdir(join(privateDir, 'verifications'))
     expect(storedFiles).toHaveLength(2)
 
+    // The private files remain readable through a new HTTP listener.
+    await new Promise<void>(resolve => server.close(() => resolve()))
+    const { app } = await import('../app.js')
+    server = await new Promise<Server>(resolve => {
+      const started = app.listen(0, '127.0.0.1', () => resolve(started))
+    })
+    const restartedAddress = server.address()
+    if (!restartedAddress || typeof restartedAddress === 'string') throw new Error('Test server failed to restart.')
+    base = `http://127.0.0.1:${restartedAddress.port}/api/v1`
+
     const queue = await (await request('/admin/verifications', 'admin')).json() as { data: { items: Array<{ id: string }> } }
     const verificationId = (await prisma.studentVerification.findFirstOrThrow({ where: { userId: studentId } })).id
     expect(queue.data.items.some(item => item.id === verificationId)).toBe(true)
@@ -98,10 +108,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     expect(detail.data.offerLetterUrl).toContain('/offer-letter')
     expect((await request(`/admin/verifications/${verificationId}/student-id`, 'guest')).status).toBe(401)
     expect((await request(`/admin/verifications/${verificationId}/student-id`, 'student')).status).toBe(403)
+    const studentIdDocument = await request(`/admin/verifications/${verificationId}/student-id`, 'admin')
+    expect(studentIdDocument.status).toBe(200)
+    expect(Buffer.from(await studentIdDocument.arrayBuffer())).toEqual(jpeg)
     const privateDocument = await request(`/admin/verifications/${verificationId}/offer-letter`, 'admin')
     expect(privateDocument.status).toBe(200)
     expect(privateDocument.headers.get('cache-control')).toContain('no-store')
     expect(Buffer.from(await privateDocument.arrayBuffer())).toEqual(pdf)
+    expect(await prisma.auditLog.count({ where: { actorId: adminId, action: 'STUDENT_DOCUMENT_VIEWED', targetId: verificationId } })).toBe(2)
 
     const unchecked = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.' }))
     expect(unchecked.status).toBe(400)

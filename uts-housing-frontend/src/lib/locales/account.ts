@@ -15,6 +15,10 @@ export const accountTranslations: Record<string, { ms: string; zh: string }> = {
   'Account Status': { ms: 'Status Akaun', zh: '账户状态' },
   'Email': { ms: 'E-mel', zh: '邮箱' },
   'Student verification': { ms: 'Pengesahan pelajar', zh: '学生认证' },
+  'Local preview only: uploaded verification files are discarded immediately. Reviewers see sample placeholders, not your files. Do not upload real documents here.': {
+    ms: 'Pratonton setempat sahaja: fail pengesahan yang dimuat naik terus dibuang. Penyemak hanya melihat contoh gantian, bukan fail anda. Jangan muat naik dokumen sebenar di sini.',
+    zh: '仅限本地预览：上传的认证文件会立即丢弃。审核员看到的是示例占位文件，不是你上传的原件。请勿在此上传真实证件。',
+  },
   'Verified': { ms: 'Disahkan', zh: '已认证' },
   'Profile Settings →': { ms: 'Tetapan Profil →', zh: '个人资料设置 →' },
   'Quick Links': { ms: 'Pautan Pantas', zh: '快捷入口' },

@@ -8,6 +8,7 @@ import { ErrorNotice, LoadingNotice, Panel } from './shared'
 import { inputClass, labelForStatus } from './format'
 import { AccountControls } from './AccountControls'
 import { LandlordVerification } from './LandlordVerification'
+import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
 
 interface AccountProfile {
   displayName?: string | null
@@ -178,6 +179,7 @@ export function ProfilePage() {
 
       {isStudent && <Panel title={t('Student Verification')}>
         <p className="mb-4 text-sm text-gray-600">{t('Current status:')} <strong>{studentVerified ? t('Verified') : labelForStatus(verificationStatus)}</strong></p>
+        {!studentVerified && <div className="mb-4"><PreviewDocumentNotice /></div>}
         {verificationMessage && <p role="alert" className="mb-4 text-sm text-red-700">{t(verificationMessage)}</p>}
         {studentVerified ? <p className="text-sm text-green-700">{t('Your student verification is complete.')}</p>
           : pendingVerification || verification.isSuccess ? <p className="text-sm text-gray-600">{t('Your application is being reviewed.')}</p>
