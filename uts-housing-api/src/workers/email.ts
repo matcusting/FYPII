@@ -2,8 +2,8 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import nodemailer from 'nodemailer'
 import { prisma } from '../core/db.js'
+import { configuredSmtpTransport } from '../core/smtp.js'
 import { pauseListingsWithoutCurrentApproval } from './approval-expiry.js'
 
 function message(template: string, payload: Record<string, unknown>) {
@@ -27,13 +27,10 @@ function message(template: string, payload: Record<string, unknown>) {
 
 async function deliver(to: string, subject: string, text: string) {
   const from = process.env.EMAIL_FROM || 'UTS Housing <no-reply@example.local>'
-  if (process.env.SMTP_HOST) {
-    const port = Number(process.env.SMTP_PORT || 587)
-    const transport = nodemailer.createTransport({
-      host: process.env.SMTP_HOST, port, secure: port === 465,
-      ...(process.env.SMTP_USER && process.env.SMTP_PASSWORD ? { auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD } } : {}),
-    })
-    await transport.sendMail({ from, to, subject, text })
+  const transport = configuredSmtpTransport()
+  if (transport) {
+    try { await transport.sendMail({ from, to, subject, text }) }
+    finally { transport.close() }
     return
   }
   if (process.env.NODE_ENV === 'production') throw new Error('SMTP_HOST is required for production email delivery.')

@@ -15,7 +15,8 @@
     "db:init-local": "node --env-file-if-exists=.env --import tsx prisma/local-init.ts",
     "db:seed": "node --env-file-if-exists=.env --import tsx prisma/seed.ts",
     "locations:backfill": "node --env-file-if-exists=.env --import tsx prisma/backfill-locations.ts",
-    "email:worker": "node --env-file-if-exists=.env --import tsx src/workers/email.ts"
+    "email:worker": "node --env-file-if-exists=.env --import tsx src/workers/email.ts",
+    "email:check": "node --env-file-if-exists=.env --import tsx src/workers/check-smtp.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^6.19.0",

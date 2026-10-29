@@ -94,6 +94,8 @@ router.post('/login', limiter(12), asyncRoute(async (req, res) => {
   return ok(res, publicUser(user))
 }))
 
+router.get('/delivery-mode', (_req, res) => ok(res, { localOutbox: process.env.NODE_ENV !== 'production' && !process.env.SMTP_HOST }))
+
 router.get('/me', requireAuth, (req, res) => ok(res, publicUser(currentUser(req)!)))
 
 router.post('/logout', asyncRoute(async (req, res) => {

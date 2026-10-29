@@ -12,13 +12,19 @@ vi.mock('../../lib/auth', () => ({ useAuth: () => ({ user: null, signIn: signInM
 afterEach(() => { cleanup(); apiMock.mockReset(); signInMock.mockReset() })
 
 describe('account forms', () => {
+  it('explains where local verification codes go when SMTP is unavailable', async () => {
+    apiMock.mockResolvedValue({ localOutbox: true })
+    render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
+    expect(await screen.findByText(/Local email test mode: no message is sent to your inbox/)).toBeTruthy()
+  })
+
   it('allows a new verification code to be requested after expiry', async () => {
     apiMock.mockResolvedValue({ accepted: true })
     render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Resend Verification Code' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Enter a valid email address.')
-    expect(apiMock).not.toHaveBeenCalled()
+    expect(apiMock.mock.calls.every(([path]) => path === '/auth/delivery-mode')).toBe(true)
     await user.type(screen.getByLabelText('Email'), 'student@student.uts.edu.my')
     await user.click(screen.getByRole('button', { name: 'Resend Verification Code' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/resend-verification', expect.objectContaining({
@@ -40,7 +46,7 @@ describe('account forms', () => {
   })
 
   it('shows local-only verification and reset links returned by the preview', async () => {
-    apiMock.mockResolvedValueOnce({ accepted: true, demoVerificationToken: 'demo-verify-token' })
+    apiMock.mockImplementation(async (path: string) => path === '/auth/delivery-mode' ? { localOutbox: false } : { accepted: true, demoVerificationToken: 'demo-verify-token' })
     const { unmount } = render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Email'), 'preview-student@student.uts.edu.my')
@@ -51,7 +57,7 @@ describe('account forms', () => {
     expect(screen.getByText(/This link is ready/)).toBeTruthy()
     unmount()
 
-    apiMock.mockResolvedValueOnce({ accepted: true, demoResetToken: 'demo-reset-token' })
+    apiMock.mockImplementation(async (path: string) => path === '/auth/delivery-mode' ? { localOutbox: false } : { accepted: true, demoResetToken: 'demo-reset-token' })
     render(<MemoryRouter><ForgotPasswordPage /></MemoryRouter>)
     await user.type(screen.getByLabelText('Email'), 'preview-student@student.uts.edu.my')
     await user.click(screen.getByRole('button', { name: 'Send Reset Instructions' }))

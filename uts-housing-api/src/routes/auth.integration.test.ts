@@ -52,6 +52,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
   })
 
   it('registers, verifies, signs in, enforces CSRF, and invalidates sessions after reset', async () => {
+    const deliveryMode = await fetch(base + '/auth/delivery-mode')
+    expect((await deliveryMode.json() as { data: { localOutbox: boolean } }).data.localOutbox).toBe(true)
     let cookie = ''
     const request = async (path: string, method = 'GET', body?: Record<string, unknown>, includeOrigin = true) => {
       const headers: Record<string, string> = {}

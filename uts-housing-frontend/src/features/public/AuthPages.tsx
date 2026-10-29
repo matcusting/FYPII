@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
@@ -8,6 +8,17 @@ import { useI18n } from '../../lib/i18n'
 import { homeForUser, loginDestination } from '../../lib/routeAccess'
 import { AuthLayout, fieldClass, FormNotice, primaryButtonClass } from './ui'
 import { loginSchema, registerSchema, type LoginValues, type RegisterValues } from './schemas'
+
+function LocalOutboxNotice() {
+  const { t } = useI18n()
+  const [localOutbox, setLocalOutbox] = useState(false)
+  useEffect(() => {
+    let active = true
+    void api<{ localOutbox: boolean }>('/auth/delivery-mode').then(mode => { if (active) setLocalOutbox(mode.localOutbox === true) }).catch(() => {})
+    return () => { active = false }
+  }, [])
+  return localOutbox ? <p className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="status">{t('Local email test mode: no message is sent to your inbox. Find the code in uts-housing-api/data/outbox on the computer running the API. This does not verify ownership of a real mailbox.')}</p> : null
+}
 
 export function LoginPage() {
   const { t } = useI18n()
@@ -176,6 +187,7 @@ export function VerifyEmailPage() {
 
   return (
     <AuthLayout title="Verify Email" description="Enter the 6-character code from your email to verify your address.">
+      <LocalOutboxNotice />
       {complete ? <div className="space-y-5"><FormNotice success="Email verified. You can now sign in." /><Link to="/login" className={primaryButtonClass}>{t('Go to Login')}</Link></div> : <>
         <form onSubmit={submit} noValidate className="space-y-5">
           <FormNotice error={error} />
@@ -226,6 +238,7 @@ export function ForgotPasswordPage() {
 
   return (
     <AuthLayout title="Reset Password" description="Enter your account email address and we will send reset instructions.">
+      <LocalOutboxNotice />
       {complete ? <div className="space-y-5"><FormNotice success={demoResetToken ? 'A local preview password reset link is ready below.' : 'If this email address is registered, you will receive a password reset email. Check your inbox and spam folder.'} />{demoResetToken && <p className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{t('Local preview only:')} <Link to={`/reset-password?token=${encodeURIComponent(demoResetToken)}`} className="font-semibold underline">{t('Open the demo password reset link')}</Link></p>}<Link to="/login" className="font-semibold text-blue-800 underline">{t('Back to Login')}</Link></div> : (
         <form onSubmit={submit} noValidate className="space-y-5"><FormNotice error={error} /><div><label htmlFor="forgot-email" className="font-medium text-slate-800">{t('Email')}</label><input id="forgot-email" name="email" type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} className={fieldClass} /></div><button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{busy ? t('Sending…') : t('Send Reset Instructions')}</button></form>
       )}
