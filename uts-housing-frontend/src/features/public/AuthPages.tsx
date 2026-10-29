@@ -104,6 +104,7 @@ export function RegisterPage() {
 
   return (
     <AuthLayout title="Create Account" description="Students register with a university-issued email, verify it, then submit a Student ID photo and offer letter for review. Landlords verify their email, then submit identity and property authorization documents for review.">
+      <LocalOutboxNotice />
       {complete ? (
         <div className="space-y-5">
           <FormNotice success={demoVerificationToken ? 'Local preview account created. Use the demo verification link below before signing in.' : 'Registration submitted. Check your email for a verification code before signing in.'} />

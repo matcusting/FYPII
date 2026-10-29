@@ -7,13 +7,14 @@ import { prisma } from '../core/db.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
 import { clearSession, createSession, currentUser, requireAuth, tokenHash } from '../core/auth.js'
 import { queueEmail } from '../core/mail.js'
+import { normalizeSmsPhone } from '../core/sms.js'
 
 const router = Router()
 const email = z.email().max(254).transform(value => value.trim().toLowerCase())
 const password = z.string().min(8).max(128)
 const phone = z.string().trim().min(7).max(25)
   .regex(/^\+?[0-9][0-9 ()-]*$/)
-  .refine(value => { const digits = value.replace(/\D/g, '').length; return digits >= 7 && digits <= 15 })
+  .refine(value => { const digits = value.replace(/\D/g, '').length; return digits >= 7 && digits <= 15 && Boolean(normalizeSmsPhone(value)) })
 const registerSchema = z.object({
   name: z.string().trim().min(2).max(100), email, password,
   role: z.enum(['STUDENT', 'LANDLORD']), phone: phone.optional(), acceptTerms: z.literal(true),

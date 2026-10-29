@@ -119,8 +119,15 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
 
     const unchecked = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.' }))
     expect(unchecked.status).toBe(400)
-    const approved = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.', studentIdMatchesEmail: true }))
+    const undocumentedOfficialCheck = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true, enrollmentCheckStatus: 'ACTIVE' }))
+    expect(undocumentedOfficialCheck.status).toBe(400)
+    const inactive = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true, enrollmentCheckStatus: 'INACTIVE', enrollmentCheckReference: 'synthetic-case-1' }))
+    expect(inactive.status).toBe(400)
+    const approved = await request(`/admin/verifications/${verificationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Both synthetic documents reviewed.', studentIdMatchesEmail: true, enrollmentCheckStatus: 'ACTIVE', enrollmentCheckReference: 'synthetic-case-1' }))
     expect(approved.status).toBe(200)
+    const reviewed = await prisma.studentVerification.findUniqueOrThrow({ where: { id: verificationId } })
+    expect(reviewed).toMatchObject({ enrollmentCheckStatus: 'ACTIVE', enrollmentCheckReference: 'synthetic-case-1' })
+    expect(reviewed.enrollmentCheckedAt).toBeInstanceOf(Date)
     const account = await (await request('/auth/me', 'student')).json() as { data: { studentVerified: boolean } }
     expect(account.data.studentVerified).toBe(true)
 

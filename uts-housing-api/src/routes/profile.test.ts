@@ -3,6 +3,7 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 
 const database = vi.hoisted(() => ({
   profile: { findUnique: vi.fn(), upsert: vi.fn() },
+  phoneVerificationChallenge: { deleteMany: vi.fn() },
   user: { update: vi.fn() },
   landlordVerification: { findMany: vi.fn(), updateMany: vi.fn() },
   propertyAuthorization: { findMany: vi.fn(), updateMany: vi.fn() },
@@ -44,11 +45,11 @@ beforeEach(() => {
   database.landlordVerification.findMany.mockResolvedValue([])
   database.propertyAuthorization.findMany.mockResolvedValue([])
   database.transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => callback({
-    profile: database.profile, user: database.user, landlordVerification: database.landlordVerification,
+    profile: database.profile, phoneVerificationChallenge: database.phoneVerificationChallenge, user: database.user, landlordVerification: database.landlordVerification,
     propertyAuthorization: database.propertyAuthorization, listing: database.listing,
     mediaUpload: database.mediaUpload, $queryRaw: database.queryRaw,
   }))
-  database.profile.upsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({ ...create, university: null, bio: null, preferredLocation: null, budgetMin: null, budgetMax: null, preferredMoveInDate: null }))
+  database.profile.upsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({ ...create, university: null, bio: null, preferredLocation: null, budgetMin: null, budgetMax: null, preferredMoveInDate: null, phoneVerifiedAt: null }))
 })
 
 describe('private account contact phone', () => {
@@ -72,6 +73,7 @@ describe('private account contact phone', () => {
   it('rejects invalid phone numbers and admin attempts before writing data', async () => {
     expect((await call('PATCH', '/profile', landlord, { phone: 'abc123' })).status).toBe(400)
     expect((await call('PATCH', '/profile', student, { phone: '123' })).status).toBe(400)
+    expect((await call('PATCH', '/profile', student, { phone: '1234567' })).status).toBe(400)
     expect((await call('PATCH', '/profile', admin, { phone: '+60 12-345 6789' })).status).toBe(403)
     expect(database.profile.upsert).not.toHaveBeenCalled()
   })

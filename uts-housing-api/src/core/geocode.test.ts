@@ -20,6 +20,14 @@ describe('private address lookup', () => {
     expect(await geocodeAddress('Invalid abroad example, Sibu', endpoint, abroad)).toBeNull()
   })
 
+  it('uses a precise result after a broader area result', async () => {
+    const request = vi.fn(async () => new Response(JSON.stringify([
+      { lat: '2.3', lon: '111.8', addresstype: 'town' },
+      { lat: '2.323', lon: '111.84', addresstype: 'building' },
+    ]), { status: 200 })) as unknown as typeof fetch
+    expect(await geocodeAddress('11 Jalan Precise Match, 96000 Sibu', endpoint, request)).toEqual({ latitude: 2.323, longitude: 111.84 })
+  })
+
   it('leaves the listing usable when lookup fails', async () => {
     const request = vi.fn(async () => { throw new Error('lookup unavailable') }) as unknown as typeof fetch
     expect(await geocodeAddress('Unavailable lookup address, Sibu', endpoint, request)).toBeNull()

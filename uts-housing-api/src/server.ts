@@ -1,10 +1,12 @@
 import { app } from './app.js'
 import { isAbsolute } from 'node:path'
+import { smsMode } from './core/sms.js'
 
 const port = Number(process.env.PORT || 3001)
 const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1')
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT must be a valid TCP port.')
 if (process.env.NODE_ENV === 'production') {
+  smsMode()
   if (!process.env.DATABASE_URL || !process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32) {
     throw new Error('DATABASE_URL and a strong SESSION_SECRET are required in production.')
   }

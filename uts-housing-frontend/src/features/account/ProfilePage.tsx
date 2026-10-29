@@ -9,6 +9,7 @@ import { inputClass, labelForStatus } from './format'
 import { AccountControls } from './AccountControls'
 import { LandlordVerification } from './LandlordVerification'
 import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
+import { PhoneVerification } from './PhoneVerification'
 
 interface AccountProfile {
   displayName?: string | null
@@ -77,6 +78,7 @@ export function ProfilePage() {
       setSaveMessage('Profile saved.')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['profile'] }),
+        queryClient.invalidateQueries({ queryKey: ['phone-verification'] }),
         ...(isLandlord ? [
           queryClient.invalidateQueries({ queryKey: ['landlord-identity'] }),
           queryClient.invalidateQueries({ queryKey: ['property-authorization'] }),
@@ -118,7 +120,9 @@ export function ProfilePage() {
     if (fields.displayName.trim().length < 2) { setFormError('Enter at least 2 characters for your name.'); return }
     if (isLandlord || (isStudent && fields.phone.trim())) {
       const phone = fields.phone.trim()
-      if (!/^\+?[0-9][0-9 ()-]*$/.test(phone) || phone.replace(/\D/g, '').length < 7 || phone.replace(/\D/g, '').length > 15) { setFormError('Enter a valid phone number.'); return }
+      const compact = phone.replace(/[ ()-]/g, '')
+      const international = compact.startsWith('+') ? compact : compact.startsWith('0') ? `+60${compact.slice(1)}` : compact.startsWith('60') ? `+${compact}` : ''
+      if (!/^\+?[0-9][0-9 ()-]*$/.test(phone) || !/^\+[1-9]\d{7,14}$/.test(international)) { setFormError('Enter a Malaysian number beginning with 0 or an international number with +country code.'); return }
     }
     save.mutate(fields)
   }
@@ -168,7 +172,7 @@ export function ProfilePage() {
             <label className="block text-[13px] font-bold text-gray-700">{t('Full Legal Name')} <span aria-hidden="true">*</span><input className={inputClass} value={fields.displayName} onChange={event => updateField('displayName', event.target.value)} maxLength={100} required autoComplete="name" /></label>
             {!isLandlord && <label className="block text-[13px] font-bold text-gray-700">{t('University')}<input className={inputClass} value={fields.university} onChange={event => updateField('university', event.target.value)} maxLength={160} autoComplete="organization" /></label>}
             <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Account Email')}<input className={`${inputClass} cursor-not-allowed bg-gray-50 text-gray-500`} value={user?.email || ''} readOnly type="email" /></label>
-            {(isLandlord || isStudent) && <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Phone Number')} {isLandlord && <span aria-hidden="true">*</span>}<input className={inputClass} value={fields.phone} onChange={event => updateField('phone', event.target.value)} maxLength={25} required={isLandlord} type="tel" autoComplete="tel" inputMode="tel" placeholder={t('e.g., +60 12-345 6789')} /></label>}
+            {(isLandlord || isStudent) && <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Phone Number')} {isLandlord && <span aria-hidden="true">*</span>}<input aria-label={t('Phone Number')} className={inputClass} value={fields.phone} onChange={event => updateField('phone', event.target.value)} maxLength={25} required={isLandlord} type="tel" autoComplete="tel" inputMode="tel" placeholder={t('e.g., +60 12-345 6789')} /><span className="mt-1 block text-xs font-normal text-gray-600">{t('For SMS, use a Malaysian number beginning with 0 or include +country code.')}</span></label>}
             {!isLandlord && <label className="block text-[13px] font-bold text-gray-700 sm:col-span-2">{t('Personal Bio / Roommate Notes')}<textarea className={inputClass} rows={3} maxLength={1000} value={fields.bio} onChange={event => updateField('bio', event.target.value)} placeholder={t('Tell others a little about yourself.')} /></label>}
           </div>
           {formError && <p role="alert" className="text-sm text-red-700">{t(formError)}</p>}
@@ -176,6 +180,8 @@ export function ProfilePage() {
           <div className="flex justify-end border-t border-gray-100 pt-4"><button type="submit" disabled={save.isPending} className="min-h-11 rounded-lg bg-[#203569] px-6 py-2 font-bold text-white shadow-sm hover:bg-[#1a2b56] disabled:opacity-60">{save.isPending ? t('Saving…') : t('Save Changes')}</button></div>
         </form>}
       </section>
+
+      {(isStudent || isLandlord) && !profile.isPending && !profile.isError && <PhoneVerification phone={profile.data?.phone || null} />}
 
       {isStudent && <Panel title={t('Student Verification')}>
         <p className="mb-4 text-sm text-gray-600">{t('Current status:')} <strong>{studentVerified ? t('Verified') : labelForStatus(verificationStatus)}</strong></p>

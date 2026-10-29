@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
 vi.mock('../../lib/api', async original => ({ ...(await original<typeof import('../../lib/api')>()), api: state.api }))
 vi.mock('../../lib/auth', async original => ({ ...(await original<typeof import('../../lib/auth')>()), useAuth: () => ({ user: state.user, refresh: state.refresh }) }))
 vi.mock('./AccountControls', () => ({ AccountControls: () => null }))
+vi.mock('./PhoneVerification', () => ({ PhoneVerification: () => null }))
 
 function renderPage() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })

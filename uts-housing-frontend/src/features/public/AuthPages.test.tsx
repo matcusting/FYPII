@@ -77,7 +77,7 @@ describe('account forms', () => {
     await user.click(screen.getByRole('button', { name: 'Create Account' }))
     expect(await screen.findByText('The passwords do not match.')).toBeTruthy()
     expect(screen.getByText('Please read and accept the Terms of Use and Privacy Notice.')).toBeTruthy()
-    expect(apiMock).not.toHaveBeenCalled()
+    expect(apiMock.mock.calls.some(([path]) => path === '/auth/register')).toBe(false)
 
     await user.clear(screen.getByLabelText('Confirm Password'))
     await user.type(screen.getByLabelText('Confirm Password'), 'GoodPass123')
@@ -103,7 +103,7 @@ describe('account forms', () => {
     await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: 'Create Account' }))
     expect(await screen.findByText('Enter a valid phone number.')).toBeTruthy()
-    expect(apiMock).not.toHaveBeenCalled()
+    expect(apiMock.mock.calls.some(([path]) => path === '/auth/register')).toBe(false)
     await user.type(screen.getByLabelText('Phone Number *'), '+60 12-345 6789')
     await user.click(screen.getByRole('button', { name: 'Create Account' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/register', expect.objectContaining({

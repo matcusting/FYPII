@@ -25,7 +25,11 @@ const campusSchema = z.object({
   domains: z.array(z.string().trim().toLowerCase().regex(/^[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}$/).refine(domain => domain.split('.').every(label => !label.startsWith('-') && !label.endsWith('-')))).max(30),
   active: z.boolean(),
 })
-const decisionSchema = z.object({ status: z.string(), reason: z.string().trim().max(1000).default(''), studentIdMatchesEmail: z.boolean().optional() })
+const decisionSchema = z.object({
+  status: z.string(), reason: z.string().trim().max(1000).default(''), studentIdMatchesEmail: z.boolean().optional(),
+  enrollmentCheckStatus: z.enum(['NOT_CHECKED', 'ACTIVE', 'INACTIVE', 'INCONCLUSIVE']).optional(),
+  enrollmentCheckReference: z.string().trim().min(4).max(120).regex(/^[^\r\n]+$/).optional(),
+})
 const queueStatuses: Record<ModerationKind, readonly string[]> = {
   verifications: ['UNVERIFIED', 'PENDING', 'APPROVED', 'REJECTED'],
   listings: ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'REJECTED', 'PAUSED', 'RENTED', 'ARCHIVED'],
@@ -71,6 +75,7 @@ function accountOf(row: {
 
 function verificationOf(row: {
   id: string; userId: string; method: unknown; university: string; note: string | null; status: unknown;
+  enrollmentCheckStatus: string; enrollmentCheckReference: string | null; enrollmentCheckedAt: Date | null;
   reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date;
   proofKey: string | null; studentIdKey: string | null; offerLetterKey: string | null;
   user: { id: string; name: string; email: string; emailVerifiedAt: Date | null }
@@ -80,6 +85,8 @@ function verificationOf(row: {
     student: { id: row.user.id, name: row.user.name, email: row.user.email, emailVerified: Boolean(row.user.emailVerifiedAt) },
     university: row.university,
     verificationMethod: row.method, note: row.note, status: row.status, moderationReason: row.reason,
+    enrollmentCheckStatus: row.enrollmentCheckStatus, enrollmentCheckReference: row.enrollmentCheckReference,
+    enrollmentCheckedAt: row.enrollmentCheckedAt,
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt,
     ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/verifications/${row.id}/proof` } : {}),
     ...(detail && row.studentIdKey ? { studentIdUrl: `/api/v1/admin/verifications/${row.id}/student-id` } : {}),
@@ -599,6 +606,10 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
   if (kind === 'verifications') {
     if (status !== 'APPROVED' && status !== 'REJECTED') return void fail(res, 400, 'Choose approve or reject for student verification.', 'INVALID_STATUS')
     if (status === 'APPROVED' && decision.data.studentIdMatchesEmail !== true) return void fail(res, 400, 'Confirm that the Student ID on the card matches the school email before approval.', 'STUDENT_ID_MATCH_REQUIRED')
+    const enrollmentCheckStatus = decision.data.enrollmentCheckStatus || 'NOT_CHECKED'
+    const enrollmentCheckReference = decision.data.enrollmentCheckReference || null
+    if ((enrollmentCheckStatus !== 'NOT_CHECKED' && !enrollmentCheckReference) || (enrollmentCheckStatus === 'NOT_CHECKED' && enrollmentCheckReference)) return void fail(res, 400, 'Record an official source reference only when an authorized enrollment check was performed.', 'ENROLLMENT_CHECK_REFERENCE_REQUIRED')
+    if (status === 'APPROVED' && enrollmentCheckStatus === 'INACTIVE') return void fail(res, 400, 'Do not approve a student whose authorized university record says enrollment is inactive.', 'ENROLLMENT_INACTIVE')
     const previous = await prisma.studentVerification.findUnique({ where: { id: id.data }, include: { user: { select: verificationPersonSelect } } })
     if (!previous) return void fail(res, 404, 'This verification does not exist.', 'NOT_FOUND')
     if (previous.status !== 'PENDING') return void fail(res, 409, 'This verification has already been reviewed.', 'ALREADY_REVIEWED')
@@ -619,6 +630,8 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
       const updated = await transaction.studentVerification.updateMany({ where: { id: id.data, status: 'PENDING' }, data: {
         status: status as VerificationStatus, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(),
+        enrollmentCheckStatus, enrollmentCheckReference,
+        enrollmentCheckedAt: enrollmentCheckStatus === 'NOT_CHECKED' ? null : new Date(),
         ...(status === 'REJECTED' ? { proofKey: null, studentIdKey: null, offerLetterKey: null } : {}),
       } })
       if (!updated.count) throw new ModerationConflict()
@@ -626,7 +639,7 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
       if (status === 'REJECTED') await transaction.mediaUpload.deleteMany({ where: { ownerId: row.userId, storageKey: { in: rejectedKeys.filter((key): key is string => Boolean(key)) } } })
       const approved = status === 'APPROVED' || await transaction.studentVerification.count({ where: { userId: row.userId, status: 'APPROVED' } }) > 0
       await transaction.user.update({ where: { id: row.userId }, data: { studentVerified: approved, verificationStatus: approved ? 'APPROVED' : status as VerificationStatus } })
-      await audit(transaction, actorId, `VERIFICATION_${status}`, 'STUDENT_VERIFICATION', row.id, { status: previous.status }, { status, reason, ...(status === 'APPROVED' ? { studentIdMatchesEmail: true } : {}) })
+      await audit(transaction, actorId, `VERIFICATION_${status}`, 'STUDENT_VERIFICATION', row.id, { status: previous.status }, { status, reason, enrollmentCheckStatus, ...(status === 'APPROVED' ? { studentIdMatchesEmail: true } : {}) })
       await notify(transaction, row.userId, previous.user.email, 'STUDENT_VERIFICATION', `Student verification ${status.toLowerCase()}`, status === 'APPROVED' ? 'Your student verification has been approved.' : `Your student verification was rejected: ${reason}`, row.id)
       return row
     })

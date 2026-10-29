@@ -35,6 +35,7 @@ const AdminCampusesPage = lazy(() => import('./features/admin').then(module => (
 const AdminAccountsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminAccountsPage })))
 const AdminDeletionRequestsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminDeletionRequestsPage })))
 const AdminAuditLogsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminAuditLogsPage })))
+const AdminEmailDeliveryPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminEmailDeliveryPage })))
 
 export default function App() {
   return <BrowserRouter><Routes><Route element={<SiteLayout />}>
@@ -69,6 +70,7 @@ export default function App() {
     <Route path="admin/accounts" element={<AuthGuard roles={['ADMIN']}><AdminAccountsPage /></AuthGuard>} />
     <Route path="admin/deletion-requests" element={<AuthGuard roles={['ADMIN']}><AdminDeletionRequestsPage /></AuthGuard>} />
     <Route path="admin/audit-logs" element={<AuthGuard roles={['ADMIN']}><AdminAuditLogsPage /></AuthGuard>} />
+    <Route path="admin/email-delivery" element={<AuthGuard roles={['ADMIN']}><AdminEmailDeliveryPage /></AuthGuard>} />
     <Route path="privacy" element={<StaticPage kind="privacy" />} />
     <Route path="terms" element={<StaticPage kind="terms" />} />
     <Route path="help" element={<StaticPage kind="help" />} />

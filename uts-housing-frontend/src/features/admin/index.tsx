@@ -1,4 +1,5 @@
 export { AdminOverviewPage } from './AdminOverviewPage'
+export { AdminEmailDeliveryPage } from './AdminEmailDeliveryPage'
 export { AdminCampusesPage } from './AdminCampusesPage'
 export { AdminDeletionRequestsPage } from './AdminDeletionRequestsPage'
 export { AdminAuditLogsPage } from './AdminAuditLogsPage'

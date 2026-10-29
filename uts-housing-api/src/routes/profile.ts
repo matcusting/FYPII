@@ -4,6 +4,7 @@ import { currentUser, requireAuth } from '../core/auth.js'
 import { prisma } from '../core/db.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
 import { removeStoredLandlordDocuments } from './landlord-verifications.js'
+import { normalizeSmsPhone } from '../core/sms.js'
 
 const router = Router()
 const optionalText = (length: number) => z.string().trim().max(length).nullable().optional()
@@ -14,7 +15,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
 const amount = z.number().finite().nonnegative().max(1_000_000).nullable().optional()
 const phoneNumber = z.string().trim().min(7).max(25)
   .regex(/^\+?[0-9][0-9 ()-]*$/, 'Enter a valid phone number.')
-  .refine(value => { const digits = value.replace(/\D/g, '').length; return digits >= 7 && digits <= 15 }, 'Enter a phone number with 7 to 15 digits.')
+  .refine(value => { const digits = value.replace(/\D/g, '').length; return digits >= 7 && digits <= 15 && Boolean(normalizeSmsPhone(value)) }, 'Enter a Malaysian number beginning with 0 or an international number with +country code.')
   .nullable().optional()
 const profileSchema = z.object({
   displayName: z.string().trim().min(2).max(100).optional(),
@@ -27,13 +28,13 @@ const preferenceSchema = z.object({
 }).strict()
 
 function formatProfile(user: { name: string; email: string; verificationStatus: string }, profile: {
-  displayName: string; phone: string | null; university: string | null; bio: string | null; preferredLocation: string | null;
+  displayName: string; phone: string | null; phoneVerifiedAt: Date | null; university: string | null; bio: string | null; preferredLocation: string | null;
   budgetMin: { toString(): string } | null; budgetMax: { toString(): string } | null;
   preferredMoveInDate: Date | null
 } | null) {
   return {
     displayName: profile?.displayName || user.name, name: user.name, email: user.email,
-    phone: profile?.phone || null, university: profile?.university || null,
+    phone: profile?.phone || null, phoneVerifiedAt: profile?.phoneVerifiedAt || null, university: profile?.university || null,
     bio: profile?.bio || null, preferredLocation: profile?.preferredLocation || null,
     budgetMin: profile?.budgetMin?.toString() || null, budgetMax: profile?.budgetMax?.toString() || null,
     preferredMoveInDate: profile?.preferredMoveInDate?.toISOString().slice(0, 10) || null,
@@ -58,6 +59,7 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   }
   const current = await prisma.profile.findUnique({ where: { userId: user.id } })
   const fields = parsed.data
+  const phoneChanged = fields.phone !== undefined && normalizeSmsPhone(fields.phone || '') !== normalizeSmsPhone(current?.phone || '')
   const min = fields.budgetMin === undefined ? current?.budgetMin == null ? null : Number(current.budgetMin) : fields.budgetMin
   const max = fields.budgetMax === undefined ? current?.budgetMax == null ? null : Number(current.budgetMax) : fields.budgetMax
   if (min !== null && max !== null && min > max && (fields.budgetMin !== undefined || fields.budgetMax !== undefined)) {
@@ -66,6 +68,7 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   const update = {
     ...(fields.displayName !== undefined ? { displayName: fields.displayName } : {}),
     ...(fields.phone !== undefined ? { phone: fields.phone } : {}),
+    ...(phoneChanged ? { phoneVerifiedAt: null } : {}),
     ...(fields.university !== undefined ? { university: fields.university } : {}),
     ...(fields.bio !== undefined ? { bio: fields.bio } : {}),
     ...(fields.preferredLocation !== undefined ? { preferredLocation: fields.preferredLocation } : {}),
@@ -75,6 +78,7 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
   }
   const revokedKeys: string[] = []
   const profile = await prisma.$transaction(async tx => {
+    if (phoneChanged) await tx.phoneVerificationChallenge.deleteMany({ where: { userId: user.id } })
     if (user.roles.includes('LANDLORD') && fields.displayName && fields.displayName !== user.name) {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
       const applications = await tx.landlordVerification.findMany({ where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { identityKey: true, companyKey: true, representationKey: true } })

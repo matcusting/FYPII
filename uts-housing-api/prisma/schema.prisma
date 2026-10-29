@@ -97,6 +97,7 @@ model User {
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
   profile                Profile?
+  phoneChallenge         PhoneVerificationChallenge?
   roommateProfile        RoommateProfile?
   sessions               Session[]
   authTokens             AuthToken[]
@@ -156,6 +157,7 @@ model Profile {
   userId              String    @id
   displayName         String
   phone               String?
+  phoneVerifiedAt     DateTime?
   university          String?
   bio                 String?
   preferredLocation   String?
@@ -164,6 +166,18 @@ model Profile {
   preferredMoveInDate DateTime? @db.Date
   updatedAt           DateTime  @updatedAt
   user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PhoneVerificationChallenge {
+  userId         String    @id
+  phone          String
+  deliveryMode   String    @default("localOutbox")
+  codeHash       String
+  failedAttempts Int       @default(0)
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  verifiedAt     DateTime?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model StudentVerification {
@@ -176,6 +190,9 @@ model StudentVerification {
   offerLetterKey String?
   note         String?
   status       VerificationStatus @default(PENDING)
+  enrollmentCheckStatus String @default("NOT_CHECKED")
+  enrollmentCheckReference String?
+  enrollmentCheckedAt DateTime?
   reason       String?
   reviewedById String?
   reviewedAt   DateTime?

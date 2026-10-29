@@ -167,6 +167,9 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Email verification', value: typeof emailVerified === 'boolean' ? t(emailVerified ? 'Verified' : 'Unverified') : '' },
       { label: 'University', value: firstText(row, 'university', 'universityName') },
       { label: 'Verification method', value: t(firstText(row, 'verificationMethod', 'method')) },
+      { label: 'Official enrollment check', value: t(({ ACTIVE: 'Active enrollment confirmed', INACTIVE: 'University record says inactive', INCONCLUSIVE: 'Official check inconclusive', NOT_CHECKED: 'No official enrollment check' } as Record<string, string>)[firstText(row, 'enrollmentCheckStatus')] || 'No official enrollment check') },
+      { label: 'Official source reference', value: firstText(row, 'enrollmentCheckReference') },
+      { label: 'Official check recorded at', value: row.enrollmentCheckedAt ? dateText(row.enrollmentCheckedAt) : '' },
     )
   } else if (kind === 'landlord-verifications') {
     const emailVerified = asRecord(row.landlord)?.emailVerified
@@ -265,6 +268,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   const [reason, setReason] = useState('')
   const [validUntil, setValidUntil] = useState('')
   const [studentIdMatchesEmail, setStudentIdMatchesEmail] = useState(false)
+  const [enrollmentCheckStatus, setEnrollmentCheckStatus] = useState('NOT_CHECKED')
+  const [enrollmentCheckReference, setEnrollmentCheckReference] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [validation, setValidation] = useState<string | null>(null)
 
@@ -283,9 +288,9 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   })
 
   const mutation = useMutation({
-    mutationFn: ({ id, nextStatus, explanation, expiry, idMatchesEmail }: { id: string; nextStatus: string; explanation: string; expiry: string; idMatchesEmail: boolean }) =>
+    mutationFn: ({ id, nextStatus, explanation, expiry, idMatchesEmail, enrollmentStatus, enrollmentReference }: { id: string; nextStatus: string; explanation: string; expiry: string; idMatchesEmail: boolean; enrollmentStatus: string; enrollmentReference: string }) =>
       api<unknown>(`/admin/${kind}/${encodeURIComponent(id)}`, {
-        method: 'PATCH', body: JSON.stringify({ status: nextStatus, reason: explanation, ...(expiry && nextStatus === 'APPROVED' ? { validUntil: expiry } : {}), ...(kind === 'verifications' && nextStatus === 'APPROVED' ? { studentIdMatchesEmail: idMatchesEmail } : {}) }),
+        method: 'PATCH', body: JSON.stringify({ status: nextStatus, reason: explanation, ...(expiry && nextStatus === 'APPROVED' ? { validUntil: expiry } : {}), ...(kind === 'verifications' && nextStatus === 'APPROVED' ? { studentIdMatchesEmail: idMatchesEmail } : {}), ...(kind === 'verifications' && enrollmentStatus !== 'NOT_CHECKED' ? { enrollmentCheckStatus: enrollmentStatus, enrollmentCheckReference: enrollmentReference } : {}) }),
       }),
     onSuccess: async () => {
       await Promise.all([
@@ -297,6 +302,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
       setReason('')
       setValidUntil('')
       setStudentIdMatchesEmail(false)
+      setEnrollmentCheckStatus('NOT_CHECKED')
+      setEnrollmentCheckReference('')
       setValidation(null)
     },
   })
@@ -308,6 +315,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     setReason('')
     setValidUntil('')
     setStudentIdMatchesEmail(false)
+    setEnrollmentCheckStatus('NOT_CHECKED')
+    setEnrollmentCheckReference('')
     setValidation(null)
     setNotice(null)
     mutation.reset()
@@ -324,6 +333,14 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     }
     if (kind === 'verifications' && decision === 'APPROVED' && !studentIdMatchesEmail) {
       setValidation('Confirm that the Student ID on the card matches the school email before approval.')
+      return
+    }
+    if (kind === 'verifications' && enrollmentCheckStatus !== 'NOT_CHECKED' && enrollmentCheckReference.trim().length < 4) {
+      setValidation('Enter an official source reference of at least 4 characters.')
+      return
+    }
+    if (kind === 'verifications' && decision === 'APPROVED' && enrollmentCheckStatus === 'INACTIVE') {
+      setValidation('Do not approve a student whose authorized university record says enrollment is inactive.')
       return
     }
     const reviewed = asRecord(detail.data)
@@ -347,7 +364,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     }
     if (!selectedId) return
     setValidation(null)
-    mutation.mutate({ id: selectedId, nextStatus: decision, explanation, expiry: validUntil, idMatchesEmail: studentIdMatchesEmail })
+    mutation.mutate({ id: selectedId, nextStatus: decision, explanation, expiry: validUntil, idMatchesEmail: studentIdMatchesEmail, enrollmentStatus: enrollmentCheckStatus, enrollmentReference: enrollmentCheckReference.trim() })
   }
 
   return (
@@ -414,6 +431,8 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                           </div>
                           {lifecycleReview && decision === config.approve && <div className="field md:col-span-3"><label htmlFor={`valid-until-${kind}-${id}`}>{t('Valid until (optional, Malaysia time)')}</label><input id={`valid-until-${kind}-${id}`} type="date" value={validUntil} onChange={event => setValidUntil(event.currentTarget.value)} /><p className="mt-1 text-xs text-slate-600">{t('Leave blank to use the configured maximum. Choose an earlier date if the supporting document expires sooner.')}</p></div>}
                           {kind === 'verifications' && decision === 'APPROVED' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={studentIdMatchesEmail} onChange={event => setStudentIdMatchesEmail(event.target.checked)} className="mt-1" /><span>{t('I compared the Student ID on the card with the part of the school email before @.')}</span></label>}
+                          {kind === 'verifications' && <div className="field md:col-span-3"><label htmlFor={`enrollment-check-${id}`}>{t('Official enrollment check')}</label><select id={`enrollment-check-${id}`} value={enrollmentCheckStatus} onChange={event => { setEnrollmentCheckStatus(event.currentTarget.value); setEnrollmentCheckReference(''); setValidation(null) }}><option value="NOT_CHECKED">{t('No official enrollment check')}</option><option value="ACTIVE">{t('Active enrollment confirmed')}</option><option value="INACTIVE">{t('University record says inactive')}</option><option value="INCONCLUSIVE">{t('Official check inconclusive')}</option></select><p className="mt-1 text-xs text-slate-600">{t('Choose a checked result only if you have authorized access to a university record. Document review alone is not an official enrollment check.')}</p></div>}
+                          {kind === 'verifications' && enrollmentCheckStatus !== 'NOT_CHECKED' && <div className="field md:col-span-3"><label htmlFor={`enrollment-reference-${id}`}>{t('Official source reference')}</label><input id={`enrollment-reference-${id}`} type="text" minLength={4} maxLength={120} required autoComplete="off" value={enrollmentCheckReference} onChange={event => setEnrollmentCheckReference(event.currentTarget.value)} /><p className="mt-1 text-xs text-slate-600">{t('Record a case or query reference, not the student ID or document contents.')}</p></div>}
                           <button type="submit" className="button" disabled={mutation.isPending || (['verifications', 'landlord-verifications', 'property-authorizations'].includes(kind) && (detail.isPending || detail.isError))}>{t(mutation.isPending ? 'Saving…' : 'Save decision')}</button>
                         </form> : <p className="mt-4 text-sm text-slate-600">{t('This approval is no longer active. The applicant must submit a new request.')}</p>}
                       </td></tr>

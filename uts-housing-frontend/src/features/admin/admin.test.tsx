@@ -44,6 +44,33 @@ describe('admin moderation', () => {
     })))
   })
 
+  it('records an authorized university check only with a source reference', async () => {
+    apiMock.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (options?.method === 'PATCH') return { id: 'verify-official', status: 'APPROVED' }
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-official', status: 'PENDING', student: { name: 'Example Student' } }], pages: 1 }
+      if (path === '/admin/verifications/verify-official') return {
+        id: 'verify-official', status: 'PENDING', verificationMethod: 'DOCUMENTS', student: { name: 'Example Student', email: 'example@student.uts.edu.my' },
+        studentIdUrl: '/api/v1/admin/verifications/verify-official/student-id', offerLetterUrl: '/api/v1/admin/verifications/verify-official/offer-letter',
+      }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    const user = userEvent.setup()
+    await screen.findByText('Example Student')
+    await user.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByRole('link', { name: 'Download student ID (review only)' })
+    await user.click(screen.getByRole('checkbox', { name: /I compared the Student ID/ }))
+    await user.selectOptions(screen.getByLabelText('Official enrollment check'), 'ACTIVE')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('official source reference')
+    expect(apiMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
+    await user.type(screen.getByLabelText('Official source reference'), 'synthetic-case-1')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/verifications/verify-official', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true, enrollmentCheckStatus: 'ACTIVE', enrollmentCheckReference: 'synthetic-case-1' }),
+    })))
+  })
+
   it('shows all required company identity evidence in the landlord review queue', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/admin/landlord-verifications?')) return { items: [{ id: 'identity-1', kind: 'COMPANY', status: 'PENDING', landlord: { name: 'Example Company' } }] }

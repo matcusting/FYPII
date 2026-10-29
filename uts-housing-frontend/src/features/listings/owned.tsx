@@ -28,9 +28,10 @@ export function MyListingsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [confirmation, setConfirmation] = useState<{ id: string; type: 'rented' | 'archive' } | null>(null)
   const list = useQuery({ queryKey: ['my-listings', page], queryFn: () => getList<ListingDetails>(`/listings${query({ mine: true, page, limit: 20 })}`) })
-  const action = useMutation({ mutationFn: ({ id, type }: { id: string; type: 'availability' | 'archive' | 'pause' | 'rented' }) => {
+  const action = useMutation({ mutationFn: ({ id, type }: { id: string; type: 'availability' | 'archive' | 'pause' | 'rented' | 'location' }) => {
     const path = `/listings/${encodeURIComponent(id)}`
     if (type === 'archive') return api(path, { method: 'DELETE' })
+    if (type === 'location') return api(`${path}/location/refresh`, { method: 'POST' })
     if (type === 'pause' || type === 'rented') {
       const status = type === 'pause' ? 'PAUSED' : 'RENTED'
       return api(path, { method: 'PATCH', body: JSON.stringify({ status }) })
@@ -51,6 +52,7 @@ export function MyListingsPage() {
               <p className="mb-2 text-[13px] text-[#64748b]">{money(item.rent, item.currency)}{t('/mo · Deposit:')} {money(item.deposit, item.currency)}</p>
               <div className="mb-4 flex flex-wrap gap-1.5">{(item.amenities || []).map(amenity => <span key={amenity} className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600">{t(amenity)}</span>)}{item.furnished && <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-bold text-gray-600">{t('Furnished')}</span>}</div>
               {item.availabilityStale && <div className="mb-3"><Notice tone="error">{t('Availability needs reconfirmation.')}</Notice></div>}{item.rejectionReason && <div className="mb-3"><Notice tone="error">{t('Review feedback:')} {t(item.rejectionReason)}</Notice></div>}
+              {item.distanceKm == null && item.status !== 'ARCHIVED' && <div className="mb-3 text-xs text-gray-600"><p>{t('Distance unavailable for this address')}</p><button type="button" className={`${smallButton} mt-2`} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'location' })}>{t('Retry Address Lookup')}</button></div>}
               <div className="flex flex-wrap gap-2">{item.status !== 'ARCHIVED' && <Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}/edit`}>{t(['DRAFT', 'REJECTED', 'RENTED', 'PAUSED'].includes(item.status || '') ? 'Authorization & Submit' : 'Edit Details')}</Link>}{item.status === 'PUBLISHED' && <Link className={smallButton} to={`/listings/${encodeURIComponent(item.id)}`}>{t('View Listing')}</Link>}
                 {['PUBLISHED', 'PAUSED'].includes(item.status || '') && <button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'availability' })}>{t('Confirm Available')}</button>}
                 {item.status === 'PUBLISHED' && <><button type="button" className={smallButton} disabled={action.isPending} onClick={() => action.mutate({ id: item.id, type: 'pause' })}>{t('Pause Listing')}</button><button type="button" className={smallButton} disabled={action.isPending} onClick={() => setConfirmation({ id: item.id, type: 'rented' })}>{t('Mark as Rented')}</button></>}

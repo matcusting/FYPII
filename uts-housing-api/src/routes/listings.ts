@@ -10,6 +10,7 @@ import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readLis
 import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 
 const router = Router()
+const locationRetryAt = new Map<string, number>()
 
 const withErrors = (handler: (req: Request, res: Response) => Promise<void>) => (req: Request, res: Response, next: NextFunction) => {
   void handler(req, res).catch(next)
@@ -245,10 +246,12 @@ router.get('/listings', withErrors(async (req, res) => {
   const propertyType = queryText(req, 'propertyType')
   const roomType = queryText(req, 'roomType')
   const furnished = queryText(req, 'furnished')
+  const recentlyConfirmed = queryText(req, 'recentlyConfirmed')
   if (search.length > 200 || area.length > 120 || university.length > 120 || campusId.length > 100 || terms.length > 20 || terms.some(term => term.length > 60) ||
     (propertyType && !['APARTMENT', 'HOUSE', 'STUDIO', 'OTHER'].includes(propertyType)) ||
     (roomType && !['SINGLE', 'SHARED', 'MASTER', 'ENTIRE'].includes(roomType))) { failValidation(res, 'Check the search terms and property filters.'); return }
   if (furnished && !['true', 'false'].includes(furnished)) { failValidation(res, 'Choose a valid furnishing filter.'); return }
+  if (recentlyConfirmed && recentlyConfirmed !== 'true') { failValidation(res, 'Choose a valid availability confirmation filter.'); return }
   const filters: Prisma.ListingWhereInput[] = []
   if (search) filters.push({ OR: [{ title: { contains: search, mode: 'insensitive' } }, { description: { contains: search, mode: 'insensitive' } }] })
   if (area) filters.push({ approximateArea: { contains: area, mode: 'insensitive' } })
@@ -258,6 +261,7 @@ router.get('/listings', withErrors(async (req, res) => {
   if (propertyType) filters.push({ propertyType })
   if (roomType) filters.push({ roomType })
   if (furnished) filters.push({ furnished: furnished === 'true' })
+  if (recentlyConfirmed === 'true') filters.push({ lastConfirmedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } })
   if (numbers.minRent != null) filters.push({ rent: { gte: numbers.minRent } })
   if (numbers.maxRent != null) filters.push({ rent: { lte: numbers.maxRent } })
   if (numbers.minDeposit != null) filters.push({ deposit: { gte: numbers.minDeposit } })
@@ -411,6 +415,38 @@ router.delete('/listings/:id', requireAuth, withErrors(async (req, res) => {
   if (!existing || (existing.ownerId !== user.id && !isAdmin(user))) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
   const updated = await prisma.listing.update({ where: { id: existing.id }, data: { status: 'ARCHIVED' }, include: listingInclude })
   ok(res, serializeListing(updated, user))
+}))
+
+// A failed address lookup can be retried without changing the listing or
+// restarting the server. The address and precise point remain owner/admin-only.
+router.post('/listings/:id/location/refresh', requireAuth, withErrors(async (req, res) => {
+  const user = currentUser(req)!
+  const existing = await prisma.listing.findUnique({ where: { id: req.params.id } })
+  if (!existing || existing.ownerId !== user.id || existing.status === 'ARCHIVED') {
+    fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return
+  }
+  if (!hasFullAddress(existing.address)) { failValidation(res, 'Enter the full property address before calculating distance.'); return }
+  if (existing.latitude != null && existing.longitude != null) {
+    const record = await prisma.listing.findUniqueOrThrow({ where: { id: existing.id }, include: listingInclude })
+    ok(res, serializeListing(record, user)); return
+  }
+  const key = `${existing.id}:${existing.address}`
+  const now = Date.now()
+  if (now - (locationRetryAt.get(key) || 0) < 60_000) {
+    fail(res, 429, 'Wait one minute before retrying this address.', 'LOCATION_RETRY_LIMIT'); return
+  }
+  if (locationRetryAt.size > 1000) locationRetryAt.clear()
+  locationRetryAt.set(key, now)
+  const point = await geocodeAddress(existing.address!)
+  if (!point) { fail(res, 422, 'This address could not be located. Check the full address or try again later.', 'ADDRESS_NOT_LOCATED'); return }
+  const updated = await prisma.listing.updateMany({
+    where: { id: existing.id, ownerId: user.id, address: existing.address, latitude: null, longitude: null, status: { not: 'ARCHIVED' } },
+    data: point,
+  })
+  if (!updated.count) { fail(res, 409, 'The listing changed while the address was checked. Refresh and try again.', 'LISTING_CHANGED'); return }
+  locationRetryAt.delete(key)
+  const record = await prisma.listing.findUniqueOrThrow({ where: { id: existing.id }, include: listingInclude })
+  ok(res, serializeListing(record, user))
 }))
 
 router.post('/listings/:id/submit', requireAuth, withErrors(async (req, res) => {
