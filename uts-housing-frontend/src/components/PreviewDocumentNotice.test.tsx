@@ -12,7 +12,7 @@ function markPreview() {
 }
 
 beforeEach(() => {
-  window.localStorage.removeItem('uts-housing-language')
+  window.localStorage.removeItem('uts-housing-language-v2')
   document.querySelector('meta[name="uts-housing-preview"]')?.remove()
 })
 afterEach(() => {
@@ -37,7 +37,7 @@ describe('preview document notices', () => {
 
   it('explains placeholder downloads to reviewers in Simplified Chinese', () => {
     markPreview()
-    window.localStorage.setItem('uts-housing-language', 'zh-CN')
+    window.localStorage.setItem('uts-housing-language-v2', 'zh-CN')
     render(<I18nProvider><PreviewDocumentNotice reviewer /></I18nProvider>)
     expect(screen.getByRole('note').textContent).toContain('申请人上传的原件已被丢弃')
   })

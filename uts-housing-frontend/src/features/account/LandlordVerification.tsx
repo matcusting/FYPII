@@ -4,9 +4,10 @@ import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
-import { formatDate, inputClass, labelForStatus } from './format'
+import { formatDate, labelForStatus } from './format'
 import { ErrorNotice, LoadingNotice, Panel } from './shared'
 import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
+import { LocalizedFileInput } from '../../components/LocalizedFileInput'
 
 type IdentityKind = 'INDIVIDUAL' | 'COMPANY'
 interface IdentityStatus {
@@ -91,10 +92,10 @@ export function LandlordVerification() {
                 <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 ${kind === 'INDIVIDUAL' ? 'border-[#203569] bg-blue-50' : 'border-gray-300'}`}><input type="radio" name="identity-kind" value="INDIVIDUAL" checked={kind === 'INDIVIDUAL'} onChange={() => setKind('INDIVIDUAL')} className="accent-[#203569]" />{t('Individual')}</label>
                 <label className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 ${kind === 'COMPANY' ? 'border-[#203569] bg-blue-50' : 'border-gray-300'}`}><input type="radio" name="identity-kind" value="COMPANY" checked={kind === 'COMPANY'} onChange={() => setKind('COMPANY')} className="accent-[#203569]" />{t('Company')}</label>
               </div></fieldset>
-              <label className="block font-semibold text-gray-700">{t('MyKad or passport photo')} *<input type="file" accept="image/jpeg,image/png,.jpg,.jpeg,.png" onChange={event => chooseFile('identity', event)} className={`${inputClass} text-sm`} /></label>
+              <label className="block font-semibold text-gray-700">{t('MyKad or passport photo')} *<LocalizedFileInput accept="image/jpeg,image/png,.jpg,.jpeg,.png" selected={identity} onChange={event => chooseFile('identity', event)} /></label>
               {kind === 'COMPANY' && <>
-                <label className="block font-semibold text-gray-700">{t('Company registration document')} *<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => chooseFile('company', event)} className={`${inputClass} text-sm`} /></label>
-                <label className="block font-semibold text-gray-700">{t('Representative authorization document')} *<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => chooseFile('representative', event)} className={`${inputClass} text-sm`} /></label>
+                <label className="block font-semibold text-gray-700">{t('Company registration document')} *<LocalizedFileInput accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" selected={companyRegistration} onChange={event => chooseFile('company', event)} /></label>
+                <label className="block font-semibold text-gray-700">{t('Representative authorization document')} *<LocalizedFileInput accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" selected={representativeAuthority} onChange={event => chooseFile('representative', event)} /></label>
               </>}
               <p className="text-xs text-gray-600">{t('JPG/PNG identity photo; PDF/JPG/PNG company documents; up to 5 MB each. Cover unrelated personal information. Only authorized reviewers can access these files.')}</p>
               {(error || submit.isError) && <p role="alert" className="text-red-700">{t(error || messageOf(submit.error))}</p>}

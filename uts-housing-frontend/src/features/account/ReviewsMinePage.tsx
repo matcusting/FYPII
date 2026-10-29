@@ -5,6 +5,7 @@ import { api, itemsOf, messageOf } from '../../lib/api'
 import { useI18n } from '../../lib/i18n'
 import { EmptyNotice, ErrorNotice, LoadingNotice } from './shared'
 import { formatDate, labelForStatus } from './format'
+import { LocalizedFileInput } from '../../components/LocalizedFileInput'
 
 interface Review {
   id: string
@@ -101,7 +102,7 @@ export function ReviewsMinePage() {
               <label className="block text-sm font-medium">{t('Rating')}<select value={rating} onChange={event => setRating(event.target.value)} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5"><option value="">{t('Select rating')}</option>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value} / 5</option>)}</select></label>
               <label className="block text-sm font-medium">{t('Your review')}<textarea value={body} onChange={event => setBody(event.target.value)} rows={4} maxLength={2000} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5" /></label>
               <label className="block text-sm font-medium">{t('Rental experience')}<textarea value={experienceDescription} onChange={event => setExperienceDescription(event.target.value)} rows={3} maxLength={500} className="mt-1 block w-full rounded-lg border border-gray-300 bg-white p-2.5" /></label>
-              <label className="block text-sm font-medium">{t('Private proof (PDF, JPG or PNG, up to 5 MB)')}<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => setProofFile(event.currentTarget.files?.[0] || null)} className="mt-1 block w-full text-sm" /></label>
+              <label className="block text-sm font-medium">{t('Private proof (PDF, JPG or PNG, up to 5 MB)')}<LocalizedFileInput accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" selected={proofFile} onChange={event => setProofFile(event.currentTarget.files?.[0] || null)} /></label>
               {validation && <p role="alert" className="text-sm text-red-700">{t(validation)}</p>}{update.isError && <p role="alert" className="text-sm text-red-700">{t(messageOf(update.error))}</p>}
               <div className="flex flex-wrap gap-3"><button type="submit" disabled={update.isPending} className="rounded-lg bg-[#203569] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{update.isPending ? t('Saving…') : t('Submit updated review')}</button><button type="button" className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-semibold" onClick={() => { setEditing(null); setValidation('') }}>{t('Cancel')}</button></div>
             </form> : <button type="button" className="mt-4 text-sm font-semibold text-[#203569] underline" onClick={() => beginEdit(review)}>{t('Edit review')}</button>)}

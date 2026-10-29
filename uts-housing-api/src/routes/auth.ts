@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomInt } from 'node:crypto'
 import argon2 from 'argon2'
 import { Router } from 'express'
 import { rateLimit } from 'express-rate-limit'
@@ -20,6 +20,9 @@ const registerSchema = z.object({
 })
 const loginSchema = z.object({ email, password: z.string().min(1).max(128) })
 const tokenSchema = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/i) })
+const verificationSchema = z.union([tokenSchema, z.object({
+  email, code: z.string().trim().regex(/^[a-z0-9]{6}$/i).transform(value => value.toUpperCase()),
+})])
 const resetSchema = tokenSchema.extend({ password })
 const forgotSchema = z.object({ email })
 
@@ -39,6 +42,21 @@ function authUrl(path: string, token: string) {
   return url.toString()
 }
 
+function verificationCode(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let code = ''
+  do { code = Array.from({ length: 6 }, () => alphabet[randomInt(alphabet.length)]).join('') }
+  while (!/[A-Z]/.test(code) || !/[2-9]/.test(code))
+  return code
+}
+
+function verificationUrl(address: string): string {
+  const base = process.env.PUBLIC_BASE_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:5173'
+  const url = new URL('/verify-email', base)
+  url.searchParams.set('email', address)
+  return url.toString()
+}
+
 router.post('/register', limiter(10), asyncRoute(async (req, res) => {
   const parsed = registerSchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Enter a valid name, email, password and account type, then accept the terms.', 'VALIDATION_ERROR')
@@ -53,14 +71,14 @@ router.post('/register', limiter(10), asyncRoute(async (req, res) => {
   }
   const existing = await prisma.user.findUnique({ where: { email: address }, select: { id: true } })
   if (existing) return fail(res, 409, 'An account with this email already exists.', 'EMAIL_IN_USE')
-  const token = randomBytes(32).toString('hex')
+  const code = verificationCode()
   const hash = await argon2.hash(rawPassword, { type: argon2.argon2id })
   const user = await prisma.$transaction(async tx => {
     const created = await tx.user.create({ data: { name, email: address, passwordHash: hash, roles: [role], profile: { create: { displayName: name, phone: role === 'LANDLORD' ? contactPhone : null } }, notificationPreference: { create: {} } } })
-    await tx.authToken.create({ data: { userId: created.id, tokenHash: tokenHash(token), kind: 'EMAIL_VERIFY', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
+    await tx.authToken.create({ data: { userId: created.id, tokenHash: tokenHash(`${address}:${code}`), kind: 'EMAIL_VERIFY', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
     return created
   })
-  await queueEmail(user.email, 'Verify your UTS Housing email', 'email-verification', { name: user.name, url: authUrl('/verify-email', token) })
+  await queueEmail(user.email, 'Verify your UTS Housing email', 'email-verification', { name: user.name, url: verificationUrl(user.email), code })
   return ok(res, { id: user.id, email: user.email, verificationRequired: true }, 201)
 }))
 
@@ -98,20 +116,36 @@ router.delete('/sessions/:id', requireAuth, asyncRoute(async (req, res) => {
 }))
 
 router.post('/verify-email', limiter(20), asyncRoute(async (req, res) => {
-  const parsed = tokenSchema.safeParse(req.body)
-  if (!parsed.success) return fail(res, 400, 'The verification token is invalid or expired.', 'INVALID_TOKEN')
-  const token = await prisma.authToken.findUnique({ where: { tokenHash: tokenHash(parsed.data.token) } })
-  if (!token || token.kind !== 'EMAIL_VERIFY' || token.usedAt || token.expiresAt <= new Date()) return fail(res, 400, 'The verification token is invalid or expired.', 'INVALID_TOKEN')
+  const invalid = () => fail(res, 400, 'The verification code is invalid or expired.', 'INVALID_TOKEN')
+  const parsed = verificationSchema.safeParse(req.body)
+  if (!parsed.success) return invalid()
+  let token
+  if ('token' in parsed.data) {
+    // Existing long links remain valid until their original expiry.
+    token = await prisma.authToken.findUnique({ where: { tokenHash: tokenHash(parsed.data.token) } })
+  } else {
+    const account = await prisma.user.findUnique({ where: { email: parsed.data.email }, select: { id: true } })
+    if (!account) return invalid()
+    token = await prisma.authToken.findFirst({ where: { userId: account.id, kind: 'EMAIL_VERIFY' }, orderBy: { createdAt: 'desc' } })
+    if (!token || token.tokenHash !== tokenHash(`${parsed.data.email}:${parsed.data.code}`)) {
+      if (token?.usedAt === null && token.expiresAt > new Date()) {
+        await prisma.authToken.updateMany({ where: { id: token.id, usedAt: null, failedAttempts: { lt: 10 } }, data: { failedAttempts: { increment: 1 } } })
+      }
+      return invalid()
+    }
+  }
+  if (!token || token.kind !== 'EMAIL_VERIFY' || token.usedAt || token.expiresAt <= new Date() || token.failedAttempts >= 10) return invalid()
   const consumed = await prisma.$transaction(async tx => {
     await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${token.userId}))::text`
     const account = await tx.user.findUnique({ where: { id: token.userId }, select: { status: true, emailVerifiedAt: true } })
     if (!account || account.status !== 'ACTIVE' || account.emailVerifiedAt) return false
-    const result = await tx.authToken.updateMany({ where: { id: token.id, usedAt: null, expiresAt: { gt: new Date() } }, data: { usedAt: new Date() } })
+    const result = await tx.authToken.updateMany({ where: { id: token.id, usedAt: null, expiresAt: { gt: new Date() }, failedAttempts: { lt: 10 } }, data: { usedAt: new Date() } })
     if (!result.count) return false
+    await tx.authToken.updateMany({ where: { userId: token.userId, kind: 'EMAIL_VERIFY', usedAt: null }, data: { usedAt: new Date() } })
     await tx.user.update({ where: { id: token.userId }, data: { emailVerifiedAt: new Date() } })
     return true
   })
-  if (!consumed) return fail(res, 400, 'The verification token is invalid or expired.', 'INVALID_TOKEN')
+  if (!consumed) return invalid()
   return ok(res, { verified: true })
 }))
 
@@ -130,16 +164,17 @@ router.post('/resend-verification', limiter(5), asyncRoute(async (req, res) => {
     const account = await tx.user.findUnique({ where: { id: user.id }, select: { email: true, name: true, status: true, emailVerifiedAt: true } })
     if (!account || account.status !== 'ACTIVE' || account.emailVerifiedAt) return
     const mostRecent = await tx.authToken.findFirst({
-      where: { userId: user.id, kind: 'EMAIL_VERIFY' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true },
+      where: { userId: user.id, kind: 'EMAIL_VERIFY' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true, tokenHash: true },
     })
     if (mostRecent && mostRecent.createdAt > new Date(Date.now() - 10 * 60 * 1000)) return
 
-    const token = randomBytes(32).toString('hex')
+    let code = verificationCode()
+    while (mostRecent?.tokenHash === tokenHash(`${account.email}:${code}`)) code = verificationCode()
     await tx.authToken.updateMany({ where: { userId: user.id, kind: 'EMAIL_VERIFY', usedAt: null }, data: { usedAt: new Date() } })
-    await tx.authToken.create({ data: { userId: user.id, tokenHash: tokenHash(token), kind: 'EMAIL_VERIFY', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
+    await tx.authToken.create({ data: { userId: user.id, tokenHash: tokenHash(`${account.email}:${code}`), kind: 'EMAIL_VERIFY', expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) } })
     await tx.emailJob.create({ data: {
       to: account.email, subject: 'Verify your UTS Housing email', template: 'email-verification',
-      payload: { name: account.name, url: authUrl('/verify-email', token) },
+      payload: { name: account.name, url: verificationUrl(account.email), code },
     } })
   })
   return ok(res, accepted)

@@ -23,7 +23,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
-  window.localStorage.removeItem('uts-housing-language')
+  window.localStorage.removeItem('uts-housing-language-v2')
   state.user.id = 'landlord-1'
   state.user.name = 'Demo Landlord'
   state.user.email = 'landlord@demo.local'

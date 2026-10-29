@@ -12,19 +12,31 @@ vi.mock('../../lib/auth', () => ({ useAuth: () => ({ user: null, signIn: signInM
 afterEach(() => { cleanup(); apiMock.mockReset(); signInMock.mockReset() })
 
 describe('account forms', () => {
-  it('allows a new verification link to be requested after an expired link', async () => {
+  it('allows a new verification code to be requested after expiry', async () => {
     apiMock.mockResolvedValue({ accepted: true })
     render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
     const user = userEvent.setup()
-    await user.click(screen.getByRole('button', { name: 'Resend Verification Link' }))
+    await user.click(screen.getByRole('button', { name: 'Resend Verification Code' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Enter a valid email address.')
     expect(apiMock).not.toHaveBeenCalled()
     await user.type(screen.getByLabelText('Email'), 'student@student.uts.edu.my')
-    await user.click(screen.getByRole('button', { name: 'Resend Verification Link' }))
+    await user.click(screen.getByRole('button', { name: 'Resend Verification Code' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/resend-verification', expect.objectContaining({
       method: 'POST', body: JSON.stringify({ email: 'student@student.uts.edu.my' }),
     })))
     expect(await screen.findByText(/If this address belongs to an unverified account/)).toBeTruthy()
+  })
+
+  it('submits an email-bound six-character code', async () => {
+    apiMock.mockResolvedValue({ verified: true })
+    render(<MemoryRouter initialEntries={['/verify-email?email=student%40student.uts.edu.my']}><VerifyEmailPage /></MemoryRouter>)
+    const user = userEvent.setup()
+    expect(screen.getByLabelText('Email Address')).toHaveProperty('value', 'student@student.uts.edu.my')
+    await user.type(screen.getByLabelText('Verification Code'), 'ab23cd')
+    await user.click(screen.getByRole('button', { name: 'Verify Email' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/verify-email', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ email: 'student@student.uts.edu.my', code: 'AB23CD' }),
+    })))
   })
 
   it('shows local-only verification and reset links returned by the preview', async () => {
@@ -32,11 +44,11 @@ describe('account forms', () => {
     const { unmount } = render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Email'), 'preview-student@student.uts.edu.my')
-    await user.click(screen.getByRole('button', { name: 'Resend Verification Link' }))
+    await user.click(screen.getByRole('button', { name: 'Resend Verification Code' }))
     const verificationLink = await screen.findByRole('link', { name: 'Open the demo email verification link' })
     expect(verificationLink.getAttribute('href')).toBe('/verify-email?token=demo-verify-token')
     await user.click(verificationLink)
-    expect(screen.getByLabelText('Verification Token')).toHaveProperty('value', 'demo-verify-token')
+    expect(screen.getByText(/This link is ready/)).toBeTruthy()
     unmount()
 
     apiMock.mockResolvedValueOnce({ accepted: true, demoResetToken: 'demo-reset-token' })

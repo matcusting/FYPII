@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api, messageOf } from '../../lib/api'
 import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
+import { LocalizedFileInput } from '../../components/LocalizedFileInput'
 import { hasRole, useAuth } from '../../lib/auth'
 import { Field, inputClass, Notice, primaryButton, QueryState, secondaryButton } from './components'
 import { getList, propertyTypes, roomTypes, statusNames, type Amenity, type Campus, type ListingDetails } from './model'
@@ -83,8 +84,8 @@ function PropertyAuthorization({ listingId, isStudent, canUpload, addressChanged
             {(isStudent ? ['SUBLETTING'] as const : ['OWNER', 'AGENT', 'SUBLETTING'] as const).map(option => <label key={option} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 ${kind === option ? 'border-[#203569] bg-blue-50' : 'border-gray-300'}`}><input type="radio" name="authority-kind" value={option} checked={kind === option} onChange={() => setKind(option)} className="accent-[#203569]" />{t(option === 'OWNER' ? 'Owner' : option === 'AGENT' ? 'Authorized agent' : 'Subletting tenant')}</label>)}
           </div></fieldset>
           <p className="text-xs text-gray-600">{t(kind === 'OWNER' ? 'Upload ownership or title evidence. A utility bill alone is not enough.' : kind === 'AGENT' ? 'Upload ownership evidence and a signed authorization from the owner.' : 'Upload the lease permitting subletting and the owner’s written consent.')}</p>
-          <label className="block font-semibold text-gray-700">{t(kind === 'OWNER' ? 'Ownership evidence' : kind === 'AGENT' ? 'Ownership evidence' : 'Lease agreement')} *<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => choose('proof', event)} className={`${inputClass} text-sm`} /></label>
-          {needsSupporting && <label className="block font-semibold text-gray-700">{t(kind === 'AGENT' ? 'Signed owner authorization' : 'Owner consent to sublet')} *<input type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" onChange={event => choose('supporting', event)} className={`${inputClass} text-sm`} /></label>}
+          <label className="block font-semibold text-gray-700">{t(kind === 'OWNER' ? 'Ownership evidence' : kind === 'AGENT' ? 'Ownership evidence' : 'Lease agreement')} *<LocalizedFileInput accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" selected={proof} onChange={event => choose('proof', event)} /></label>
+          {needsSupporting && <label className="block font-semibold text-gray-700">{t(kind === 'AGENT' ? 'Signed owner authorization' : 'Owner consent to sublet')} *<LocalizedFileInput accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" selected={supporting} onChange={event => choose('supporting', event)} /></label>}
           <p className="text-xs text-gray-600">{t('PDF, JPG or PNG, up to 5 MB per document. Only authorized reviewers can access these files.')}</p>
           {error && <p role="alert" className="text-red-700">{t(error)}</p>}
           <button type="button" onClick={() => { void send() }} disabled={busy || !canUpload || addressChanged} className="min-h-11 rounded-lg bg-[#203569] px-4 py-2 font-semibold text-white hover:bg-[#172b59] disabled:opacity-60">{t(busy ? 'Submitting…' : 'Submit Property Documents')}</button>

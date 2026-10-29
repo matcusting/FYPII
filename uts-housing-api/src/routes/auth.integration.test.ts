@@ -73,20 +73,36 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('auth and account integration', 
       }
       throw new Error(`Missing ${subject} email`)
     }
+    const emailCode = async (exclude?: string) => {
+      await processEmailJobs()
+      const files = (await readdir(outbox)).sort().reverse()
+      for (const file of files) {
+        const text = await readFile(join(outbox, file), 'utf8')
+        if (!text.includes(`To: ${email}`) || !text.includes('Subject: Verify your UTS Housing email')) continue
+        const match = text.match(/verification code is: ([A-Z2-9]{6})/)
+        if (match && match[1] !== exclude) return match[1]
+      }
+      throw new Error('Missing verification code email')
+    }
 
     const personalEmail = await request('/auth/register', 'POST', { name: 'Integration Student', email: `auth-integration-${Date.now()}@example.test`, password, role: 'STUDENT', acceptTerms: true })
     expect(personalEmail.response.status).toBe(400)
     expect(personalEmail.payload.error?.code).toBe('STUDENT_EMAIL_REQUIRED')
     expect((await request('/auth/register', 'POST', { name: 'Integration Student', email, password, role: 'STUDENT', acceptTerms: true })).response.status).toBe(201)
-    const firstVerificationToken = await emailToken('Verify your UTS Housing email')
+    const firstVerificationCode = await emailCode()
+    expect(firstVerificationCode).toMatch(/^(?=.*[A-Z])(?=.*[2-9])[A-Z2-9]{6}$/)
     const student = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } })
+    for (let attempt = 0; attempt < 10; attempt++) {
+      expect((await request('/auth/verify-email', 'POST', { email, code: 'AAAAAA' })).response.status).toBe(400)
+    }
+    expect((await request('/auth/verify-email', 'POST', { email, code: firstVerificationCode })).response.status).toBe(400)
     await prisma.authToken.updateMany({ where: { userId: student.id, kind: 'EMAIL_VERIFY' }, data: { createdAt: new Date(Date.now() - 11 * 60_000) } })
     expect((await request('/auth/resend-verification', 'POST', { email })).payload.data?.accepted).toBe(true)
-    const verificationToken = await emailToken('Verify your UTS Housing email', firstVerificationToken)
-    expect(verificationToken).not.toBe(firstVerificationToken)
-    expect((await request('/auth/verify-email', 'POST', { token: firstVerificationToken })).response.status).toBe(400)
-    expect((await request('/auth/verify-email', 'POST', { token: verificationToken })).response.status).toBe(200)
-    expect((await request('/auth/verify-email', 'POST', { token: verificationToken })).response.status).toBe(400)
+    const verificationCode = await emailCode(firstVerificationCode)
+    expect(verificationCode).not.toBe(firstVerificationCode)
+    expect((await request('/auth/verify-email', 'POST', { email, code: firstVerificationCode })).response.status).toBe(400)
+    expect((await request('/auth/verify-email', 'POST', { email, code: verificationCode.toLowerCase() })).response.status).toBe(200)
+    expect((await request('/auth/verify-email', 'POST', { email, code: verificationCode })).response.status).toBe(400)
     const signed = await request('/auth/login', 'POST', { email, password })
     expect(signed.response.status).toBe(200)
     expect(signed.payload.data).not.toHaveProperty('passwordHash')

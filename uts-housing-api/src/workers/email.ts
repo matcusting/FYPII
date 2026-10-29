@@ -9,7 +9,12 @@ import { pauseListingsWithoutCurrentApproval } from './approval-expiry.js'
 function message(template: string, payload: Record<string, unknown>) {
   const name = typeof payload.name === 'string' ? payload.name : 'there'
   const url = typeof payload.url === 'string' ? payload.url : ''
-  if (template === 'email-verification') return `Hello ${name},\n\nVerify your UTS Housing email address using this link:\n${url}\n\nThe link expires in 24 hours. If you did not create an account, ignore this message.\n`
+  if (template === 'email-verification') {
+    const code = typeof payload.code === 'string' ? payload.code : ''
+    return code
+      ? `Hello ${name},\n\nYour UTS Housing verification code is: ${code}\n\nOpen ${url} and enter this code to verify your email address. The code expires in 24 hours. If you did not create an account, ignore this message.\n`
+      : `Hello ${name},\n\nVerify your UTS Housing email address using this link:\n${url}\n\nThe link expires in 24 hours. If you did not create an account, ignore this message.\n`
+  }
   if (template === 'password-reset') return `Hello ${name},\n\nReset your UTS Housing password using this link:\n${url}\n\nThe link expires in one hour. If you did not request a reset, ignore this message.\n`
   if (template === 'notification') {
     const body = typeof payload.body === 'string' ? payload.body : 'You have a new account notification.'

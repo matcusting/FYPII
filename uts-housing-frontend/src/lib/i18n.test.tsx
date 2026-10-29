@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { I18nProvider, LanguageSwitcher, useI18n } from './i18n'
 import { ApiError, messageOf } from './api'
 
-beforeEach(() => window.localStorage.removeItem('uts-housing-language'))
+beforeEach(() => { window.localStorage.removeItem('uts-housing-language-v2'); window.localStorage.removeItem('uts-housing-language') })
 afterEach(() => cleanup())
 
 function Example() {
@@ -14,6 +14,12 @@ function Example() {
 }
 
 describe('language switching', () => {
+  it('defaults to English even if an older release stored Chinese', () => {
+    window.localStorage.setItem('uts-housing-language', 'zh-CN')
+    render(<I18nProvider><Example /></I18nProvider>)
+    expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeTruthy()
+  })
+
   it('starts in English, switches to Malay and Chinese, and remembers the choice', async () => {
     render(<I18nProvider><Example /></I18nProvider>)
     const picker = screen.getByRole('combobox', { name: 'Language' })
@@ -25,6 +31,6 @@ describe('language switching', () => {
     await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Bahasa' }), 'zh-CN')
     expect(screen.getByRole('heading', { name: '控制台' })).toBeTruthy()
     expect(screen.getByText('请检查填写的信息后重试。')).toBeTruthy()
-    await waitFor(() => expect(window.localStorage.getItem('uts-housing-language')).toBe('zh-CN'))
+    await waitFor(() => expect(window.localStorage.getItem('uts-housing-language-v2')).toBe('zh-CN'))
   })
 })

@@ -13,7 +13,8 @@ import { landlordErrorTranslations } from './locales/landlordErrors'
 export type Locale = 'en' | 'ms' | 'zh-CN'
 type Variables = Record<string, string | number>
 type Translation = { ms: string; zh: string }
-const storageKey = 'uts-housing-language'
+// Reset older saved language choices once so English is the default for this release.
+const storageKey = 'uts-housing-language-v2'
 const dictionary: Record<string, Translation> = {
   ...shellTranslations, ...publicTranslations, ...accountTranslations, ...requestsTranslations,
   ...listingsTranslations, ...roommatesTranslations, ...adminTranslations, ...apiErrorsAdmin, ...landlordTranslations, ...landlordErrorTranslations,

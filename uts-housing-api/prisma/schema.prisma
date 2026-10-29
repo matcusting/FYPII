@@ -142,6 +142,7 @@ model AuthToken {
   id        String        @id @default(uuid())
   userId    String
   tokenHash String        @unique
+  failedAttempts Int      @default(0)
   kind      AuthTokenKind
   expiresAt DateTime
   usedAt    DateTime?
