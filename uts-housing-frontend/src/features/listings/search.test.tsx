@@ -15,16 +15,21 @@ afterEach(() => { cleanup(); apiMock.mockReset() })
 
 describe('listing search', () => {
   it('sends filters to the API and displays approved server results', async () => {
-    apiMock.mockImplementation(async (path: string) => path === '/campuses' ? [{ id: 'campus-1', name: 'Main Campus' }] : { items: [{ id: 'listing-1', title: 'Verified listing', rent: '650.00', currency: 'MYR', status: 'PUBLISHED' }], total: 1, page: 1, pages: 1 })
+    apiMock.mockImplementation(async (path: string) => path === '/campuses' ? [{ id: 'campus-1', name: 'Main Campus' }] : { items: [{ id: 'listing-1', title: 'Verified listing', rent: '650.00', currency: 'MYR', status: 'PUBLISHED', distanceKm: 2.3, campusName: 'Main Campus' }], total: 1, page: 1, pages: 1 })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><MemoryRouter><ListingsPage /></MemoryRouter></QueryClientProvider>)
     expect(await screen.findByText('Verified listing')).toBeTruthy()
+    expect(screen.getByText('2.3 km to Main Campus')).toBeTruthy()
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText('Campus'), 'campus-1')
     await user.type(screen.getByLabelText('Maximum rent amount (RM)'), '700')
+    await user.type(screen.getByRole('spinbutton', { name: /Maximum distance to campus/ }), '5')
+    await user.click(screen.getByText('More Filters'))
+    await user.selectOptions(screen.getByLabelText('Sort By'), 'distance')
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('campusId=campus-1')))
     expect(apiMock.mock.calls.some(([path]) => typeof path === 'string' && path.includes('maxRent=700'))).toBe(true)
+    expect(apiMock.mock.calls.some(([path]) => typeof path === 'string' && path.includes('maxDistanceKm=5') && path.includes('sort=distance'))).toBe(true)
   })
 
   it('warns students about stale availability in search and on the listing detail', async () => {

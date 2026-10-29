@@ -32,6 +32,8 @@ For a landlord test, register a new fictional `@demo.local` address and provide 
 
 The API saves evidence under `FYPII\uts-housing-api\data\private`, which is ignored by Git. Only authorized administrators can use the private download endpoints. PostgreSQL uses a Docker volume. Closing the three service windows or running `docker compose down` does **not** erase the database or private files; do not run `docker compose down -v` unless you intentionally want to delete the database volume. Back up both the database and private directory before using important data. This local configuration is for development and does not send real emails or establish genuine student identity. If you later configure SMTP and choose to process real materials locally, protect that computer and its backups; the files remain on that computer and are not uploaded to GitHub.
 
+When a landlord saves a full property address, the local API sends it to the Nominatim address service to calculate an approximate straight-line distance to the selected campus. The launcher retries addresses from older listings on startup. Students can filter and sort by distance. An unmatched address shows no distance; the landlord should check the address and save it again. The full address remains subject to the landlord's sharing choice, but the distance is public. This service needs an internet connection; no map is installed.
+
 ## Stop or troubleshoot
 
 Press **Ctrl+C** in the API, Email worker and Frontend windows. From the project folder, `docker compose down` stops PostgreSQL while preserving its volume. On the next day, start Docker Desktop and double-click `START-REAL-SITE.cmd` again. The launcher reapplies only pending migrations and does not replace existing accounts or documents.

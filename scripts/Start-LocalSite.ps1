@@ -150,6 +150,8 @@ try {
         Require-ExitCode 'Adding fictional demo records'
       } finally { Remove-Item Env:\CONFIRM_DEMO_SEED -ErrorAction SilentlyContinue }
     }
+    & npm.cmd run locations:backfill
+    Require-ExitCode 'Updating campus distances for existing listings'
   }
 
   $runner = Join-Path $PSScriptRoot 'Run-LocalService.ps1'

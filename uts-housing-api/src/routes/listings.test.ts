@@ -24,7 +24,7 @@ describe('listing location privacy', () => {
   it('redacts the full address until consent and student sign-in, and never exposes legacy coordinates', () => {
     const record = {
       id: 'property', ownerId: 'owner', status: 'PUBLISHED', showExactLocation: false,
-      title: 'Property near UTS', rent: 650, deposit: 650, latitude: 2.286, longitude: 111.835,
+      title: 'Property near UTS', rent: 650, deposit: 650, latitude: 2.286, longitude: 111.835, distanceKm: 2.1,
       address: 'Private street address', moderationReason: null,
       campus: { id: 'campus', name: 'UTS', university: 'UTS', latitude: 2.3, longitude: 111.84 },
       owner: { id: 'owner', name: 'Owner' }, photos: [], amenities: [], reviews: [],
@@ -36,7 +36,7 @@ describe('listing location privacy', () => {
       const hidden = detail(viewer)
       expect('latitude' in hidden).toBe(false)
       expect('longitude' in hidden).toBe(false)
-      expect('distanceKm' in hidden).toBe(false)
+      expect(hidden.distanceKm).toBe(2.1)
       expect(hidden.address).toBeUndefined()
       expect(hidden.showExactLocation).toBe(false)
     }

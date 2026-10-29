@@ -21,5 +21,8 @@ if (process.env.NODE_ENV === 'production') {
   if (!process.env.MEDIA_PRIVATE_DIR || !isAbsolute(process.env.MEDIA_PRIVATE_DIR)) {
     throw new Error('Set MEDIA_PRIVATE_DIR to a persistent absolute private path in production.')
   }
+  try {
+    if (new URL(process.env.GEOCODER_URL || '').protocol !== 'https:') throw new Error('invalid')
+  } catch { throw new Error('Set GEOCODER_URL to an HTTPS address lookup service in production.') }
 }
 app.listen(port, host, () => { console.info(`UTS Housing API listening on ${host}:${port}`) })

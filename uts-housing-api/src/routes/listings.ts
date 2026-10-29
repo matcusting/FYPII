@@ -5,6 +5,7 @@ import { prisma } from '../core/db.js'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
 import { approvalIsCurrent, publicListingWhere } from '../core/approval.js'
+import { geocodeAddress } from '../core/geocode.js'
 import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, saveUpload, type UploadPurpose } from '../storage/listings.js'
 import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 
@@ -222,7 +223,9 @@ router.get('/listings', withErrors(async (req, res) => {
   const page = Number(queryText(req, 'page') || 1)
   const limit = Number(queryText(req, 'limit') || 12)
   if (!Number.isInteger(page) || page < 1 || page > 10_000 || !Number.isInteger(limit) || limit < 1 || limit > 100) { failValidation(res, 'Use a valid page and page size.'); return }
-  if (queryText(req, 'maxDistanceKm') || queryText(req, 'sort') === 'distance') { failValidation(res, 'Distance search is unavailable. Search by campus or area instead.'); return }
+  const maxDistanceText = queryText(req, 'maxDistanceKm')
+  const maxDistanceKm = maxDistanceText ? Number(maxDistanceText) : null
+  if (maxDistanceKm != null && (!Number.isFinite(maxDistanceKm) || maxDistanceKm <= 0 || maxDistanceKm > 20000)) { failValidation(res, 'Enter a maximum campus distance between 0 and 20000 km.'); return }
   const numericFilters = ['minRent', 'maxRent', 'minDeposit', 'maxDeposit'] as const
   const numbers = Object.fromEntries(numericFilters.map(name => [name, queryText(req, name) ? Number(queryText(req, name)) : null])) as Record<(typeof numericFilters)[number], number | null>
   if (numericFilters.some(name => numbers[name] != null && (!Number.isFinite(numbers[name]) || numbers[name]! < 0 || numbers[name]! > 9_999_999)) ||
@@ -231,7 +234,7 @@ router.get('/listings', withErrors(async (req, res) => {
   const availableBy = queryText(req, 'availableBy')
   if (availableBy && !isoDate.safeParse(availableBy).success) { failValidation(res, 'Enter a valid available-by date as YYYY-MM-DD.'); return }
   const sort = queryText(req, 'sort') || 'newest'
-  if (!['newest', 'rent_asc', 'rent_desc'].includes(sort)) { failValidation(res, 'Choose a valid sort order.'); return }
+  if (!['newest', 'rent_asc', 'rent_desc', 'distance'].includes(sort)) { failValidation(res, 'Choose a valid sort order.'); return }
   const campusId = queryText(req, 'campusId')
   const campus = campusId ? await prisma.campus.findUnique({ where: { id: campusId } }) : null
   if (campusId && (!campus || !campus.active)) { ok(res, { items: [], total: 0, page, pages: 1, limit }); return }
@@ -251,6 +254,7 @@ router.get('/listings', withErrors(async (req, res) => {
   if (area) filters.push({ approximateArea: { contains: area, mode: 'insensitive' } })
   if (university) filters.push({ campus: { university: { contains: university, mode: 'insensitive' } } })
   if (campusId) filters.push({ campusId })
+  if (maxDistanceKm != null) filters.push({ distanceKm: { lte: maxDistanceKm } })
   if (propertyType) filters.push({ propertyType })
   if (roomType) filters.push({ roomType })
   if (furnished) filters.push({ furnished: furnished === 'true' })
@@ -261,7 +265,7 @@ router.get('/listings', withErrors(async (req, res) => {
   if (availableBy) filters.push({ availableFrom: { lte: new Date(`${availableBy}T00:00:00.000Z`) } })
   for (const term of terms) filters.push({ amenities: { some: { OR: [{ amenityId: term }, { amenity: { name: { contains: term, mode: 'insensitive' } } }, { amenity: { slug: { contains: term, mode: 'insensitive' } } }] } } })
   const where: Prisma.ListingWhereInput = { ...(mine ? { ownerId: user!.id } : publicListingWhere()), AND: filters }
-  const orderBy: Prisma.ListingOrderByWithRelationInput[] = sort === 'rent_asc' ? [{ rent: 'asc' }, { createdAt: 'desc' }] : sort === 'rent_desc' ? [{ rent: 'desc' }, { createdAt: 'desc' }] : [{ createdAt: 'desc' }]
+  const orderBy: Prisma.ListingOrderByWithRelationInput[] = sort === 'rent_asc' ? [{ rent: 'asc' }, { createdAt: 'desc' }] : sort === 'rent_desc' ? [{ rent: 'desc' }, { createdAt: 'desc' }] : sort === 'distance' ? [{ distanceKm: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }] : [{ createdAt: 'desc' }]
   const [total, records] = await Promise.all([
     prisma.listing.count({ where }),
     prisma.listing.findMany({ where, include: listingInclude, orderBy, skip: (page - 1) * limit, take: limit }),
@@ -277,7 +281,16 @@ router.get('/listings/:id', withErrors(async (req, res) => {
     const visible = await prisma.listing.count({ where: { id: record.id, ...publicListingWhere() } })
     if (!visible) { fail(res, 404, 'This property could not be found.', 'NOT_FOUND'); return }
   }
-  ok(res, serializeListing(record, user))
+  const landlordReviews = record.ownerId && await prisma.user.count({ where: { id: record.ownerId, roles: { has: 'LANDLORD' } } })
+    ? await prisma.review.aggregate({
+      where: { landlordId: record.ownerId, status: 'APPROVED', active: true, listing: { is: publicListingWhere() } },
+      _avg: { rating: true }, _count: { _all: true },
+    }) : null
+  ok(res, {
+    ...serializeListing(record, user),
+    landlordRating: landlordReviews?._avg.rating == null ? null : Number(landlordReviews._avg.rating.toFixed(1)),
+    landlordReviewCount: landlordReviews?._count._all,
+  })
 }))
 
 router.post('/listings', requireAuth, withErrors(async (req, res) => {
@@ -291,11 +304,12 @@ router.post('/listings', requireAuth, withErrors(async (req, res) => {
   if (!campus?.active) { failValidation(res, 'Choose an active campus.'); return }
   const photos = await validPhotoUploads(value.photoKeys, user.id)
   if (!photos) { failValidation(res, 'Upload valid property photos before attaching them.'); return }
+  const coordinates = await geocodeAddress(value.address)
   const created = await prisma.$transaction(async tx => {
     const listing = await tx.listing.create({ data: {
       ownerId: user.id, campusId: value.campusId, title: value.title, description: value.description, propertyType: value.propertyType, roomType: value.roomType,
       rent: value.rent.toFixed(2), deposit: value.deposit.toFixed(2), currency: value.currency, availableFrom: new Date(`${value.availableFrom}T00:00:00.000Z`),
-      approximateArea: value.approximateArea, latitude: null, longitude: null, address: value.address,
+      approximateArea: value.approximateArea, latitude: coordinates?.latitude ?? null, longitude: coordinates?.longitude ?? null, address: value.address,
       showExactLocation: value.showExactLocation, houseRules: value.houseRules || null, contactMethod: value.contactMethod, furnished: value.furnished, status: 'DRAFT',
     } })
     if (value.amenityIds.length) await tx.listingAmenity.createMany({ data: value.amenityIds.map(amenityId => ({ listingId: listing.id, amenityId })) })
@@ -349,7 +363,12 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (value.deposit !== undefined) update.deposit = value.deposit.toFixed(2)
     if (value.availableFrom !== undefined) update.availableFrom = new Date(`${value.availableFrom}T00:00:00.000Z`)
     if (value.approximateArea !== undefined) update.approximateArea = value.approximateArea
-    if (value.address !== undefined) { update.address = value.address; update.latitude = null; update.longitude = null }
+    if (addressChanged) {
+      const coordinates = await geocodeAddress(value.address!)
+      update.address = value.address
+      update.latitude = coordinates?.latitude ?? null
+      update.longitude = coordinates?.longitude ?? null
+    }
     if (value.showExactLocation !== undefined) update.showExactLocation = value.showExactLocation
     if (value.houseRules !== undefined) update.houseRules = value.houseRules
     if (value.contactMethod !== undefined) update.contactMethod = value.contactMethod

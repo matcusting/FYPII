@@ -28,10 +28,13 @@ export interface Listing {
   status?: string
   campusId?: string
   campusName?: string
+  distanceKm?: number | null
   ownerId?: string
   owner?: { id?: string; name?: string }
   rating?: number
   reviewCount?: number
+  landlordRating?: number | null
+  landlordReviewCount?: number
 }
 
 export interface PageData<T> {

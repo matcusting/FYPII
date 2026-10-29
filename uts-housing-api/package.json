@@ -14,6 +14,7 @@
     "db:deploy": "node --env-file-if-exists=.env --import tsx prisma/migrate.ts",
     "db:init-local": "node --env-file-if-exists=.env --import tsx prisma/local-init.ts",
     "db:seed": "node --env-file-if-exists=.env --import tsx prisma/seed.ts",
+    "locations:backfill": "node --env-file-if-exists=.env --import tsx prisma/backfill-locations.ts",
     "email:worker": "node --env-file-if-exists=.env --import tsx src/workers/email.ts"
   },
   "dependencies": {

@@ -267,6 +267,7 @@ model Listing {
   approximateArea   String
   latitude          Float?
   longitude         Float?
+  distanceKm        Float?
   address           String?
   showExactLocation Boolean          @default(false)
   houseRules        String?
@@ -290,6 +291,7 @@ model Listing {
   @@index([status, campusId, rent])
   @@index([availableFrom])
   @@index([ownerId])
+  @@index([status, campusId, distanceKm])
 }
 
 model ListingPhoto {
