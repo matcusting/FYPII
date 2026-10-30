@@ -7,6 +7,7 @@ import { AdminShell, Notice, QueryState } from './shared'
 import { asRecord, dateText, firstText, nestedText, type DataRecord } from './data'
 
 type ModerationKind = 'verifications' | 'landlord-verifications' | 'property-authorizations' | 'listings' | 'reviews' | 'reports' | 'accounts'
+type ReviewChecks = { identityMatched: boolean; companyRegistryChecked: boolean; authorityChecked: boolean; addressMatched: boolean; reviewerSourceReference: string }
 
 const configuration: Record<ModerationKind, {
   title: string
@@ -180,6 +181,9 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Email verification', value: typeof emailVerified === 'boolean' ? t(emailVerified ? 'Verified' : 'Unverified') : '' },
       { label: 'Account holder type', value: t(firstText(row, 'kind') === 'COMPANY' ? 'Company' : 'Individual') },
       { label: 'Valid until', value: row.expiresAt ? dateText(row.expiresAt) : '' },
+      { label: 'Private review source/reference', value: firstText(row, 'reviewerSourceReference') },
+      { label: 'Identity independently matched', value: row.reviewedAt ? t(row.identityMatched === true ? 'Confirmed' : 'Not recorded') : '' },
+      { label: 'Company registry independently checked', value: row.reviewedAt && firstText(row, 'kind') === 'COMPANY' ? t(row.companyRegistryChecked === true ? 'Confirmed' : 'Not recorded') : '' },
     )
   } else if (kind === 'property-authorizations') {
     const right = firstText(row, 'kind')
@@ -189,6 +193,9 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Applicant', value: nestedText(row, 'landlord', 'name', 'email') },
       { label: 'Your right to offer this property', value: t(right === 'OWNER' ? 'Owner' : right === 'AGENT' ? 'Authorized agent' : 'Subletting tenant') },
       { label: 'Valid until', value: row.expiresAt ? dateText(row.expiresAt) : '' },
+      { label: 'Private review source/reference', value: firstText(row, 'reviewerSourceReference') },
+      { label: 'Right to rent independently checked', value: row.reviewedAt ? t(row.authorityChecked === true ? 'Confirmed' : 'Not recorded') : '' },
+      { label: 'Evidence matched to this address', value: row.reviewedAt ? t(row.addressMatched === true ? 'Confirmed' : 'Not recorded') : '' },
     )
   } else if (kind === 'listings') {
     details.push(
@@ -270,6 +277,11 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   const [studentIdMatchesEmail, setStudentIdMatchesEmail] = useState(false)
   const [enrollmentCheckStatus, setEnrollmentCheckStatus] = useState('NOT_CHECKED')
   const [enrollmentCheckReference, setEnrollmentCheckReference] = useState('')
+  const [identityMatched, setIdentityMatched] = useState(false)
+  const [companyRegistryChecked, setCompanyRegistryChecked] = useState(false)
+  const [authorityChecked, setAuthorityChecked] = useState(false)
+  const [addressMatched, setAddressMatched] = useState(false)
+  const [reviewerSourceReference, setReviewerSourceReference] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
   const [validation, setValidation] = useState<string | null>(null)
 
@@ -288,9 +300,12 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   })
 
   const mutation = useMutation({
-    mutationFn: ({ id, nextStatus, explanation, expiry, idMatchesEmail, enrollmentStatus, enrollmentReference }: { id: string; nextStatus: string; explanation: string; expiry: string; idMatchesEmail: boolean; enrollmentStatus: string; enrollmentReference: string }) =>
+    mutationFn: ({ id, nextStatus, explanation, expiry, idMatchesEmail, enrollmentStatus, enrollmentReference, reviewChecks }: { id: string; nextStatus: string; explanation: string; expiry: string; idMatchesEmail: boolean; enrollmentStatus: string; enrollmentReference: string; reviewChecks: ReviewChecks }) =>
       api<unknown>(`/admin/${kind}/${encodeURIComponent(id)}`, {
-        method: 'PATCH', body: JSON.stringify({ status: nextStatus, reason: explanation, ...(expiry && nextStatus === 'APPROVED' ? { validUntil: expiry } : {}), ...(kind === 'verifications' && nextStatus === 'APPROVED' ? { studentIdMatchesEmail: idMatchesEmail } : {}), ...(kind === 'verifications' && enrollmentStatus !== 'NOT_CHECKED' ? { enrollmentCheckStatus: enrollmentStatus, enrollmentCheckReference: enrollmentReference } : {}) }),
+        method: 'PATCH', body: JSON.stringify({ status: nextStatus, reason: explanation, ...(expiry && nextStatus === 'APPROVED' ? { validUntil: expiry } : {}), ...(kind === 'verifications' && nextStatus === 'APPROVED' ? { studentIdMatchesEmail: idMatchesEmail } : {}), ...(kind === 'verifications' && enrollmentStatus !== 'NOT_CHECKED' ? { enrollmentCheckStatus: enrollmentStatus, enrollmentCheckReference: enrollmentReference } : {}),
+          ...(nextStatus === 'APPROVED' && kind === 'landlord-verifications' ? { reviewerSourceReference: reviewChecks.reviewerSourceReference, identityMatched: reviewChecks.identityMatched, companyRegistryChecked: reviewChecks.companyRegistryChecked } : {}),
+          ...(nextStatus === 'APPROVED' && kind === 'property-authorizations' ? { reviewerSourceReference: reviewChecks.reviewerSourceReference, authorityChecked: reviewChecks.authorityChecked, addressMatched: reviewChecks.addressMatched } : {}),
+        }),
       }),
     onSuccess: async () => {
       await Promise.all([
@@ -304,6 +319,11 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
       setStudentIdMatchesEmail(false)
       setEnrollmentCheckStatus('NOT_CHECKED')
       setEnrollmentCheckReference('')
+      setIdentityMatched(false)
+      setCompanyRegistryChecked(false)
+      setAuthorityChecked(false)
+      setAddressMatched(false)
+      setReviewerSourceReference('')
       setValidation(null)
     },
   })
@@ -317,6 +337,11 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     setStudentIdMatchesEmail(false)
     setEnrollmentCheckStatus('NOT_CHECKED')
     setEnrollmentCheckReference('')
+    setIdentityMatched(false)
+    setCompanyRegistryChecked(false)
+    setAuthorityChecked(false)
+    setAddressMatched(false)
+    setReviewerSourceReference('')
     setValidation(null)
     setNotice(null)
     mutation.reset()
@@ -354,6 +379,15 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
       setValidation('Required property authorization documents must be available before approval.')
       return
     }
+    if (decision === config.approve && (kind === 'landlord-verifications' || kind === 'property-authorizations')) {
+      if (reviewerSourceReference.trim().length < 4) { setValidation('Record a private, non-sensitive verification source or case reference before approval.'); return }
+      if (kind === 'landlord-verifications' && (!identityMatched || (firstText(reviewed, 'kind') === 'COMPANY' && !companyRegistryChecked))) {
+        setValidation('Confirm the identity match and, for a company, its independent registry check before approval.'); return
+      }
+      if (kind === 'property-authorizations' && (!authorityChecked || !addressMatched)) {
+        setValidation('Confirm an independent right-to-rent check and that the evidence matches this property address.'); return
+      }
+    }
     if ((decision === config.reject || decision === config.extraAction?.value || kind === 'reports') && explanation.length < 3) {
       setValidation('Please enter a reason of at least 3 characters.')
       return
@@ -364,7 +398,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
     }
     if (!selectedId) return
     setValidation(null)
-    mutation.mutate({ id: selectedId, nextStatus: decision, explanation, expiry: validUntil, idMatchesEmail: studentIdMatchesEmail, enrollmentStatus: enrollmentCheckStatus, enrollmentReference: enrollmentCheckReference.trim() })
+    mutation.mutate({ id: selectedId, nextStatus: decision, explanation, expiry: validUntil, idMatchesEmail: studentIdMatchesEmail, enrollmentStatus: enrollmentCheckStatus, enrollmentReference: enrollmentCheckReference.trim(), reviewChecks: { reviewerSourceReference: reviewerSourceReference.trim(), identityMatched, companyRegistryChecked, authorityChecked, addressMatched } })
   }
 
   return (
@@ -425,11 +459,18 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                               {config.extraAction && (!lifecycleReview || currentStatus === 'APPROVED') && <option value={config.extraAction.value}>{t(config.extraAction.label)}</option>}
                             </select>
                           </div>
-                          <div className="field">
-                            <label htmlFor={`reason-${kind}-${id}`}>{t('Reason')}{t(decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)')}</label>
-                            <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder={t('Record your review findings and explain any rejection or suspension')} />
-                          </div>
+                          {!(lifecycleReview && decision === config.approve) && <div className="field">
+                            <label htmlFor={`reason-${kind}-${id}`}>{t(lifecycleReview ? 'Reason shown to applicant' : 'Reason')}{t(decision === config.reject || decision === config.extraAction?.value || kind === 'reports' ? ' (required)' : ' (optional)')}</label>
+                            <textarea id={`reason-${kind}-${id}`} rows={2} maxLength={1000} value={reason} onChange={event => setReason(event.target.value)} required={decision === config.reject || decision === config.extraAction?.value || kind === 'reports'} placeholder={t(lifecycleReview ? 'Explain the decision without including private document details' : 'Record your review findings and explain any rejection or suspension')} />
+                          </div>}
                           {lifecycleReview && decision === config.approve && <div className="field md:col-span-3"><label htmlFor={`valid-until-${kind}-${id}`}>{t('Valid until (optional, Malaysia time)')}</label><input id={`valid-until-${kind}-${id}`} type="date" value={validUntil} onChange={event => setValidUntil(event.currentTarget.value)} /><p className="mt-1 text-xs text-slate-600">{t('Leave blank to use the configured maximum. Choose an earlier date if the supporting document expires sooner.')}</p></div>}
+                          {lifecycleReview && decision === config.approve && <>
+                            <div className="field md:col-span-3"><label htmlFor={`review-source-${kind}-${id}`}>{t('Private review source/reference (required)')}</label><input id={`review-source-${kind}-${id}`} type="text" minLength={4} maxLength={160} required autoComplete="off" value={reviewerSourceReference} onChange={event => setReviewerSourceReference(event.currentTarget.value)} /><p className="mt-1 text-xs text-slate-600">{t('Record only the lookup source or case reference. Do not enter MyKad/passport numbers, phone numbers or document contents. This note is visible only to administrators.')}</p></div>
+                            {kind === 'landlord-verifications' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={identityMatched} onChange={event => setIdentityMatched(event.target.checked)} className="mt-1" /><span>{t('I independently compared this person with the photo ID and account name.')}</span></label>}
+                            {kind === 'landlord-verifications' && firstText(asRecord(detail.data), 'kind') === 'COMPANY' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={companyRegistryChecked} onChange={event => setCompanyRegistryChecked(event.target.checked)} className="mt-1" /><span>{t('I independently checked the company registration and representative authority with the issuing source.')}</span></label>}
+                            {kind === 'property-authorizations' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={authorityChecked} onChange={event => setAuthorityChecked(event.target.checked)} className="mt-1" /><span>{t('I independently checked the right to rent this specific property beyond the uploaded file.')}</span></label>}
+                            {kind === 'property-authorizations' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={addressMatched} onChange={event => setAddressMatched(event.target.checked)} className="mt-1" /><span>{t('I matched the evidence and any owner consent to this listing address.')}</span></label>}
+                          </>}
                           {kind === 'verifications' && decision === 'APPROVED' && <label className="flex items-start gap-2 text-sm text-slate-800 md:col-span-3"><input type="checkbox" checked={studentIdMatchesEmail} onChange={event => setStudentIdMatchesEmail(event.target.checked)} className="mt-1" /><span>{t('I compared the Student ID on the card with the part of the school email before @.')}</span></label>}
                           {kind === 'verifications' && <div className="field md:col-span-3"><label htmlFor={`enrollment-check-${id}`}>{t('Official enrollment check')}</label><select id={`enrollment-check-${id}`} value={enrollmentCheckStatus} onChange={event => { setEnrollmentCheckStatus(event.currentTarget.value); setEnrollmentCheckReference(''); setValidation(null) }}><option value="NOT_CHECKED">{t('No official enrollment check')}</option><option value="ACTIVE">{t('Active enrollment confirmed')}</option><option value="INACTIVE">{t('University record says inactive')}</option><option value="INCONCLUSIVE">{t('Official check inconclusive')}</option></select><p className="mt-1 text-xs text-slate-600">{t('Choose a checked result only if you have authorized access to a university record. Document review alone is not an official enrollment check.')}</p></div>}
                           {kind === 'verifications' && enrollmentCheckStatus !== 'NOT_CHECKED' && <div className="field md:col-span-3"><label htmlFor={`enrollment-reference-${id}`}>{t('Official source reference')}</label><input id={`enrollment-reference-${id}`} type="text" minLength={4} maxLength={120} required autoComplete="off" value={enrollmentCheckReference} onChange={event => setEnrollmentCheckReference(event.currentTarget.value)} /><p className="mt-1 text-xs text-slate-600">{t('Record a case or query reference, not the student ID or document contents.')}</p></div>}

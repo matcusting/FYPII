@@ -30,6 +30,7 @@ const decisionSchema = z.object({
   enrollmentCheckStatus: z.enum(['NOT_CHECKED', 'ACTIVE', 'INACTIVE', 'INCONCLUSIVE']).optional(),
   enrollmentCheckReference: z.string().trim().min(4).max(120).regex(/^[^\r\n]+$/).optional(),
 })
+const reviewerSourceReference = z.string().trim().min(4).max(160).regex(/^[^\r\n]+$/).optional()
 const queueStatuses: Record<ModerationKind, readonly string[]> = {
   verifications: ['UNVERIFIED', 'PENDING', 'APPROVED', 'REJECTED'],
   listings: ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'REJECTED', 'PAUSED', 'RENTED', 'ARCHIVED'],
@@ -117,6 +118,7 @@ async function storedLandlordDocument(storageKey: string | null, ownerId: string
 
 function landlordVerificationOf(row: {
   id: string; userId: string; kind: string; identityKey: string | null; companyKey: string | null; representationKey: string | null;
+  reviewerSourceReference: string | null; identityMatched: boolean; companyRegistryChecked: boolean;
   status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null;
   user: { id: string; name: string; email: string; emailVerifiedAt: Date | null; profile: { phone: string | null } | null }
 }, detail = false) {
@@ -124,6 +126,7 @@ function landlordVerificationOf(row: {
     id: row.id, userId: row.userId, kind: row.kind, status: effectiveApprovalStatus(row), moderationReason: row.reason,
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt,
     landlord: { id: row.user.id, name: row.user.name, email: row.user.email, emailVerified: Boolean(row.user.emailVerifiedAt), phone: row.user.profile?.phone || null },
+    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, identityMatched: row.identityMatched, companyRegistryChecked: row.companyRegistryChecked } : {}),
     ...(detail && row.identityKey ? { identityUrl: `/api/v1/admin/landlord-verifications/${row.id}/identity` } : {}),
     ...(detail && row.companyKey ? { companyUrl: `/api/v1/admin/landlord-verifications/${row.id}/company` } : {}),
     ...(detail && row.representationKey ? { representativeUrl: `/api/v1/admin/landlord-verifications/${row.id}/representative` } : {}),
@@ -132,6 +135,7 @@ function landlordVerificationOf(row: {
 
 function propertyAuthorizationOf(row: {
   id: string; listingId: string; requesterId: string; kind: string; proofKey: string | null; supportingKey: string | null;
+  reviewerSourceReference: string | null; authorityChecked: boolean; addressMatched: boolean;
   addressSnapshot: string; status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null;
   requester: { id: string; name: string; email: string };
   listing: { id: string; title: string; address: string | null; status: string }
@@ -141,6 +145,7 @@ function propertyAuthorizationOf(row: {
     status: effectiveApprovalStatus(row), moderationReason: row.reason, reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt,
     landlord: { id: row.requester.id, name: row.requester.name, email: row.requester.email },
     listing: row.listing,
+    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, authorityChecked: row.authorityChecked, addressMatched: row.addressMatched } : {}),
     ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/property-authorizations/${row.id}/proof` } : {}),
     ...(detail && row.supportingKey ? { supportingUrl: `/api/v1/admin/property-authorizations/${row.id}/supporting` } : {}),
   }
@@ -324,9 +329,15 @@ router.get('/landlord-verifications/:id/:document', asyncRoute(async (req, res) 
 
 router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
-  const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'REVOKED']), reason: z.string().trim().max(1000).default(''), validUntil: z.string().optional() }).safeParse(req.body)
+  const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'REVOKED']), reason: z.string().trim().max(1000).default(''), validUntil: z.string().optional(),
+    reviewerSourceReference, identityMatched: z.boolean().optional(), companyRegistryChecked: z.boolean().optional(),
+  }).safeParse(req.body)
   if (!id.success || !decision.success || (decision.data.status !== 'APPROVED' && decision.data.reason.length < 3)) return void fail(res, 400, 'Choose approve, reject or revoke and explain a rejection or revocation.', 'INVALID_DECISION')
-  const { status, reason, validUntil } = decision.data
+  const { status, validUntil } = decision.data
+  // Approval findings belong in the private reviewer reference, never in the
+  // applicant-visible reason field. Rejections and revocations still explain
+  // the decision to the applicant.
+  const reason = status === 'APPROVED' ? '' : decision.data.reason
   const expiresAt = status === 'APPROVED' ? approvalExpiresAt('identity', new Date(), validUntil) : null
   if (status === 'APPROVED' && !expiresAt) return void fail(res, 400, 'Choose a valid expiry date within the configured maximum approval period.', 'INVALID_EXPIRY')
   const previous = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect } } })
@@ -334,6 +345,8 @@ router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
   if (previous.status !== (status === 'REVOKED' ? 'APPROVED' : 'PENDING')) return void fail(res, 409, 'This identity request cannot be changed to that status.', 'ALREADY_REVIEWED')
   if (previous.userId === currentUser(req)!.id) return void fail(res, 403, 'You cannot approve your own identity.', 'FORBIDDEN')
   if (status === 'APPROVED') {
+    if (!decision.data.reviewerSourceReference) return void fail(res, 400, 'Record a private, non-sensitive verification source or case reference before approval.', 'REVIEW_SOURCE_REQUIRED')
+    if (decision.data.identityMatched !== true || (previous.kind === 'COMPANY' && decision.data.companyRegistryChecked !== true)) return void fail(res, 400, 'Confirm the identity match and, for a company, its independent registry check before approval.', 'INDEPENDENT_CHECK_REQUIRED')
     if (previous.user.status !== 'ACTIVE' || !previous.user.roles.includes('LANDLORD') || !previous.user.emailVerifiedAt || !previous.user.profile?.phone) return void fail(res, 400, 'The landlord needs a verified email and phone before identity approval.', 'ACCOUNT_INCOMPLETE')
     const [identity, company, representative] = await Promise.all([
       storedLandlordDocument(previous.identityKey, previous.userId, 'LANDLORD_IDENTITY', ['image/jpeg', 'image/png']),
@@ -352,6 +365,7 @@ router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
     }
     const updated = await transaction.landlordVerification.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING' }, data: {
       status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), expiresAt, revokedAt: status === 'REVOKED' ? new Date() : null,
+      ...(status === 'APPROVED' ? { reviewerSourceReference: decision.data.reviewerSourceReference, identityMatched: true, companyRegistryChecked: previous.kind === 'COMPANY' } : {}),
       ...(status === 'REJECTED' ? { identityKey: null, companyKey: null, representationKey: null } : {}),
     } })
     if (!updated.count) throw new ModerationConflict()
@@ -361,7 +375,7 @@ router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
       await transaction.propertyAuthorization.updateMany({ where: { requesterId: row.userId, status: 'APPROVED' }, data: { status: 'REVOKED', reason: 'Landlord identity approval was revoked.', revokedAt: new Date() } })
       await transaction.listing.updateMany({ where: { ownerId: row.userId, status: { in: ['PUBLISHED', 'PENDING_REVIEW'] } }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Landlord identity approval was revoked.' } })
     }
-    await audit(transaction, actorId, `LANDLORD_IDENTITY_${status}`, 'LANDLORD_VERIFICATION', row.id, { status: previous.status }, { status, reason })
+    await audit(transaction, actorId, `LANDLORD_IDENTITY_${status}`, 'LANDLORD_VERIFICATION', row.id, { status: previous.status }, { status, reason, ...(status === 'APPROVED' ? { identityMatched: true, companyRegistryChecked: previous.kind === 'COMPANY', sourceRecorded: true } : {}) })
     await notify(transaction, row.userId, previous.user.email, 'LANDLORD_IDENTITY', `Landlord identity ${status.toLowerCase()}`, status === 'APPROVED' ? `Your landlord identity review is approved until ${expiresAt!.toISOString().slice(0, 10)}.` : `Your landlord identity review was ${status.toLowerCase()}: ${reason}`, row.id)
     return row
   })
@@ -412,9 +426,12 @@ router.get('/property-authorizations/:id/:document', asyncRoute(async (req, res)
 
 router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
-  const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'REVOKED']), reason: z.string().trim().max(1000).default(''), validUntil: z.string().optional() }).safeParse(req.body)
+  const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'REVOKED']), reason: z.string().trim().max(1000).default(''), validUntil: z.string().optional(),
+    reviewerSourceReference, authorityChecked: z.boolean().optional(), addressMatched: z.boolean().optional(),
+  }).safeParse(req.body)
   if (!id.success || !decision.success || (decision.data.status !== 'APPROVED' && decision.data.reason.length < 3)) return void fail(res, 400, 'Choose approve, reject or revoke and explain a rejection or revocation.', 'INVALID_DECISION')
-  const { status, reason, validUntil } = decision.data
+  const { status, validUntil } = decision.data
+  const reason = status === 'APPROVED' ? '' : decision.data.reason
   const expiresAt = status === 'APPROVED' ? approvalExpiresAt('property', new Date(), validUntil) : null
   if (status === 'APPROVED' && !expiresAt) return void fail(res, 400, 'Choose a valid expiry date within the configured maximum approval period.', 'INVALID_EXPIRY')
   const previous = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true, ownerId: true } } } })
@@ -422,6 +439,8 @@ router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
   if (previous.status !== (status === 'REVOKED' ? 'APPROVED' : 'PENDING')) return void fail(res, 409, 'This property authorization cannot be changed to that status.', 'ALREADY_REVIEWED')
   if (previous.requesterId === currentUser(req)!.id) return void fail(res, 403, 'You cannot approve your own property authorization.', 'FORBIDDEN')
   if (status === 'APPROVED') {
+    if (!decision.data.reviewerSourceReference) return void fail(res, 400, 'Record a private, non-sensitive verification source or case reference before approval.', 'REVIEW_SOURCE_REQUIRED')
+    if (decision.data.authorityChecked !== true || decision.data.addressMatched !== true) return void fail(res, 400, 'Confirm an independent right-to-rent check and that the evidence matches this property address.', 'INDEPENDENT_CHECK_REQUIRED')
     if (previous.listing.ownerId !== previous.requesterId || !previous.listing.address || previous.listing.address !== previous.addressSnapshot || previous.listing.status === 'ARCHIVED') return void fail(res, 400, 'The property address or listing changed. Ask for a new authorization request.', 'LISTING_CHANGED')
     const account = await prisma.user.findUnique({ where: { id: previous.requesterId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true } })
     const identity = await prisma.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } })
@@ -443,12 +462,12 @@ router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
       const identity = await transaction.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } })
       if (listing.ownerId !== previous.requesterId || listing.address !== previous.addressSnapshot || listing.status === 'ARCHIVED' || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && owner.studentVerified)) throw new ModerationConflict()
     }
-    const updated = await transaction.propertyAuthorization.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING' }, data: { status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), expiresAt, revokedAt: status === 'REVOKED' ? new Date() : null, ...(status === 'REJECTED' ? { proofKey: null, supportingKey: null } : {}) } })
+    const updated = await transaction.propertyAuthorization.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING' }, data: { status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), expiresAt, revokedAt: status === 'REVOKED' ? new Date() : null, ...(status === 'APPROVED' ? { reviewerSourceReference: decision.data.reviewerSourceReference, authorityChecked: true, addressMatched: true } : {}), ...(status === 'REJECTED' ? { proofKey: null, supportingKey: null } : {}) } })
     if (!updated.count) throw new ModerationConflict()
     const row = await transaction.propertyAuthorization.findUniqueOrThrow({ where: { id: id.data } })
     if (status === 'REJECTED' && rejectedKeys.length) await transaction.mediaUpload.deleteMany({ where: { ownerId: row.requesterId, storageKey: { in: rejectedKeys } } })
     if (status === 'REVOKED') await transaction.listing.updateMany({ where: { id: row.listingId, status: { in: ['PUBLISHED', 'PENDING_REVIEW'] } }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Property authorization was revoked.' } })
-    await audit(transaction, actorId, `PROPERTY_AUTHORIZATION_${status}`, 'PROPERTY_AUTHORIZATION', row.id, { status: previous.status }, { status, reason, listingId: row.listingId })
+    await audit(transaction, actorId, `PROPERTY_AUTHORIZATION_${status}`, 'PROPERTY_AUTHORIZATION', row.id, { status: previous.status }, { status, reason, listingId: row.listingId, ...(status === 'APPROVED' ? { authorityChecked: true, addressMatched: true, sourceRecorded: true } : {}) })
     await notify(transaction, row.requesterId, previous.requester.email, 'PROPERTY_AUTHORIZATION', `Property authorization ${status.toLowerCase()}`, status === 'APPROVED' ? `Property authorization for "${previous.listing.title}" is approved until ${expiresAt!.toISOString().slice(0, 10)}.` : `Property authorization for "${previous.listing.title}" was ${status.toLowerCase()}: ${reason}`, row.id)
     return row
   })

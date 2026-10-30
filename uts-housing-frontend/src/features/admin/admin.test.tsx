@@ -71,7 +71,7 @@ describe('admin moderation', () => {
     })))
   })
 
-  it('shows all required company identity evidence in the landlord review queue', async () => {
+  it('requires independent identity and company checks before landlord approval', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/admin/landlord-verifications?')) return { items: [{ id: 'identity-1', kind: 'COMPANY', status: 'PENDING', landlord: { name: 'Example Company' } }] }
       if (path === '/admin/landlord-verifications/identity-1') return {
@@ -87,6 +87,45 @@ describe('admin moderation', () => {
     expect(screen.queryByRole('link', { name: 'Open private document (review only)' })).toBeNull()
     await userEvent.click(screen.getByRole('button', { name: 'Review' }))
     expect(await screen.findAllByRole('link', { name: 'Open private document (review only)' })).toHaveLength(3)
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('Record a private, non-sensitive verification source')
+    await user.type(screen.getByLabelText('Private review source/reference (required)'), 'synthetic-registry-case')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('Confirm the identity match')
+    await user.click(screen.getByRole('checkbox', { name: 'I independently compared this person with the photo ID and account name.' }))
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('independent registry check')
+    await user.click(screen.getByRole('checkbox', { name: 'I independently checked the company registration and representative authority with the issuing source.' }))
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/landlord-verifications/identity-1', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', reviewerSourceReference: 'synthetic-registry-case', identityMatched: true, companyRegistryChecked: true }),
+    })))
+  })
+
+  it('requires right-to-rent and address checks before property approval', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/property-authorizations?')) return { items: [{ id: 'authority-owner', kind: 'OWNER', status: 'PENDING', listing: { title: 'Synthetic room' } }] }
+      if (path === '/admin/property-authorizations/authority-owner') return {
+        id: 'authority-owner', kind: 'OWNER', status: 'PENDING', addressSnapshot: '12 Synthetic Lane, Sibu', listing: { title: 'Synthetic room' },
+        proofUrl: '/api/v1/admin/property-authorizations/authority-owner/proof',
+      }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="property-authorizations" />)
+    const user = userEvent.setup()
+    await screen.findByText('Synthetic room')
+    await user.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByRole('link', { name: 'Open private document (review only)' })
+    await user.type(screen.getByLabelText('Private review source/reference (required)'), 'synthetic-title-case')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('independent right-to-rent check')
+    await user.click(screen.getByRole('checkbox', { name: 'I independently checked the right to rent this specific property beyond the uploaded file.' }))
+    await user.click(screen.getByRole('checkbox', { name: 'I matched the evidence and any owner consent to this listing address.' }))
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/property-authorizations/authority-owner', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', reviewerSourceReference: 'synthetic-title-case', authorityChecked: true, addressMatched: true }),
+    })))
   })
 
   it('refuses property approval when an evidence link leaves the private admin route', async () => {

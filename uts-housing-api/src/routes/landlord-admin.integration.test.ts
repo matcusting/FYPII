@@ -13,15 +13,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
   let prisma: typeof import('../core/db.js').prisma
   const campusId = randomUUID()
   const landlordId = randomUUID()
+  const companyId = randomUUID()
   const adminId = randomUUID()
   const studentId = randomUUID()
   const listingId = randomUUID()
   const landlordEmail = `landlord-${landlordId}@example.test`
+  const companyEmail = `company-${companyId}@example.test`
   const adminEmail = `reviewer-${adminId}@example.test`
   const studentEmail = `student-${studentId}@example.test`
   const address = '123 Synthetic Test Lane, Sibu, Sarawak 96000'
-  const cookies: Record<'landlord' | 'admin' | 'student', string> = { landlord: '', admin: '', student: '' }
+  const cookies: Record<'landlord' | 'company' | 'admin' | 'student', string> = { landlord: '', company: '', admin: '', student: '' }
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x11])
+  const identitySource = 'synthetic-independent-identity-check'
+  const propertySource = 'synthetic-independent-ownership-check'
+  const identityApproval = { status: 'APPROVED', reviewerSourceReference: identitySource, identityMatched: true }
+  const propertyApproval = { status: 'APPROVED', reviewerSourceReference: propertySource, authorityChecked: true, addressMatched: true }
   const pdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')
 
   beforeAll(async () => {
@@ -37,17 +43,19 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     await prisma.campus.create({ data: { id: campusId, name: 'Synthetic Review Campus', university: 'Synthetic University', latitude: 2.322, longitude: 111.839 } })
     await prisma.user.createMany({ data: [
       { id: landlordId, name: 'Synthetic Landlord', email: landlordEmail, passwordHash: 'test-only', roles: ['LANDLORD'], emailVerifiedAt: new Date() },
+      { id: companyId, name: 'Synthetic Company Representative', email: companyEmail, passwordHash: 'test-only', roles: ['LANDLORD'], emailVerifiedAt: new Date() },
       { id: adminId, name: 'Synthetic Reviewer', email: adminEmail, passwordHash: 'test-only', roles: ['ADMIN'], emailVerifiedAt: new Date() },
       { id: studentId, name: 'Synthetic Student', email: studentEmail, passwordHash: 'test-only', roles: ['STUDENT'], emailVerifiedAt: new Date(), studentVerified: true, verificationStatus: 'APPROVED' },
     ] })
     await prisma.profile.create({ data: { userId: landlordId, displayName: 'Synthetic Landlord', phone: '+60 12-345 6789' } })
+    await prisma.profile.create({ data: { userId: companyId, displayName: 'Synthetic Company Representative', phone: '+60 12-345 6790' } })
     await prisma.listing.create({ data: {
       id: listingId, ownerId: landlordId, campusId, title: 'Synthetic two-bedroom house',
       description: 'A synthetic property listing used only for verification testing.', propertyType: 'HOUSE', roomType: 'SINGLE',
       rent: '550.00', deposit: '550.00', availableFrom: new Date('2027-01-01T00:00:00.000Z'), approximateArea: 'Sibu test district',
       address, status: 'DRAFT', photos: { create: { storageKey: randomUUID(), mimeType: 'image/jpeg' } },
     } })
-    for (const [role, userId] of [['landlord', landlordId], ['admin', adminId], ['student', studentId]] as const) {
+    for (const [role, userId] of [['landlord', landlordId], ['company', companyId], ['admin', adminId], ['student', studentId]] as const) {
       const token = randomBytes(32).toString('hex')
       await prisma.session.create({ data: { userId, tokenHash: authModule.tokenHash(token), expiresAt: new Date(Date.now() + 60_000) } })
       cookies[role] = `housing_session=${token}`
@@ -64,11 +72,11 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     if (server) await new Promise<void>(resolve => server.close(() => resolve()))
     if (prisma) {
       await prisma.auditLog.deleteMany({ where: { actorId: adminId } })
-      await prisma.emailJob.deleteMany({ where: { to: { in: [landlordEmail, adminEmail, studentEmail] } } })
-      await prisma.notification.deleteMany({ where: { userId: landlordId } })
+      await prisma.emailJob.deleteMany({ where: { to: { in: [landlordEmail, companyEmail, adminEmail, studentEmail] } } })
+      await prisma.notification.deleteMany({ where: { userId: { in: [landlordId, companyId] } } })
       await prisma.deletionRequest.deleteMany({ where: { userId: landlordId } })
       await prisma.listing.deleteMany({ where: { id: listingId } })
-      await prisma.user.deleteMany({ where: { id: { in: [landlordId, adminId, studentId] } } })
+      await prisma.user.deleteMany({ where: { id: { in: [landlordId, companyId, adminId, studentId] } } })
       await prisma.campus.deleteMany({ where: { id: campusId } })
       await prisma.$disconnect()
     }
@@ -76,7 +84,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     delete process.env.MEDIA_PRIVATE_DIR
   })
 
-  function request(path: string, role: 'landlord' | 'admin' | 'student' | 'guest', method = 'GET', body?: BodyInit) {
+  function request(path: string, role: 'landlord' | 'company' | 'admin' | 'student' | 'guest', method = 'GET', body?: BodyInit) {
     return fetch(base + path, { method, headers: {
       Origin: 'http://localhost:5173',
       ...(role === 'guest' ? {} : { Cookie: cookies[role] }),
@@ -102,6 +110,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     const body = await response.json() as { error?: { code?: string } }
     return body.error?.code
   }
+
+  it('requires an independent registry check for a company representative', async () => {
+    const application = new FormData()
+    application.set('kind', 'COMPANY')
+    application.set('identity', new Blob([jpeg], { type: 'image/jpeg' }), 'synthetic-representative.jpg')
+    application.set('companyRegistration', new Blob([pdf], { type: 'application/pdf' }), 'synthetic-registration.pdf')
+    application.set('representativeAuthority', new Blob([pdf], { type: 'application/pdf' }), 'synthetic-representation.pdf')
+    expect((await request('/landlord-verifications/identity', 'company', 'POST', application)).status).toBe(201)
+    const verification = await prisma.landlordVerification.findFirstOrThrow({ where: { userId: companyId } })
+    expect(await code(await request(`/admin/landlord-verifications/${verification.id}`, 'admin', 'PATCH', JSON.stringify(identityApproval)))).toBe('INDEPENDENT_CHECK_REQUIRED')
+    expect((await request(`/admin/landlord-verifications/${verification.id}`, 'admin', 'PATCH', JSON.stringify({ ...identityApproval, companyRegistryChecked: true }))).status).toBe(200)
+    const approved = await prisma.landlordVerification.findUniqueOrThrow({ where: { id: verification.id } })
+    expect(approved.companyRegistryChecked).toBe(true)
+  })
 
   it('requires independent identity and property approval, protects documents and removes them on account deletion', async () => {
     const submittedIdentity = await request('/landlord-verifications/identity', 'landlord', 'POST', identityForm())
@@ -131,9 +153,22 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     expect(await code(publishWithoutIdentity)).toBe('IDENTITY_REQUIRED')
     await prisma.listing.update({ where: { id: listingId }, data: { status: 'DRAFT' } })
 
-    const identityDecision = await request(`/admin/landlord-verifications/${identityId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED' }))
+    const identityApprovalPath = `/admin/landlord-verifications/${identityId}`
+    expect(await code(await request(identityApprovalPath, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED' })))).toBe('REVIEW_SOURCE_REQUIRED')
+    expect(await code(await request(identityApprovalPath, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reviewerSourceReference: identitySource })))).toBe('INDEPENDENT_CHECK_REQUIRED')
+    const identityDecision = await request(identityApprovalPath, 'admin', 'PATCH', JSON.stringify({ ...identityApproval, reason: 'must not appear to applicant' }))
     expect(identityDecision.status).toBe(200)
     expect((await prisma.landlordVerification.findUniqueOrThrow({ where: { id: identityId } })).expiresAt!.getTime()).toBeGreaterThan(Date.now())
+    const landlordView = (await (await request('/landlord-verifications/me', 'landlord')).json()) as { data: { latest: Record<string, unknown> } }
+    expect(landlordView.data.latest).not.toHaveProperty('reviewerSourceReference')
+    expect(landlordView.data.latest).not.toHaveProperty('identityMatched')
+    expect(landlordView.data.latest.reason).toBeNull()
+    expect((await request(identityApprovalPath, 'landlord')).status).toBe(403)
+    const adminIdentity = (await (await request(identityApprovalPath, 'admin')).json()) as { data: Record<string, unknown> }
+    expect(adminIdentity.data.reviewerSourceReference).toBe(identitySource)
+    expect(adminIdentity.data.identityMatched).toBe(true)
+    const identityAudit = await prisma.auditLog.findFirstOrThrow({ where: { targetId: identityId, action: 'LANDLORD_IDENTITY_APPROVED' } })
+    expect(JSON.stringify(identityAudit.after)).not.toContain(identitySource)
     const agentWithoutOwnerConsent = new FormData()
     agentWithoutOwnerConsent.set('kind', 'AGENT')
     agentWithoutOwnerConsent.set('proof', new Blob([pdf], { type: 'application/pdf' }), 'synthetic-ownership.pdf')
@@ -166,9 +201,23 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     expect(await code(publishWithoutAuthority)).toBe('AUTHORIZATION_REQUIRED')
     await prisma.listing.update({ where: { id: listingId }, data: { status: 'DRAFT' } })
 
-    const propertyDecision = await request(`/admin/property-authorizations/${propertyId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED' }))
+    const propertyApprovalPath = `/admin/property-authorizations/${propertyId}`
+    expect(await code(await request(propertyApprovalPath, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED' })))).toBe('REVIEW_SOURCE_REQUIRED')
+    expect(await code(await request(propertyApprovalPath, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reviewerSourceReference: propertySource, authorityChecked: true })))).toBe('INDEPENDENT_CHECK_REQUIRED')
+    const propertyDecision = await request(propertyApprovalPath, 'admin', 'PATCH', JSON.stringify({ ...propertyApproval, reason: 'must not appear to applicant' }))
     expect(propertyDecision.status).toBe(200)
     expect((await prisma.propertyAuthorization.findUniqueOrThrow({ where: { id: propertyId } })).expiresAt!.getTime()).toBeGreaterThan(Date.now())
+    const applicantProperty = (await (await request(`/landlord-verifications/listings/${listingId}`, 'landlord')).json()) as { data: { latest: Record<string, unknown> } }
+    expect(applicantProperty.data.latest).not.toHaveProperty('reviewerSourceReference')
+    expect(applicantProperty.data.latest).not.toHaveProperty('authorityChecked')
+    expect(applicantProperty.data.latest.reason).toBeNull()
+    expect((await request(propertyApprovalPath, 'landlord')).status).toBe(403)
+    const adminProperty = (await (await request(propertyApprovalPath, 'admin')).json()) as { data: Record<string, unknown> }
+    expect(adminProperty.data.reviewerSourceReference).toBe(propertySource)
+    expect(adminProperty.data.authorityChecked).toBe(true)
+    expect(adminProperty.data.addressMatched).toBe(true)
+    const propertyAudit = await prisma.auditLog.findFirstOrThrow({ where: { targetId: propertyId, action: 'PROPERTY_AUTHORIZATION_APPROVED' } })
+    expect(JSON.stringify(propertyAudit.after)).not.toContain(propertySource)
     expect((await request(`/listings/${listingId}/submit`, 'landlord', 'POST')).status).toBe(200)
     const published = await request(`/admin/listings/${listingId}`, 'admin', 'PATCH', JSON.stringify({ status: 'PUBLISHED' }))
     expect(published.status).toBe(200)
@@ -185,7 +234,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     // the property immediately even if the expiry worker has not run.
     expect((await request(`/landlord-verifications/listings/${listingId}`, 'landlord', 'POST', propertyForm())).status).toBe(201)
     const renewalId = (await prisma.propertyAuthorization.findFirstOrThrow({ where: { listingId }, orderBy: { createdAt: 'desc' } })).id
-    expect((await request(`/admin/property-authorizations/${renewalId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED' }))).status).toBe(200)
+    expect((await request(`/admin/property-authorizations/${renewalId}`, 'admin', 'PATCH', JSON.stringify(propertyApproval))).status).toBe(200)
     expect((await request(`/listings/${listingId}/submit`, 'landlord', 'POST')).status).toBe(200)
     expect((await request(`/admin/listings/${listingId}`, 'admin', 'PATCH', JSON.stringify({ status: 'PUBLISHED' }))).status).toBe(200)
     const future = (await prisma.propertyAuthorization.findUniqueOrThrow({ where: { id: renewalId } })).expiresAt!
@@ -210,7 +259,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     expect((await request(`/listings/${listingId}`, 'guest')).status).toBe(404)
     expect((await request(`/landlord-verifications/listings/${listingId}`, 'landlord', 'POST', propertyForm())).status).toBe(201)
     const finalAuthorizationId = (await prisma.propertyAuthorization.findFirstOrThrow({ where: { listingId }, orderBy: { createdAt: 'desc' } })).id
-    expect((await request(`/admin/property-authorizations/${finalAuthorizationId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED' }))).status).toBe(200)
+    expect((await request(`/admin/property-authorizations/${finalAuthorizationId}`, 'admin', 'PATCH', JSON.stringify(propertyApproval))).status).toBe(200)
     expect((await request(`/listings/${listingId}/submit`, 'landlord', 'POST')).status).toBe(200)
     expect((await request(`/admin/listings/${listingId}`, 'admin', 'PATCH', JSON.stringify({ status: 'PUBLISHED' }))).status).toBe(200)
     const identityFuture = (await prisma.landlordVerification.findUniqueOrThrow({ where: { id: identityId } })).expiresAt!
@@ -232,7 +281,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     const deletionId = (await prisma.deletionRequest.findFirstOrThrow({ where: { userId: landlordId } })).id
     const removed = await request(`/admin/deletion-requests/${deletionId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Synthetic landlord requested deletion.' }))
     expect(removed.status).toBe(200)
-    expect(await readdir(join(privateDir, 'landlord-verifications'))).toHaveLength(0)
+    const companyProof = await prisma.landlordVerification.findFirstOrThrow({ where: { userId: companyId } })
+    expect((await readdir(join(privateDir, 'landlord-verifications'))).sort()).toEqual(
+      [companyProof.identityKey, companyProof.companyKey, companyProof.representationKey].sort(),
+    )
     expect(await prisma.landlordVerification.count({ where: { userId: landlordId } })).toBe(0)
     expect(await prisma.propertyAuthorization.count({ where: { listingId } })).toBe(0)
     expect((await prisma.listing.findUniqueOrThrow({ where: { id: listingId } })).status).toBe('ARCHIVED')

@@ -213,6 +213,9 @@ model LandlordVerification {
   representationKey String?
   status            VerificationStatus @default(PENDING)
   reason            String?
+  reviewerSourceReference String?
+  identityMatched   Boolean            @default(false)
+  companyRegistryChecked Boolean       @default(false)
   reviewedById      String?
   reviewedAt        DateTime?
   expiresAt         DateTime?
@@ -235,6 +238,9 @@ model PropertyAuthorization {
   addressSnapshot String
   status          VerificationStatus    @default(PENDING)
   reason          String?
+  reviewerSourceReference String?
+  authorityChecked Boolean             @default(false)
+  addressMatched  Boolean              @default(false)
   reviewedById    String?
   reviewedAt      DateTime?
   expiresAt       DateTime?

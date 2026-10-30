@@ -22,6 +22,8 @@ The seeded `student@demo.local` and `candidate@demo.local` accounts are already 
 
 ## Landlord verification and listing authorization
 
+For an administrator's step-by-step identity, company, title and rental-authority checks in Sarawak, see the [Chinese landlord review guide](LANDLORD_REVIEW_SOP.zh-CN.md).
+
 A landlord registers with a name, personal or business email, phone number, and password, then verifies ownership of that email through the emailed link. Students and landlords may request a six-digit phone code from Profile Settings. A local outbox code tests the workflow without verifying phone ownership; real SMS verification requires a configured Twilio account and successful code entry. The landlord can prepare draft listings while verification is pending.
 
 Before a landlord listing can be published, an administrator must review two separate applications: the landlord's identity (individual identity document, or company registration and representative authority documents) and evidence of the right to rent out **that specific property**. A property owner, agent, or subletter chooses the corresponding authorization path and supplies the required proof. Verified students who sublet must also submit property authorization. Property authorization is tied to the listing and its complete address; changing the address or authorization evidence requires another review. The admin also reviews the listing content and photos before publication. An email-verified account or approved identity alone does not grant publication rights.
