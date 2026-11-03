@@ -6,6 +6,7 @@ function hasRole(user: User, role: string) {
 
 export function homeForUser(user: User): string {
   if (hasRole(user, 'ADMIN')) return '/admin'
+  if (hasRole(user, 'LAWYER')) return '/lawyer/cases'
   if (hasRole(user, 'LANDLORD')) return '/landlord'
   if (hasRole(user, 'STUDENT')) return '/student'
   return '/dashboard'
@@ -28,6 +29,7 @@ export function loginDestination(next: string | null, user: User): string {
   if (/^\/student(?:\/|$)/.test(pathname) && !hasRole(user, 'STUDENT')) return home
   if (/^\/landlord(?:\/|$)/.test(pathname) && !hasRole(user, 'LANDLORD')) return home
   if (/^\/admin(?:\/|$)/.test(pathname) && !hasRole(user, 'ADMIN')) return home
+  if (/^\/lawyer(?:\/|$)/.test(pathname) && !hasRole(user, 'LAWYER')) return home
   if (/^\/roommates(?:\/|$)/.test(pathname) && (!hasRole(user, 'STUDENT') || (pathname !== '/roommates/profile' && !user.studentVerified))) return home
   if (pathname === '/reviews/mine' && (!hasRole(user, 'STUDENT') || !user.studentVerified)) return home
   if ((pathname === '/my-listings' || pathname === '/listings/new' || /^\/listings\/[^/]+\/edit$/.test(pathname)) && !hasRole(user, 'STUDENT') && !hasRole(user, 'LANDLORD')) return home

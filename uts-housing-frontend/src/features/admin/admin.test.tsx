@@ -39,8 +39,12 @@ describe('admin moderation', () => {
     expect(apiMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
     await user.click(screen.getByRole('checkbox', { name: /I compared the Student ID/ }))
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
+    expect(screen.getByRole('alert').textContent).toContain('study end date shown in the offer letter')
+    expect(apiMock.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false)
+    await user.type(screen.getByLabelText('Study end date (offer letter)'), '2029-06-30')
+    await user.click(screen.getByRole('button', { name: 'Save decision' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/verifications/verify-match', expect.objectContaining({
-      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true }),
+      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true, studyEndsAt: '2029-06-30' }),
     })))
   })
 
@@ -60,6 +64,7 @@ describe('admin moderation', () => {
     await user.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByRole('link', { name: 'Download student ID (review only)' })
     await user.click(screen.getByRole('checkbox', { name: /I compared the Student ID/ }))
+    await user.type(screen.getByLabelText('Study end date (offer letter)'), '2028-12-31')
     await user.selectOptions(screen.getByLabelText('Official enrollment check'), 'ACTIVE')
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
     expect(screen.getByRole('alert').textContent).toContain('official source reference')
@@ -67,11 +72,73 @@ describe('admin moderation', () => {
     await user.type(screen.getByLabelText('Official source reference'), 'synthetic-case-1')
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/verifications/verify-official', expect.objectContaining({
-      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true, enrollmentCheckStatus: 'ACTIVE', enrollmentCheckReference: 'synthetic-case-1' }),
+      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', studentIdMatchesEmail: true, studyEndsAt: '2028-12-31', enrollmentCheckStatus: 'ACTIVE', enrollmentCheckReference: 'synthetic-case-1' }),
     })))
   })
 
-  it('requires independent identity and company checks before landlord approval', async () => {
+  it('shows the offer-letter study end date and evidence retention deadline to administrators', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-retained', status: 'APPROVED', student: { name: 'Example Student' } }], pages: 1 }
+      if (path === '/admin/verifications/verify-retained') return { id: 'verify-retained', status: 'APPROVED', student: { name: 'Example Student' }, studyEndsAt: '2029-06-30T00:00:00.000Z', evidenceRetainUntil: '2030-06-30T00:00:00.000Z' }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    await screen.findByText('Example Student')
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect((await screen.findAllByText('Study end date (offer letter)')).length).toBeGreaterThan(0)
+    expect(screen.getByText('2029-06-30')).toBeTruthy()
+    expect(screen.getByText('2030-06-30')).toBeTruthy()
+  })
+
+  it('lets an administrator backfill an approved study end date only after reviewing the original offer letter', async () => {
+    let corrected = false
+    apiMock.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (path === '/admin/verifications/verify-legacy/study-end' && options?.method === 'PATCH') {
+        corrected = true
+        return { id: 'verify-legacy', studyEndsAt: '2029-06-30', evidenceRetainUntil: '2030-06-30' }
+      }
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-legacy', status: 'APPROVED', student: { name: 'Legacy Student' } }], pages: 1 }
+      if (path === '/admin/verifications/verify-legacy') return {
+        id: 'verify-legacy', status: 'APPROVED', verificationMethod: 'DOCUMENTS', student: { name: 'Legacy Student' },
+        offerLetterUrl: '/api/v1/admin/verifications/verify-legacy/offer-letter',
+        studyEndsAt: corrected ? '2029-06-30' : null, evidenceRetainUntil: corrected ? '2030-06-30' : null,
+      }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    const user = userEvent.setup()
+    await screen.findByText('Legacy Student')
+    await user.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByRole('link', { name: 'Download offer letter (review only)' })
+    expect(screen.queryByRole('button', { name: 'Save decision' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Save corrected date' }))
+    expect(screen.getByRole('alert').textContent).toContain('study end date shown in the offer letter')
+    expect(apiMock.mock.calls.some(([path, options]) => path.endsWith('/study-end') && options?.method === 'PATCH')).toBe(false)
+    await user.type(screen.getByLabelText('Study end date (offer letter)'), '2029-06-30')
+    await user.type(screen.getByLabelText('Correction reason (private audit record)'), 'Checked the synthetic offer date')
+    await user.click(screen.getByRole('checkbox', { name: 'I checked this date against the original offer letter.' }))
+    await user.click(screen.getByRole('button', { name: 'Save corrected date' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/verifications/verify-legacy/study-end', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify({ studyEndsAt: '2029-06-30', confirmOfferLetterDate: true, reason: 'Checked the synthetic offer date' }),
+    })))
+    expect(await screen.findByText('2030-06-30')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toContain('saved with an audit record')
+  })
+
+  it('does not offer study-end correction if the approved case has no original offer letter', async () => {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'verify-no-proof', status: 'APPROVED', student: { name: 'Proof Missing' } }] }
+      if (path === '/admin/verifications/verify-no-proof') return { id: 'verify-no-proof', status: 'APPROVED', verificationMethod: 'DOCUMENTS', student: { name: 'Proof Missing' } }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    await screen.findByText('Proof Missing')
+    await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+    expect(await screen.findAllByText('Document unavailable')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Save corrected date' })).toBeNull()
+  })
+
+  it('requires an assigned lawyer recommendation and an administrator acknowledgment before landlord approval', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/admin/landlord-verifications?')) return { items: [{ id: 'identity-1', kind: 'COMPANY', status: 'PENDING', landlord: { name: 'Example Company' } }] }
       if (path === '/admin/landlord-verifications/identity-1') return {
@@ -79,6 +146,8 @@ describe('admin moderation', () => {
         identityUrl: '/api/v1/admin/landlord-verifications/identity-1/identity',
         companyUrl: '/api/v1/admin/landlord-verifications/identity-1/company',
         representativeUrl: '/api/v1/admin/landlord-verifications/identity-1/representative',
+        lawyerReviewRequired: true,
+        lawyerReview: { lawyerId: 'lawyer-1', lawyerName: 'Synthetic Lawyer', decision: 'APPROVE', reason: 'Synthetic registry and identity findings.', sourceReference: 'synthetic-registry-case' },
       }
       return {}
     })
@@ -89,26 +158,23 @@ describe('admin moderation', () => {
     expect(await screen.findAllByRole('link', { name: 'Open private document (review only)' })).toHaveLength(3)
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
-    expect(screen.getByRole('alert').textContent).toContain('Record a private, non-sensitive verification source')
-    await user.type(screen.getByLabelText('Private review source/reference (required)'), 'synthetic-registry-case')
-    await user.click(screen.getByRole('button', { name: 'Save decision' }))
-    expect(screen.getByRole('alert').textContent).toContain('Confirm the identity match')
-    await user.click(screen.getByRole('checkbox', { name: 'I independently compared this person with the photo ID and account name.' }))
-    await user.click(screen.getByRole('button', { name: 'Save decision' }))
-    expect(screen.getByRole('alert').textContent).toContain('independent registry check')
-    await user.click(screen.getByRole('checkbox', { name: 'I independently checked the company registration and representative authority with the issuing source.' }))
+    expect(screen.getByRole('alert').textContent).toContain('Confirm you reviewed the legal recommendation')
+    expect(screen.getByText('Synthetic Lawyer')).toBeTruthy()
+    await user.click(screen.getByRole('checkbox', { name: 'I reviewed the assigned lawyer’s recommendation and evidence before this final decision.' }))
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/landlord-verifications/identity-1', expect.objectContaining({
-      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', reviewerSourceReference: 'synthetic-registry-case', identityMatched: true, companyRegistryChecked: true }),
+      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', acknowledgeLegalReview: true }),
     })))
   })
 
-  it('requires right-to-rent and address checks before property approval', async () => {
+  it('does not let an administrator approve property authorization without a lawyer recommendation', async () => {
     apiMock.mockImplementation(async (path: string) => {
       if (path.startsWith('/admin/property-authorizations?')) return { items: [{ id: 'authority-owner', kind: 'OWNER', status: 'PENDING', listing: { title: 'Synthetic room' } }] }
       if (path === '/admin/property-authorizations/authority-owner') return {
         id: 'authority-owner', kind: 'OWNER', status: 'PENDING', addressSnapshot: '12 Synthetic Lane, Sibu', listing: { title: 'Synthetic room' },
         proofUrl: '/api/v1/admin/property-authorizations/authority-owner/proof',
+        lawyerReviewRequired: true,
+        lawyerReview: { lawyerId: 'lawyer-2', lawyerName: 'Synthetic Reviewer', decision: null },
       }
       return {}
     })
@@ -117,15 +183,10 @@ describe('admin moderation', () => {
     await screen.findByText('Synthetic room')
     await user.click(screen.getByRole('button', { name: 'Review' }))
     await screen.findByRole('link', { name: 'Open private document (review only)' })
-    await user.type(screen.getByLabelText('Private review source/reference (required)'), 'synthetic-title-case')
     await user.click(screen.getByRole('button', { name: 'Save decision' }))
-    expect(screen.getByRole('alert').textContent).toContain('independent right-to-rent check')
-    await user.click(screen.getByRole('checkbox', { name: 'I independently checked the right to rent this specific property beyond the uploaded file.' }))
-    await user.click(screen.getByRole('checkbox', { name: 'I matched the evidence and any owner consent to this listing address.' }))
-    await user.click(screen.getByRole('button', { name: 'Save decision' }))
-    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/admin/property-authorizations/authority-owner', expect.objectContaining({
-      method: 'PATCH', body: JSON.stringify({ status: 'APPROVED', reason: '', reviewerSourceReference: 'synthetic-title-case', authorityChecked: true, addressMatched: true }),
-    })))
+    expect(screen.getByRole('alert').textContent).toContain('A legal reviewer must recommend approval')
+    expect(screen.getByRole('link', { name: 'Open legal reviewer assignments' }).getAttribute('href')).toBe('/admin/lawyer-cases')
+    expect(apiMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(false)
   })
 
   it('refuses property approval when an evidence link leaves the private admin route', async () => {

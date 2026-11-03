@@ -109,6 +109,7 @@ export default function SiteLayout() {
     ...(hasRole(user, 'STUDENT') ? [{ to: '/roommates/profile', label: t('Find a Roommate') }, { to: '/requests', label: t('Messages') }] : []),
     ...(hasRole(user, 'STUDENT', 'LANDLORD') ? [{ to: '/my-listings', label: t('My Listings') }] : []),
     ...(hasRole(user, 'ADMIN') ? [{ to: '/admin', label: t('Admin') }] : []),
+    ...(hasRole(user, 'LAWYER') ? [{ to: '/lawyer/cases', label: t('Legal Review Cases') }] : []),
   ]
   return <div className="site-shell">
     <a className="skip-link" href="#main">{t('Skip to main content')}</a>

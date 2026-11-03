@@ -75,7 +75,6 @@ router.post('/identity', requireAuth, uploadFields([
   { name: 'identity', maxCount: 1 }, { name: 'companyRegistration', maxCount: 1 }, { name: 'representativeAuthority', maxCount: 1 },
 ]), async (req, res, next) => {
   const written: string[] = []
-  const superseded: string[] = []
   let committed = false
   try {
     const user = currentUser(req)!
@@ -104,28 +103,20 @@ router.post('/identity', requireAuth, uploadFields([
       if (await tx.landlordVerification.findFirst({ where: { userId: user.id, status: 'PENDING' } })) throw new PendingConflict()
       const recent = await tx.landlordVerification.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
       if (recent >= MAX_DAILY_SUBMISSIONS) throw new SubmissionLimitConflict()
-      const oldRevoked = await tx.landlordVerification.findMany({ where: { userId: user.id, status: 'REVOKED' }, select: { identityKey: true, companyKey: true, representationKey: true } })
-      superseded.push(...oldRevoked.flatMap(item => [item.identityKey, item.companyKey, item.representationKey]).filter((key): key is string => Boolean(key)))
-      await tx.landlordVerification.updateMany({ where: { userId: user.id, status: 'REVOKED' }, data: { identityKey: null, companyKey: null, representationKey: null } })
-      const oldRevokedProperties = await tx.propertyAuthorization.findMany({ where: { requesterId: user.id, status: 'REVOKED' }, select: { proofKey: true, supportingKey: true } })
-      superseded.push(...oldRevokedProperties.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
-      await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: 'REVOKED' }, data: { proofKey: null, supportingKey: null } })
+      // Keep evidence for rejected, revoked and superseded cases until the
+      // configured retention period ends. Only failed, uncommitted uploads are
+      // removed immediately below.
       const previous = await tx.landlordVerification.findFirst({ where: { userId: user.id, status: 'APPROVED' } })
       if (previous) {
-        const old = await tx.landlordVerification.findMany({ where: { userId: user.id, status: 'APPROVED' }, select: { identityKey: true, companyKey: true, representationKey: true } })
-        superseded.push(...old.flatMap(item => [item.identityKey, item.companyKey, item.representationKey]).filter((key): key is string => Boolean(key)))
-        const oldProperties = await tx.propertyAuthorization.findMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { proofKey: true, supportingKey: true } })
-        superseded.push(...oldProperties.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
-        await tx.landlordVerification.updateMany({ where: { userId: user.id, status: 'APPROVED' }, data: { status: 'REJECTED', reason: 'Superseded by a new identity application.', identityKey: null, companyKey: null, representationKey: null } })
-        await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Landlord identity changed; submit new property proof.', proofKey: null, supportingKey: null } })
+        const invalidatedAt = new Date()
+        await tx.landlordVerification.updateMany({ where: { userId: user.id, status: 'APPROVED' }, data: { status: 'REJECTED', reason: 'Superseded by a new identity application.', reviewedAt: invalidatedAt } })
+        await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Landlord identity changed; submit new property proof.', reviewedAt: invalidatedAt } })
         await tx.listing.updateMany({ where: { ownerId: user.id, status: 'PUBLISHED' }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Landlord identity must be reviewed again.' } })
       }
-      if (superseded.length) await tx.mediaUpload.deleteMany({ where: { ownerId: user.id, storageKey: { in: superseded } } })
       for (const proof of proofs) await tx.mediaUpload.create({ data: { ownerId: user.id, storageKey: proof.storageKey, mimeType: proof.mimeType, size: proof.file.size, purpose: 'LANDLORD_IDENTITY', status: 'READY' } })
       return tx.landlordVerification.create({ data: { userId: user.id, kind: kind.data, identityKey: identity.storageKey, companyKey: company?.storageKey, representationKey: representative?.storageKey } })
     })
     committed = true
-    if (superseded.length) await removeStoredLandlordDocuments(superseded)
     return void ok(res, { id: record.id, kind: record.kind, status: record.status, createdAt: record.createdAt }, 201)
   } catch (error) {
     if (!committed) await removeStoredLandlordDocuments(written).catch(() => {})
@@ -146,7 +137,6 @@ router.get('/listings/:id', requireAuth, asyncRoute(async (req, res) => {
 
 router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCount: 1 }, { name: 'supporting', maxCount: 1 }]), async (req, res, next) => {
   const written: string[] = []
-  const superseded: string[] = []
   let committed = false
   try {
     const user = currentUser(req)!
@@ -181,19 +171,12 @@ router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCoun
       if (await tx.propertyAuthorization.findFirst({ where: { listingId: listing.id, addressSnapshot: listing.address!, status: 'PENDING' } })) throw new PendingConflict()
       const recent = await tx.propertyAuthorization.count({ where: { listingId: listing.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
       if (recent >= MAX_DAILY_SUBMISSIONS) throw new SubmissionLimitConflict()
-      const revoked = await tx.propertyAuthorization.findMany({ where: { listingId: listing.id, status: 'REVOKED' }, select: { proofKey: true, supportingKey: true } })
-      superseded.push(...revoked.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
-      await tx.propertyAuthorization.updateMany({ where: { listingId: listing.id, status: 'REVOKED' }, data: { proofKey: null, supportingKey: null } })
-      const old = await tx.propertyAuthorization.findMany({ where: { listingId: listing.id, status: 'APPROVED' }, select: { proofKey: true, supportingKey: true } })
-      superseded.push(...old.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
-      await tx.propertyAuthorization.updateMany({ where: { listingId: listing.id, status: 'APPROVED' }, data: { status: 'REJECTED', reason: 'Superseded by a new property authorization application.', proofKey: null, supportingKey: null } })
-      if (superseded.length) await tx.mediaUpload.deleteMany({ where: { ownerId: user.id, storageKey: { in: superseded } } })
+      await tx.propertyAuthorization.updateMany({ where: { listingId: listing.id, status: 'APPROVED' }, data: { status: 'REJECTED', reason: 'Superseded by a new property authorization application.', reviewedAt: new Date() } })
       if (fresh.status === 'PUBLISHED') await tx.listing.update({ where: { id: listing.id }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Property authorization must be reviewed again.' } })
       for (const item of proofs) await tx.mediaUpload.create({ data: { ownerId: user.id, storageKey: item.storageKey, mimeType: item.mimeType, size: item.file.size, purpose: 'PROPERTY_AUTHORIZATION', status: 'READY' } })
       return tx.propertyAuthorization.create({ data: { listingId: listing.id, requesterId: user.id, kind: kind.data, proofKey: proof.storageKey, supportingKey: supporting?.storageKey, addressSnapshot: listing.address! } })
     })
     committed = true
-    if (superseded.length) await removeStoredLandlordDocuments(superseded)
     return void ok(res, { id: record.id, kind: record.kind, status: record.status, createdAt: record.createdAt }, 201)
   } catch (error) {
     if (!committed) await removeStoredLandlordDocuments(written).catch(() => {})

@@ -26,7 +26,8 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
-  const [roleTab, setRoleTab] = useState<'STUDENT' | 'LANDLORD'>('STUDENT')
+  const [roleTab, setRoleTab] = useState<'STUDENT' | 'LANDLORD' | 'LAWYER'>(() =>
+    searchParams.get('role') === 'lawyer' || searchParams.get('next')?.startsWith('/lawyer') ? 'LAWYER' : 'STUDENT')
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: '', password: '' },
@@ -48,15 +49,17 @@ export function LoginPage() {
         <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-[#203569] text-2xl font-bold text-white">UTS</div>
         <h1 className="mt-5 text-center text-[26px] font-bold leading-tight text-[#1f2937]">{t('System Login')}</h1>
         <p className="mt-2 text-center text-sm text-[#64748b]">{t('Housing & Roommate Finder')}</p>
-        <div role="tablist" aria-label={t('Account Type')} className="mt-6 grid h-11 grid-cols-2 rounded-lg bg-[#f1f2f4] p-1">
-          <button type="button" role="tab" aria-selected={roleTab === 'STUDENT'} onClick={() => setRoleTab('STUDENT')} className={'rounded-md text-sm font-bold transition ' + (roleTab === 'STUDENT' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>{t('Student')}</button>
-          <button type="button" role="tab" aria-selected={roleTab === 'LANDLORD'} onClick={() => setRoleTab('LANDLORD')} className={'rounded-md text-sm font-bold transition ' + (roleTab === 'LANDLORD' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>{t('Landlord')}</button>
+        <div role="tablist" aria-label={t('Sign-in option')} className="mt-6 grid min-h-12 grid-cols-3 rounded-lg bg-[#f1f2f4] p-1">
+          <button type="button" role="tab" aria-selected={roleTab === 'STUDENT'} onClick={() => setRoleTab('STUDENT')} className={'rounded-md px-1 py-2 text-xs font-bold transition sm:text-sm ' + (roleTab === 'STUDENT' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>{t('Student')}</button>
+          <button type="button" role="tab" aria-selected={roleTab === 'LANDLORD'} onClick={() => setRoleTab('LANDLORD')} className={'rounded-md px-1 py-2 text-xs font-bold transition sm:text-sm ' + (roleTab === 'LANDLORD' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>{t('Landlord')}</button>
+          <button type="button" role="tab" aria-selected={roleTab === 'LAWYER'} onClick={() => setRoleTab('LAWYER')} className={'rounded-md px-1 py-2 text-xs font-bold transition sm:text-sm ' + (roleTab === 'LAWYER' ? 'bg-white text-[#203569] shadow-sm' : 'text-[#667085] hover:text-[#203569]')}>{t('Legal Reviewer')}</button>
         </div>
+        {roleTab === 'LAWYER' && <p className="mt-3 text-sm text-slate-600">{t('Restricted reviewer accounts are issued by the site operator. Use your assigned account email and password; public registration does not create reviewer access.')}</p>}
         {user && <p className="mt-5 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">{t('You are signed in.')} <Link to={homeForUser(user)} className="font-semibold underline">{t('Go to Your Dashboard')}</Link></p>}
         <form onSubmit={handleSubmit(submit)} noValidate className="mt-9 space-y-5">
           <FormNotice error={error} />
           <div>
-            <label htmlFor="login-email" className="block text-[13px] font-bold text-[#203569]">{roleTab === 'STUDENT' ? t('UTS Email') : t('Landlord Email')}</label>
+            <label htmlFor="login-email" className="block text-[13px] font-bold text-[#203569]">{roleTab === 'STUDENT' ? t('UTS Email') : roleTab === 'LANDLORD' ? t('Landlord Email') : t('Reviewer Email')}</label>
             <input id="login-email" type="email" autoComplete="email" aria-label={t('Email')} aria-invalid={!!errors.email} aria-describedby={errors.email ? 'login-email-error' : undefined} {...register('email')} className="mt-2 h-[46px] w-full rounded-lg border border-[#cbd5e1] bg-white px-3 text-[#1f2937] outline-none focus:border-[#203569] focus:ring-2 focus:ring-blue-100" />
             {errors.email && <p id="login-email-error" role="alert" className="mt-1 text-sm text-red-700">{t(errors.email.message || "")}</p>}
           </div>
@@ -65,11 +68,11 @@ export function LoginPage() {
             <input id="login-password" type="password" autoComplete="current-password" aria-label={t('Password')} aria-invalid={!!errors.password} aria-describedby={errors.password ? 'login-password-error' : undefined} {...register('password')} className="mt-2 h-[46px] w-full rounded-lg border border-[#cbd5e1] bg-white px-3 text-[#1f2937] outline-none focus:border-[#203569] focus:ring-2 focus:ring-blue-100" />
             {errors.password && <p id="login-password-error" role="alert" className="mt-1 text-sm text-red-700">{t(errors.password.message || "")}</p>}
           </div>
-          <button type="submit" aria-label={t('Log In')} disabled={isSubmitting} className="mt-6 flex h-[49px] w-full items-center justify-center rounded-lg bg-[#203569] px-4 font-bold text-white shadow-sm transition hover:bg-[#1a2b56] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting ? t('Logging in…') : roleTab === 'STUDENT' ? t('Verify & Login') : t('Login as Landlord')}</button>
+          <button type="submit" aria-label={t('Log In')} disabled={isSubmitting} className="mt-6 flex h-[49px] w-full items-center justify-center rounded-lg bg-[#203569] px-4 font-bold text-white shadow-sm transition hover:bg-[#1a2b56] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting ? t('Logging in…') : roleTab === 'STUDENT' ? t('Verify & Login') : roleTab === 'LANDLORD' ? t('Login as Landlord') : t('Login as Legal Reviewer')}</button>
         </form>
       </div>
       <div className="relative top-4 mt-4 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-[#64748b]">
-        <Link to="/register" className="hover:text-[#203569] hover:underline">{t('Create Account')}</Link>
+        {roleTab !== 'LAWYER' && <Link to="/register" className="hover:text-[#203569] hover:underline">{t('Create Account')}</Link>}
         <Link to="/forgot-password" className="hover:text-[#203569] hover:underline">{t('Forgot Password?')}</Link>
         <Link to="/welcome" className="hover:text-[#203569] hover:underline">{t('Browse Website')}</Link>
       </div>

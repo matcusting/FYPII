@@ -7,7 +7,6 @@ import { fail, ok } from '../core/http.js'
 import { approvalIsCurrent, publicListingWhere } from '../core/approval.js'
 import { geocodeAddress } from '../core/geocode.js'
 import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, saveUpload, type UploadPurpose } from '../storage/listings.js'
-import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 
 const router = Router()
 const locationRetryAt = new Map<string, number>()
@@ -380,16 +379,12 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (Object.keys(update).length || value.amenityIds !== undefined || removePhotoIds.length || newPhotos.length) {
       if (existing.status === 'PUBLISHED' || existing.status === 'PAUSED') { update.status = addressChanged ? 'DRAFT' : 'PENDING_REVIEW'; update.reviewedAt = null }
       if (existing.status === 'REJECTED' || (addressChanged && existing.status === 'PENDING_REVIEW')) update.status = 'DRAFT'
-      const revokedKeys: string[] = []
       try { await prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.id}))::text`
         const fresh = await tx.listing.findUniqueOrThrow({ where: { id: existing.id }, select: { address: true, status: true } })
         if (fresh.address !== existing.address || fresh.status !== existing.status) throw new Error('LISTING_CHANGED')
         if (addressChanged) {
-          const previous = await tx.propertyAuthorization.findMany({ where: { listingId: existing.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { proofKey: true, supportingKey: true } })
-          revokedKeys.push(...previous.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
-          await tx.propertyAuthorization.updateMany({ where: { listingId: existing.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Property address changed; submit new proof.', proofKey: null, supportingKey: null } })
-          if (revokedKeys.length) await tx.mediaUpload.deleteMany({ where: { storageKey: { in: revokedKeys } } })
+          await tx.propertyAuthorization.updateMany({ where: { listingId: existing.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Property address changed; submit new proof.', reviewedAt: new Date() } })
         }
         await tx.listing.update({ where: { id: existing.id }, data: update })
         if (value.amenityIds !== undefined) {
@@ -402,7 +397,6 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
         if (error instanceof Error && error.message === 'LISTING_CHANGED') { fail(res, 409, 'The listing changed while you edited it. Refresh and try again.', 'LISTING_CHANGED'); return }
         throw error
       }
-      if (revokedKeys.length) await removeStoredLandlordDocuments(revokedKeys)
     }
   }
   const result = await prisma.listing.findUniqueOrThrow({ where: { id: existing.id }, include: listingInclude })

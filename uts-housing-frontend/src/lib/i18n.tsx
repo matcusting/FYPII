@@ -9,6 +9,7 @@ import { adminTranslations } from './locales/admin'
 import { apiErrorsAdmin } from './locales/apiErrorsAdmin'
 import { landlordTranslations } from './locales/landlord'
 import { landlordErrorTranslations } from './locales/landlordErrors'
+import { lawyerTranslations } from './locales/lawyer'
 
 export type Locale = 'en' | 'ms' | 'zh-CN'
 type Variables = Record<string, string | number>
@@ -17,7 +18,7 @@ type Translation = { ms: string; zh: string }
 const storageKey = 'uts-housing-language-v2'
 const dictionary: Record<string, Translation> = {
   ...shellTranslations, ...publicTranslations, ...accountTranslations, ...requestsTranslations,
-  ...listingsTranslations, ...roommatesTranslations, ...adminTranslations, ...apiErrorsAdmin, ...landlordTranslations, ...landlordErrorTranslations,
+  ...listingsTranslations, ...roommatesTranslations, ...adminTranslations, ...apiErrorsAdmin, ...landlordTranslations, ...landlordErrorTranslations, ...lawyerTranslations,
 }
 
 function storedLocale(): Locale {

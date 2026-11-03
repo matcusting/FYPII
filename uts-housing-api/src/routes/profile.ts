@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { prisma } from '../core/db.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
-import { removeStoredLandlordDocuments } from './landlord-verifications.js'
 import { normalizeSmsPhone } from '../core/sms.js'
 
 const router = Router()
@@ -76,25 +75,18 @@ router.patch('/profile', requireAuth, asyncRoute(async (req, res) => {
     ...(fields.budgetMax !== undefined ? { budgetMax: fields.budgetMax } : {}),
     ...(fields.preferredMoveInDate !== undefined ? { preferredMoveInDate: fields.preferredMoveInDate ? new Date(`${fields.preferredMoveInDate}T00:00:00.000Z`) : null } : {}),
   }
-  const revokedKeys: string[] = []
   const profile = await prisma.$transaction(async tx => {
     if (phoneChanged) await tx.phoneVerificationChallenge.deleteMany({ where: { userId: user.id } })
     if (user.roles.includes('LANDLORD') && fields.displayName && fields.displayName !== user.name) {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
-      const applications = await tx.landlordVerification.findMany({ where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { identityKey: true, companyKey: true, representationKey: true } })
-      const keys = applications.flatMap(item => [item.identityKey, item.companyKey, item.representationKey]).filter((key): key is string => Boolean(key))
-      const propertyApplications = await tx.propertyAuthorization.findMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, select: { proofKey: true, supportingKey: true } })
-      keys.push(...propertyApplications.flatMap(item => [item.proofKey, item.supportingKey]).filter((key): key is string => Boolean(key)))
-      await tx.landlordVerification.updateMany({ where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Legal name changed; submit a new identity application.', identityKey: null, companyKey: null, representationKey: null } })
-      await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Landlord legal name changed; submit new property proof.', proofKey: null, supportingKey: null } })
-      if (keys.length) await tx.mediaUpload.deleteMany({ where: { ownerId: user.id, storageKey: { in: keys } } })
+      const invalidatedAt = new Date()
+      await tx.landlordVerification.updateMany({ where: { userId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Legal name changed; submit a new identity application.', reviewedAt: invalidatedAt } })
+      await tx.propertyAuthorization.updateMany({ where: { requesterId: user.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Landlord legal name changed; submit new property proof.', reviewedAt: invalidatedAt } })
       await tx.listing.updateMany({ where: { ownerId: user.id, status: { in: ['PUBLISHED', 'PENDING_REVIEW'] } }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Landlord identity must be reviewed again.' } })
-      revokedKeys.push(...keys)
     }
     if (fields.displayName) await tx.user.update({ where: { id: user.id }, data: { name: fields.displayName } })
     return tx.profile.upsert({ where: { userId: user.id }, create: { userId: user.id, displayName: fields.displayName || user.name, ...update }, update })
   })
-  if (revokedKeys.length) await removeStoredLandlordDocuments(revokedKeys)
   return ok(res, formatProfile({ ...user, name: fields.displayName || user.name }, profile))
 }))
 

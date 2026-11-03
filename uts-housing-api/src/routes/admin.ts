@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { prisma } from '../core/db.js'
 import { currentUser, requireRole } from '../core/auth.js'
 import { approvalExpiresAt, approvalIsCurrent, effectiveApprovalStatus } from '../core/approval.js'
+import { addUtcCalendarYears, parseUtcDateOnly } from '../core/retention-dates.js'
 import { fail, ok } from '../core/http.js'
 import { uploadMetadata } from '../storage/listings.js'
 import { removeStoredVerificationDocuments, verificationProofDirectory, verificationProofMime } from './verifications.js'
@@ -29,8 +30,16 @@ const decisionSchema = z.object({
   status: z.string(), reason: z.string().trim().max(1000).default(''), studentIdMatchesEmail: z.boolean().optional(),
   enrollmentCheckStatus: z.enum(['NOT_CHECKED', 'ACTIVE', 'INACTIVE', 'INCONCLUSIVE']).optional(),
   enrollmentCheckReference: z.string().trim().min(4).max(120).regex(/^[^\r\n]+$/).optional(),
+  studyEndsAt: z.string().optional(),
 })
 const reviewerSourceReference = z.string().trim().min(4).max(160).regex(/^[^\r\n]+$/).optional()
+function currentMalaysiaDate(): Date {
+  return new Date(new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10) + 'T00:00:00.000Z')
+}
+function validStudyEnd(input: string | undefined): Date | null {
+  const date = parseUtcDateOnly(input || '')
+  return date && date >= currentMalaysiaDate() ? date : null
+}
 const queueStatuses: Record<ModerationKind, readonly string[]> = {
   verifications: ['UNVERIFIED', 'PENDING', 'APPROVED', 'REJECTED'],
   listings: ['DRAFT', 'PENDING_REVIEW', 'PUBLISHED', 'REJECTED', 'PAUSED', 'RENTED', 'ARCHIVED'],
@@ -42,6 +51,16 @@ const accountSelect = { id: true, name: true, email: true, roles: true, emailVer
 const personSelect = { id: true, name: true, email: true } as const
 const verificationPersonSelect = { ...personSelect, emailVerifiedAt: true } as const
 const landlordPersonSelect = { ...verificationPersonSelect, status: true, roles: true, profile: { select: { phone: true } } } as const
+const lawyerSelect = { id: true, name: true, status: true, roles: true } as const
+
+function activeAssignedLawyer(row: {
+  lawyerId: string | null; lawyerDecision: string | null; lawyerReviewedAt: Date | null; lawyerSourceReference: string | null;
+  lawyer: { id: string; status: AccountStatus; roles: string[] } | null;
+}, checks: boolean) {
+  return Boolean(row.lawyerId && row.lawyer?.id === row.lawyerId && row.lawyer.status === 'ACTIVE'
+    && row.lawyer.roles.length === 1 && row.lawyer.roles[0] === 'LAWYER'
+    && row.lawyerDecision === 'APPROVE' && row.lawyerReviewedAt && row.lawyerSourceReference && checks)
+}
 
 function asyncRoute(handler: (req: Request, res: Response) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => { void handler(req, res).catch(next) }
@@ -77,6 +96,7 @@ function accountOf(row: {
 function verificationOf(row: {
   id: string; userId: string; method: unknown; university: string; note: string | null; status: unknown;
   enrollmentCheckStatus: string; enrollmentCheckReference: string | null; enrollmentCheckedAt: Date | null;
+  studyEndsAt: Date | null; evidenceRetainUntil: Date | null;
   reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date;
   proofKey: string | null; studentIdKey: string | null; offerLetterKey: string | null;
   user: { id: string; name: string; email: string; emailVerifiedAt: Date | null }
@@ -88,6 +108,8 @@ function verificationOf(row: {
     verificationMethod: row.method, note: row.note, status: row.status, moderationReason: row.reason,
     enrollmentCheckStatus: row.enrollmentCheckStatus, enrollmentCheckReference: row.enrollmentCheckReference,
     enrollmentCheckedAt: row.enrollmentCheckedAt,
+    ...(detail ? { studyEndsAt: row.studyEndsAt?.toISOString().slice(0, 10) || null,
+      evidenceRetainUntil: row.evidenceRetainUntil?.toISOString().slice(0, 10) || null } : {}),
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt,
     ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/verifications/${row.id}/proof` } : {}),
     ...(detail && row.studentIdKey ? { studentIdUrl: `/api/v1/admin/verifications/${row.id}/student-id` } : {}),
@@ -119,6 +141,8 @@ async function storedLandlordDocument(storageKey: string | null, ownerId: string
 function landlordVerificationOf(row: {
   id: string; userId: string; kind: string; identityKey: string | null; companyKey: string | null; representationKey: string | null;
   reviewerSourceReference: string | null; identityMatched: boolean; companyRegistryChecked: boolean;
+  lawyerId: string | null; lawyerAssignedAt: Date | null; lawyerDecision: string | null; lawyerReason: string | null; lawyerSourceReference: string | null;
+  lawyerIdentityMatched: boolean; lawyerCompanyRegistryChecked: boolean; lawyerReviewedAt: Date | null; lawyer?: { name: string } | null;
   status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null;
   user: { id: string; name: string; email: string; emailVerifiedAt: Date | null; profile: { phone: string | null } | null }
 }, detail = false) {
@@ -126,7 +150,10 @@ function landlordVerificationOf(row: {
     id: row.id, userId: row.userId, kind: row.kind, status: effectiveApprovalStatus(row), moderationReason: row.reason,
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt,
     landlord: { id: row.user.id, name: row.user.name, email: row.user.email, emailVerified: Boolean(row.user.emailVerifiedAt), phone: row.user.profile?.phone || null },
-    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, identityMatched: row.identityMatched, companyRegistryChecked: row.companyRegistryChecked } : {}),
+    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, identityMatched: row.identityMatched, companyRegistryChecked: row.companyRegistryChecked,
+      lawyerReviewRequired: row.status === 'PENDING', lawyerReview: row.lawyerId ? { lawyerId: row.lawyerId, lawyerName: row.lawyer?.name || null,
+        assignedAt: row.lawyerAssignedAt, decision: row.lawyerDecision, reason: row.lawyerReason, sourceReference: row.lawyerSourceReference,
+        identityMatched: row.lawyerIdentityMatched, companyRegistryChecked: row.lawyerCompanyRegistryChecked, reviewedAt: row.lawyerReviewedAt } : null } : {}),
     ...(detail && row.identityKey ? { identityUrl: `/api/v1/admin/landlord-verifications/${row.id}/identity` } : {}),
     ...(detail && row.companyKey ? { companyUrl: `/api/v1/admin/landlord-verifications/${row.id}/company` } : {}),
     ...(detail && row.representationKey ? { representativeUrl: `/api/v1/admin/landlord-verifications/${row.id}/representative` } : {}),
@@ -136,6 +163,8 @@ function landlordVerificationOf(row: {
 function propertyAuthorizationOf(row: {
   id: string; listingId: string; requesterId: string; kind: string; proofKey: string | null; supportingKey: string | null;
   reviewerSourceReference: string | null; authorityChecked: boolean; addressMatched: boolean;
+  lawyerId: string | null; lawyerAssignedAt: Date | null; lawyerDecision: string | null; lawyerReason: string | null; lawyerSourceReference: string | null;
+  lawyerAuthorityChecked: boolean; lawyerAddressMatched: boolean; lawyerReviewedAt: Date | null; lawyer?: { name: string } | null;
   addressSnapshot: string; status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null;
   requester: { id: string; name: string; email: string };
   listing: { id: string; title: string; address: string | null; status: string }
@@ -145,7 +174,10 @@ function propertyAuthorizationOf(row: {
     status: effectiveApprovalStatus(row), moderationReason: row.reason, reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt,
     landlord: { id: row.requester.id, name: row.requester.name, email: row.requester.email },
     listing: row.listing,
-    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, authorityChecked: row.authorityChecked, addressMatched: row.addressMatched } : {}),
+    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, authorityChecked: row.authorityChecked, addressMatched: row.addressMatched,
+      lawyerReviewRequired: row.status === 'PENDING', lawyerReview: row.lawyerId ? { lawyerId: row.lawyerId, lawyerName: row.lawyer?.name || null,
+        assignedAt: row.lawyerAssignedAt, decision: row.lawyerDecision, reason: row.lawyerReason, sourceReference: row.lawyerSourceReference,
+        authorityChecked: row.lawyerAuthorityChecked, addressMatched: row.lawyerAddressMatched, reviewedAt: row.lawyerReviewedAt } : null } : {}),
     ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/property-authorizations/${row.id}/proof` } : {}),
     ...(detail && row.supportingKey ? { supportingUrl: `/api/v1/admin/property-authorizations/${row.id}/supporting` } : {}),
   }
@@ -203,6 +235,50 @@ router.get('/overview', asyncRoute(async (_req, res) => {
     prisma.deletionRequest.count({ where: { status: 'PENDING' } }),
   ])
   ok(res, { pendingVerifications, pendingLandlordVerifications, pendingPropertyAuthorizations, landlordAccounts, pendingListings, pendingReviews, openReports, pendingDeletionRequests })
+}))
+
+// A law-office account is provisioned out of band. It is deliberately never
+// created through public registration or granted the general ADMIN role.
+router.get('/lawyer-reviewers', asyncRoute(async (_req, res) => {
+  const rows = await prisma.user.findMany({ where: { status: 'ACTIVE', roles: { has: 'LAWYER' } },
+    select: { id: true, name: true, email: true, roles: true }, orderBy: { name: 'asc' }, take: 200 })
+  ok(res, { items: rows.filter(row => row.roles.length === 1).map(({ roles: _roles, ...row }) => row) })
+}))
+
+router.post('/lawyer-assignments', asyncRoute(async (req, res) => {
+  const parsed = z.object({ kind: z.enum(['identity', 'property']), id: z.string().uuid(), lawyerId: z.string().uuid().nullable() }).safeParse(req.body)
+  if (!parsed.success) return void fail(res, 400, 'Choose a valid case and lawyer account.', 'INVALID_ASSIGNMENT')
+  const { kind, id, lawyerId } = parsed.data
+  const result = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id}))::text`
+    const lawyer = lawyerId ? await tx.user.findUnique({ where: { id: lawyerId }, select: { id: true, status: true, roles: true } }) : null
+    if (lawyerId && (!lawyer || lawyer.status !== 'ACTIVE' || lawyer.roles.length !== 1 || lawyer.roles[0] !== 'LAWYER')) return { error: 'INVALID_LAWYER' } as const
+    if (kind === 'identity') {
+      const old = await tx.landlordVerification.findUnique({ where: { id }, select: { status: true, userId: true, lawyerId: true } })
+      if (!old) return { error: 'NOT_FOUND' } as const
+      if (old.status !== 'PENDING') return { error: 'CASE_CLOSED' } as const
+      if (old.userId === lawyerId) return { error: 'SELF_REVIEW' } as const
+      if (old.lawyerId === lawyerId) return { kind, id, lawyerId } as const
+      await tx.landlordVerification.update({ where: { id }, data: { lawyerId, lawyerAssignedAt: lawyerId ? new Date() : null,
+        lawyerDecision: null, lawyerReason: null, lawyerSourceReference: null, lawyerIdentityMatched: false,
+        lawyerCompanyRegistryChecked: false, lawyerReviewedAt: null } })
+      await audit(tx, currentUser(req)!.id, 'LAWYER_IDENTITY_ASSIGNED', 'LANDLORD_VERIFICATION', id, { lawyerId: old.lawyerId }, { lawyerId })
+    } else {
+      const old = await tx.propertyAuthorization.findUnique({ where: { id }, select: { status: true, requesterId: true, lawyerId: true } })
+      if (!old) return { error: 'NOT_FOUND' } as const
+      if (old.status !== 'PENDING') return { error: 'CASE_CLOSED' } as const
+      if (old.requesterId === lawyerId) return { error: 'SELF_REVIEW' } as const
+      if (old.lawyerId === lawyerId) return { kind, id, lawyerId } as const
+      await tx.propertyAuthorization.update({ where: { id }, data: { lawyerId, lawyerAssignedAt: lawyerId ? new Date() : null,
+        lawyerDecision: null, lawyerReason: null, lawyerSourceReference: null, lawyerAuthorityChecked: false,
+        lawyerAddressMatched: false, lawyerReviewedAt: null } })
+      await audit(tx, currentUser(req)!.id, 'LAWYER_PROPERTY_ASSIGNED', 'PROPERTY_AUTHORIZATION', id, { lawyerId: old.lawyerId }, { lawyerId })
+    }
+    return { kind, id, lawyerId } as const
+  })
+  if ('error' in result) return void fail(res, result.error === 'NOT_FOUND' ? 404 : result.error === 'CASE_CLOSED' ? 409 : 400,
+    'The case or lawyer assignment is unavailable.', result.error)
+  ok(res, result)
 }))
 
 router.get('/campuses', asyncRoute(async (_req, res) => {
@@ -286,6 +362,34 @@ router.get('/verifications/:id/:document', asyncRoute(async (req, res) => {
   res.send(bytes)
 }))
 
+// Correct an approved offer-letter end date while the original private proof
+// still exists. This is an audited human review, never OCR or profile text.
+router.patch('/verifications/:id/study-end', asyncRoute(async (req, res) => {
+  const id = z.string().uuid().safeParse(req.params.id)
+  const body = z.object({ studyEndsAt: z.string(), confirmOfferLetterDate: z.literal(true), reason: z.string().trim().min(10).max(500) }).safeParse(req.body)
+  const studyEndsAt = body.success ? parseUtcDateOnly(body.data.studyEndsAt) : null
+  if (!id.success || !body.success || !studyEndsAt) return void fail(res, 400, 'Confirm a valid YYYY-MM-DD date from the offer letter and explain the correction.', 'INVALID_STUDY_END_DATE')
+  const existing = await prisma.studentVerification.findUnique({ where: { id: id.data } })
+  if (!existing) return void fail(res, 404, 'This student verification does not exist.', 'NOT_FOUND')
+  if (existing.status !== 'APPROVED' || !existing.offerLetterKey) return void fail(res, 409, 'An approved case with its original offer letter is required.', 'PROOF_UNAVAILABLE')
+  if (existing.userId === currentUser(req)!.id) return void fail(res, 403, 'You cannot correct your own student verification.', 'FORBIDDEN')
+  const proof = await storedVerificationDocument(existing.offerLetterKey, existing.userId, ['application/pdf', 'image/jpeg', 'image/png'])
+  if (!proof) return void fail(res, 409, 'The original offer letter is unavailable; request a new verification submission.', 'PROOF_UNAVAILABLE')
+  const evidenceRetainUntil = addUtcCalendarYears(studyEndsAt, 1)
+  const changed = await atomicDecision(async transaction => {
+    await transaction.$queryRaw`SELECT id FROM "StudentVerification" WHERE id = ${id.data} FOR UPDATE`
+    const fresh = await transaction.studentVerification.findUniqueOrThrow({ where: { id: id.data } })
+    if (fresh.status !== 'APPROVED' || fresh.offerLetterKey !== existing.offerLetterKey) throw new ModerationConflict()
+    const row = await transaction.studentVerification.update({ where: { id: id.data }, data: { studyEndsAt, evidenceRetainUntil } })
+    await audit(transaction, currentUser(req)!.id, 'STUDENT_STUDY_END_CORRECTED', 'STUDENT_VERIFICATION', id.data,
+      { studyEndsAt: fresh.studyEndsAt?.toISOString().slice(0, 10) || null, evidenceRetainUntil: fresh.evidenceRetainUntil?.toISOString().slice(0, 10) || null },
+      { studyEndsAt: body.data.studyEndsAt, evidenceRetainUntil: evidenceRetainUntil.toISOString().slice(0, 10), reason: body.data.reason })
+    return row
+  })
+  if (!changed) return void fail(res, 409, 'This student verification changed; refresh and try again.', 'ALREADY_REVIEWED')
+  ok(res, { id: changed.id, studyEndsAt: changed.studyEndsAt?.toISOString().slice(0, 10), evidenceRetainUntil: changed.evidenceRetainUntil?.toISOString().slice(0, 10) })
+}))
+
 router.get('/landlord-verifications', asyncRoute(async (req, res) => {
   const page = pageOf(req)
   const status = statusOf(req)
@@ -296,7 +400,7 @@ router.get('/landlord-verifications', asyncRoute(async (req, res) => {
       ? { status: 'APPROVED' as const, expiresAt: { gt: new Date() } }
       : status ? { status: status as VerificationStatus } : {}
   const [rows, total] = await Promise.all([
-    prisma.landlordVerification.findMany({ where, include: { user: { select: landlordPersonSelect } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 20, take: 20 }),
+    prisma.landlordVerification.findMany({ where, include: { user: { select: landlordPersonSelect }, lawyer: { select: lawyerSelect } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 20, take: 20 }),
     prisma.landlordVerification.count({ where }),
   ])
   ok(res, { items: rows.map(row => landlordVerificationOf(row)), total, page, pages: Math.max(1, Math.ceil(total / 20)) })
@@ -305,7 +409,7 @@ router.get('/landlord-verifications', asyncRoute(async (req, res) => {
 router.get('/landlord-verifications/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
   if (!id.success) return void fail(res, 404, 'This identity request does not exist.', 'NOT_FOUND')
-  const row = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect } } })
+  const row = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect }, lawyer: { select: lawyerSelect } } })
   return void (row ? ok(res, landlordVerificationOf(row, true)) : fail(res, 404, 'This identity request does not exist.', 'NOT_FOUND'))
 }))
 
@@ -330,7 +434,7 @@ router.get('/landlord-verifications/:id/:document', asyncRoute(async (req, res) 
 router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
   const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'REVOKED']), reason: z.string().trim().max(1000).default(''), validUntil: z.string().optional(),
-    reviewerSourceReference, identityMatched: z.boolean().optional(), companyRegistryChecked: z.boolean().optional(),
+    reviewerSourceReference, identityMatched: z.boolean().optional(), companyRegistryChecked: z.boolean().optional(), acknowledgeLegalReview: z.boolean().optional(),
   }).safeParse(req.body)
   if (!id.success || !decision.success || (decision.data.status !== 'APPROVED' && decision.data.reason.length < 3)) return void fail(res, 400, 'Choose approve, reject or revoke and explain a rejection or revocation.', 'INVALID_DECISION')
   const { status, validUntil } = decision.data
@@ -340,13 +444,14 @@ router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
   const reason = status === 'APPROVED' ? '' : decision.data.reason
   const expiresAt = status === 'APPROVED' ? approvalExpiresAt('identity', new Date(), validUntil) : null
   if (status === 'APPROVED' && !expiresAt) return void fail(res, 400, 'Choose a valid expiry date within the configured maximum approval period.', 'INVALID_EXPIRY')
-  const previous = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect } } })
+  const previous = await prisma.landlordVerification.findUnique({ where: { id: id.data }, include: { user: { select: landlordPersonSelect }, lawyer: { select: lawyerSelect } } })
   if (!previous) return void fail(res, 404, 'This identity request does not exist.', 'NOT_FOUND')
   if (previous.status !== (status === 'REVOKED' ? 'APPROVED' : 'PENDING')) return void fail(res, 409, 'This identity request cannot be changed to that status.', 'ALREADY_REVIEWED')
   if (previous.userId === currentUser(req)!.id) return void fail(res, 403, 'You cannot approve your own identity.', 'FORBIDDEN')
   if (status === 'APPROVED') {
-    if (!decision.data.reviewerSourceReference) return void fail(res, 400, 'Record a private, non-sensitive verification source or case reference before approval.', 'REVIEW_SOURCE_REQUIRED')
-    if (decision.data.identityMatched !== true || (previous.kind === 'COMPANY' && decision.data.companyRegistryChecked !== true)) return void fail(res, 400, 'Confirm the identity match and, for a company, its independent registry check before approval.', 'INDEPENDENT_CHECK_REQUIRED')
+    if (decision.data.acknowledgeLegalReview !== true) return void fail(res, 400, 'Confirm that you reviewed the lawyer recommendation before the final decision.', 'LEGAL_REVIEW_ACK_REQUIRED')
+    if (!activeAssignedLawyer(previous, previous.lawyerIdentityMatched && (previous.kind !== 'COMPANY' || previous.lawyerCompanyRegistryChecked))) return void fail(res, 400, 'An active assigned lawyer must first recommend approval with the required independent checks.', 'LAWYER_REVIEW_REQUIRED')
+    if (previous.lawyerId === currentUser(req)!.id) return void fail(res, 403, 'The lawyer who reviewed this case cannot make the final decision.', 'SELF_REVIEW')
     if (previous.user.status !== 'ACTIVE' || !previous.user.roles.includes('LANDLORD') || !previous.user.emailVerifiedAt || !previous.user.profile?.phone) return void fail(res, 400, 'The landlord needs a verified email and phone before identity approval.', 'ACCOUNT_INCOMPLETE')
     const [identity, company, representative] = await Promise.all([
       storedLandlordDocument(previous.identityKey, previous.userId, 'LANDLORD_IDENTITY', ['image/jpeg', 'image/png']),
@@ -356,32 +461,33 @@ router.patch('/landlord-verifications/:id', asyncRoute(async (req, res) => {
     if (!identity || (previous.kind === 'COMPANY' && (!company || !representative))) return void fail(res, 400, 'Review valid identity and company documents before approval.', 'PROOF_REQUIRED')
   }
   const actorId = currentUser(req)!.id
-  const rejectedKeys = status === 'REJECTED' ? [previous.identityKey, previous.companyKey, previous.representationKey].filter((key): key is string => Boolean(key)) : []
   const changed = await atomicDecision(async transaction => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id.data}))::text`
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
     if (status === 'APPROVED') {
       const user = await transaction.user.findUniqueOrThrow({ where: { id: previous.userId }, include: { profile: true } })
-      if (user.status !== 'ACTIVE' || !user.roles.includes('LANDLORD') || !user.emailVerifiedAt || !user.profile?.phone) throw new ModerationConflict()
+      const currentCase = await transaction.landlordVerification.findUniqueOrThrow({ where: { id: id.data }, include: { lawyer: { select: lawyerSelect } } })
+      if (user.status !== 'ACTIVE' || !user.roles.includes('LANDLORD') || !user.emailVerifiedAt || !user.profile?.phone
+        || !activeAssignedLawyer(currentCase, currentCase.lawyerIdentityMatched && (currentCase.kind !== 'COMPANY' || currentCase.lawyerCompanyRegistryChecked))
+        || currentCase.lawyerId === actorId) throw new ModerationConflict()
     }
-    const updated = await transaction.landlordVerification.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING' }, data: {
+    const updated = await transaction.landlordVerification.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING',
+      ...(status === 'APPROVED' ? { lawyerId: previous.lawyerId, lawyerDecision: 'APPROVE', lawyerIdentityMatched: true } : {}) }, data: {
       status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), expiresAt, revokedAt: status === 'REVOKED' ? new Date() : null,
-      ...(status === 'APPROVED' ? { reviewerSourceReference: decision.data.reviewerSourceReference, identityMatched: true, companyRegistryChecked: previous.kind === 'COMPANY' } : {}),
-      ...(status === 'REJECTED' ? { identityKey: null, companyKey: null, representationKey: null } : {}),
+      ...(status === 'APPROVED' ? { reviewerSourceReference: decision.data.reviewerSourceReference || previous.lawyerSourceReference, identityMatched: true, companyRegistryChecked: previous.kind === 'COMPANY' } : {}),
     } })
     if (!updated.count) throw new ModerationConflict()
     const row = await transaction.landlordVerification.findUniqueOrThrow({ where: { id: id.data } })
-    if (status === 'REJECTED' && rejectedKeys.length) await transaction.mediaUpload.deleteMany({ where: { ownerId: row.userId, storageKey: { in: rejectedKeys } } })
     if (status === 'REVOKED') {
       await transaction.propertyAuthorization.updateMany({ where: { requesterId: row.userId, status: 'APPROVED' }, data: { status: 'REVOKED', reason: 'Landlord identity approval was revoked.', revokedAt: new Date() } })
       await transaction.listing.updateMany({ where: { ownerId: row.userId, status: { in: ['PUBLISHED', 'PENDING_REVIEW'] } }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Landlord identity approval was revoked.' } })
     }
-    await audit(transaction, actorId, `LANDLORD_IDENTITY_${status}`, 'LANDLORD_VERIFICATION', row.id, { status: previous.status }, { status, reason, ...(status === 'APPROVED' ? { identityMatched: true, companyRegistryChecked: previous.kind === 'COMPANY', sourceRecorded: true } : {}) })
+    await audit(transaction, actorId, `LANDLORD_IDENTITY_${status}`, 'LANDLORD_VERIFICATION', row.id, { status: previous.status }, { status, reason, ...(status === 'APPROVED' ? { lawyerId: previous.lawyerId, lawyerRecommendation: 'APPROVE', sourceRecorded: true } : {}) })
     await notify(transaction, row.userId, previous.user.email, 'LANDLORD_IDENTITY', `Landlord identity ${status.toLowerCase()}`, status === 'APPROVED' ? `Your landlord identity review is approved until ${expiresAt!.toISOString().slice(0, 10)}.` : `Your landlord identity review was ${status.toLowerCase()}: ${reason}`, row.id)
     return row
   })
   if (!changed) return void fail(res, 409, 'This identity request changed while being reviewed. Refresh the queue.', 'ALREADY_REVIEWED')
-  if (status === 'REJECTED') await removeStoredLandlordDocuments(rejectedKeys)
-  ok(res, landlordVerificationOf({ ...changed, user: previous.user }, true))
+  ok(res, landlordVerificationOf({ ...changed, user: previous.user, lawyer: previous.lawyer }, true))
 }))
 
 router.get('/property-authorizations', asyncRoute(async (req, res) => {
@@ -394,7 +500,7 @@ router.get('/property-authorizations', asyncRoute(async (req, res) => {
       ? { status: 'APPROVED' as const, expiresAt: { gt: new Date() } }
       : status ? { status: status as VerificationStatus } : {}
   const [rows, total] = await Promise.all([
-    prisma.propertyAuthorization.findMany({ where, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true } } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 20, take: 20 }),
+    prisma.propertyAuthorization.findMany({ where, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true } }, lawyer: { select: lawyerSelect } }, orderBy: { createdAt: 'desc' }, skip: (page - 1) * 20, take: 20 }),
     prisma.propertyAuthorization.count({ where }),
   ])
   ok(res, { items: rows.map(row => propertyAuthorizationOf(row)), total, page, pages: Math.max(1, Math.ceil(total / 20)) })
@@ -403,7 +509,7 @@ router.get('/property-authorizations', asyncRoute(async (req, res) => {
 router.get('/property-authorizations/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
   if (!id.success) return void fail(res, 404, 'This property authorization does not exist.', 'NOT_FOUND')
-  const row = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true } } } })
+  const row = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true } }, lawyer: { select: lawyerSelect } } })
   return void (row ? ok(res, propertyAuthorizationOf(row, true)) : fail(res, 404, 'This property authorization does not exist.', 'NOT_FOUND'))
 }))
 
@@ -427,20 +533,21 @@ router.get('/property-authorizations/:id/:document', asyncRoute(async (req, res)
 router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
   const id = z.string().uuid().safeParse(req.params.id)
   const decision = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'REVOKED']), reason: z.string().trim().max(1000).default(''), validUntil: z.string().optional(),
-    reviewerSourceReference, authorityChecked: z.boolean().optional(), addressMatched: z.boolean().optional(),
+    reviewerSourceReference, authorityChecked: z.boolean().optional(), addressMatched: z.boolean().optional(), acknowledgeLegalReview: z.boolean().optional(),
   }).safeParse(req.body)
   if (!id.success || !decision.success || (decision.data.status !== 'APPROVED' && decision.data.reason.length < 3)) return void fail(res, 400, 'Choose approve, reject or revoke and explain a rejection or revocation.', 'INVALID_DECISION')
   const { status, validUntil } = decision.data
   const reason = status === 'APPROVED' ? '' : decision.data.reason
   const expiresAt = status === 'APPROVED' ? approvalExpiresAt('property', new Date(), validUntil) : null
   if (status === 'APPROVED' && !expiresAt) return void fail(res, 400, 'Choose a valid expiry date within the configured maximum approval period.', 'INVALID_EXPIRY')
-  const previous = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true, ownerId: true } } } })
+  const previous = await prisma.propertyAuthorization.findUnique({ where: { id: id.data }, include: { requester: { select: personSelect }, listing: { select: { id: true, title: true, address: true, status: true, ownerId: true } }, lawyer: { select: lawyerSelect } } })
   if (!previous) return void fail(res, 404, 'This property authorization does not exist.', 'NOT_FOUND')
   if (previous.status !== (status === 'REVOKED' ? 'APPROVED' : 'PENDING')) return void fail(res, 409, 'This property authorization cannot be changed to that status.', 'ALREADY_REVIEWED')
   if (previous.requesterId === currentUser(req)!.id) return void fail(res, 403, 'You cannot approve your own property authorization.', 'FORBIDDEN')
   if (status === 'APPROVED') {
-    if (!decision.data.reviewerSourceReference) return void fail(res, 400, 'Record a private, non-sensitive verification source or case reference before approval.', 'REVIEW_SOURCE_REQUIRED')
-    if (decision.data.authorityChecked !== true || decision.data.addressMatched !== true) return void fail(res, 400, 'Confirm an independent right-to-rent check and that the evidence matches this property address.', 'INDEPENDENT_CHECK_REQUIRED')
+    if (decision.data.acknowledgeLegalReview !== true) return void fail(res, 400, 'Confirm that you reviewed the lawyer recommendation before the final decision.', 'LEGAL_REVIEW_ACK_REQUIRED')
+    if (!activeAssignedLawyer(previous, previous.lawyerAuthorityChecked && previous.lawyerAddressMatched)) return void fail(res, 400, 'An active assigned lawyer must first recommend approval with the required independent checks.', 'LAWYER_REVIEW_REQUIRED')
+    if (previous.lawyerId === currentUser(req)!.id) return void fail(res, 403, 'The lawyer who reviewed this case cannot make the final decision.', 'SELF_REVIEW')
     if (previous.listing.ownerId !== previous.requesterId || !previous.listing.address || previous.listing.address !== previous.addressSnapshot || previous.listing.status === 'ARCHIVED') return void fail(res, 400, 'The property address or listing changed. Ask for a new authorization request.', 'LISTING_CHANGED')
     const account = await prisma.user.findUnique({ where: { id: previous.requesterId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true } })
     const identity = await prisma.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } })
@@ -452,28 +559,29 @@ router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
     if (!proof || (previous.kind !== 'OWNER' && !supporting)) return void fail(res, 400, 'Review the required property authorization documents before approval.', 'PROOF_REQUIRED')
   }
   const actorId = currentUser(req)!.id
-  const rejectedKeys = status === 'REJECTED' ? [previous.proofKey, previous.supportingKey].filter((key): key is string => Boolean(key)) : []
   const changed = await atomicDecision(async transaction => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${id.data}))::text`
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.requesterId}))::text`
     await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.listingId}))::text`
     if (status === 'APPROVED') {
+      const currentCase = await transaction.propertyAuthorization.findUniqueOrThrow({ where: { id: id.data }, include: { lawyer: { select: lawyerSelect } } })
       const listing = await transaction.listing.findUniqueOrThrow({ where: { id: previous.listingId } })
       const owner = await transaction.user.findUniqueOrThrow({ where: { id: previous.requesterId } })
       const identity = await transaction.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } })
-      if (listing.ownerId !== previous.requesterId || listing.address !== previous.addressSnapshot || listing.status === 'ARCHIVED' || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && owner.studentVerified)) throw new ModerationConflict()
+      if (listing.ownerId !== previous.requesterId || listing.address !== previous.addressSnapshot || listing.status === 'ARCHIVED' || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && owner.studentVerified)
+        || !activeAssignedLawyer(currentCase, currentCase.lawyerAuthorityChecked && currentCase.lawyerAddressMatched) || currentCase.lawyerId === actorId) throw new ModerationConflict()
     }
-    const updated = await transaction.propertyAuthorization.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING' }, data: { status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), expiresAt, revokedAt: status === 'REVOKED' ? new Date() : null, ...(status === 'APPROVED' ? { reviewerSourceReference: decision.data.reviewerSourceReference, authorityChecked: true, addressMatched: true } : {}), ...(status === 'REJECTED' ? { proofKey: null, supportingKey: null } : {}) } })
+    const updated = await transaction.propertyAuthorization.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING',
+      ...(status === 'APPROVED' ? { lawyerId: previous.lawyerId, lawyerDecision: 'APPROVE', lawyerAuthorityChecked: true, lawyerAddressMatched: true } : {}) }, data: { status, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(), expiresAt, revokedAt: status === 'REVOKED' ? new Date() : null, ...(status === 'APPROVED' ? { reviewerSourceReference: decision.data.reviewerSourceReference || previous.lawyerSourceReference, authorityChecked: true, addressMatched: true } : {}) } })
     if (!updated.count) throw new ModerationConflict()
     const row = await transaction.propertyAuthorization.findUniqueOrThrow({ where: { id: id.data } })
-    if (status === 'REJECTED' && rejectedKeys.length) await transaction.mediaUpload.deleteMany({ where: { ownerId: row.requesterId, storageKey: { in: rejectedKeys } } })
     if (status === 'REVOKED') await transaction.listing.updateMany({ where: { id: row.listingId, status: { in: ['PUBLISHED', 'PENDING_REVIEW'] } }, data: { status: 'PAUSED', reviewedAt: null, moderationReason: 'Property authorization was revoked.' } })
-    await audit(transaction, actorId, `PROPERTY_AUTHORIZATION_${status}`, 'PROPERTY_AUTHORIZATION', row.id, { status: previous.status }, { status, reason, listingId: row.listingId, ...(status === 'APPROVED' ? { authorityChecked: true, addressMatched: true, sourceRecorded: true } : {}) })
+    await audit(transaction, actorId, `PROPERTY_AUTHORIZATION_${status}`, 'PROPERTY_AUTHORIZATION', row.id, { status: previous.status }, { status, reason, listingId: row.listingId, ...(status === 'APPROVED' ? { lawyerId: previous.lawyerId, lawyerRecommendation: 'APPROVE', sourceRecorded: true } : {}) })
     await notify(transaction, row.requesterId, previous.requester.email, 'PROPERTY_AUTHORIZATION', `Property authorization ${status.toLowerCase()}`, status === 'APPROVED' ? `Property authorization for "${previous.listing.title}" is approved until ${expiresAt!.toISOString().slice(0, 10)}.` : `Property authorization for "${previous.listing.title}" was ${status.toLowerCase()}: ${reason}`, row.id)
     return row
   })
   if (!changed) return void fail(res, 409, 'This authorization changed while being reviewed. Refresh the queue.', 'ALREADY_REVIEWED')
-  if (status === 'REJECTED') await removeStoredLandlordDocuments(rejectedKeys)
-  ok(res, propertyAuthorizationOf({ ...changed, requester: previous.requester, listing: previous.listing }, true))
+  ok(res, propertyAuthorizationOf({ ...changed, requester: previous.requester, listing: previous.listing, lawyer: previous.lawyer }, true))
 }))
 
 router.get('/deletion-requests', asyncRoute(async (req, res) => {
@@ -625,6 +733,9 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
   if (kind === 'verifications') {
     if (status !== 'APPROVED' && status !== 'REJECTED') return void fail(res, 400, 'Choose approve or reject for student verification.', 'INVALID_STATUS')
     if (status === 'APPROVED' && decision.data.studentIdMatchesEmail !== true) return void fail(res, 400, 'Confirm that the Student ID on the card matches the school email before approval.', 'STUDENT_ID_MATCH_REQUIRED')
+    const studyEndsAt = status === 'APPROVED' ? validStudyEnd(decision.data.studyEndsAt) : null
+    if (status === 'APPROVED' && !studyEndsAt) return void fail(res, 400, 'Enter a valid current or future study end date from the offer letter (YYYY-MM-DD) before approval.', 'STUDY_END_DATE_REQUIRED')
+    const evidenceRetainUntil = studyEndsAt ? addUtcCalendarYears(studyEndsAt, 1) : null
     const enrollmentCheckStatus = decision.data.enrollmentCheckStatus || 'NOT_CHECKED'
     const enrollmentCheckReference = decision.data.enrollmentCheckReference || null
     if ((enrollmentCheckStatus !== 'NOT_CHECKED' && !enrollmentCheckReference) || (enrollmentCheckStatus === 'NOT_CHECKED' && enrollmentCheckReference)) return void fail(res, 400, 'Record an official source reference only when an authorized enrollment check was performed.', 'ENROLLMENT_CHECK_REFERENCE_REQUIRED')
@@ -651,6 +762,7 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
         status: status as VerificationStatus, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(),
         enrollmentCheckStatus, enrollmentCheckReference,
         enrollmentCheckedAt: enrollmentCheckStatus === 'NOT_CHECKED' ? null : new Date(),
+        ...(status === 'APPROVED' ? { studyEndsAt, evidenceRetainUntil } : {}),
         ...(status === 'REJECTED' ? { proofKey: null, studentIdKey: null, offerLetterKey: null } : {}),
       } })
       if (!updated.count) throw new ModerationConflict()
@@ -658,7 +770,7 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
       if (status === 'REJECTED') await transaction.mediaUpload.deleteMany({ where: { ownerId: row.userId, storageKey: { in: rejectedKeys.filter((key): key is string => Boolean(key)) } } })
       const approved = status === 'APPROVED' || await transaction.studentVerification.count({ where: { userId: row.userId, status: 'APPROVED' } }) > 0
       await transaction.user.update({ where: { id: row.userId }, data: { studentVerified: approved, verificationStatus: approved ? 'APPROVED' : status as VerificationStatus } })
-      await audit(transaction, actorId, `VERIFICATION_${status}`, 'STUDENT_VERIFICATION', row.id, { status: previous.status }, { status, reason, enrollmentCheckStatus, ...(status === 'APPROVED' ? { studentIdMatchesEmail: true } : {}) })
+      await audit(transaction, actorId, `VERIFICATION_${status}`, 'STUDENT_VERIFICATION', row.id, { status: previous.status }, { status, reason, enrollmentCheckStatus, ...(status === 'APPROVED' ? { studentIdMatchesEmail: true, studyEndsAt: decision.data.studyEndsAt, evidenceRetainUntil: evidenceRetainUntil?.toISOString().slice(0, 10) } : {}) })
       await notify(transaction, row.userId, previous.user.email, 'STUDENT_VERIFICATION', `Student verification ${status.toLowerCase()}`, status === 'APPROVED' ? 'Your student verification has been approved.' : `Your student verification was rejected: ${reason}`, row.id)
       return row
     })

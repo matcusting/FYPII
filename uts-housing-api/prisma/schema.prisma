@@ -12,6 +12,7 @@ enum Role {
   STUDENT
   LANDLORD
   ADMIN
+  LAWYER
 }
 
 enum AccountStatus {
@@ -104,6 +105,8 @@ model User {
   verifications          StudentVerification[]
   landlordVerifications  LandlordVerification[]
   propertyAuthorizations PropertyAuthorization[]
+  assignedIdentityCases  LandlordVerification[]      @relation("IdentityLawyer")
+  assignedPropertyCases  PropertyAuthorization[]     @relation("PropertyLawyer")
   listings               Listing[]
   favorites              Favorite[]
   inquiriesSent          Inquiry[]                 @relation("InquirySender")
@@ -193,6 +196,8 @@ model StudentVerification {
   enrollmentCheckStatus String @default("NOT_CHECKED")
   enrollmentCheckReference String?
   enrollmentCheckedAt DateTime?
+  studyEndsAt  DateTime? @db.Date
+  evidenceRetainUntil DateTime? @db.Date
   reason       String?
   reviewedById String?
   reviewedAt   DateTime?
@@ -202,6 +207,7 @@ model StudentVerification {
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+  @@index([status, evidenceRetainUntil])
 }
 
 model LandlordVerification {
@@ -216,6 +222,14 @@ model LandlordVerification {
   reviewerSourceReference String?
   identityMatched   Boolean            @default(false)
   companyRegistryChecked Boolean       @default(false)
+  lawyerId          String?
+  lawyerAssignedAt  DateTime?
+  lawyerDecision    String?
+  lawyerReason      String?
+  lawyerSourceReference String?
+  lawyerIdentityMatched Boolean @default(false)
+  lawyerCompanyRegistryChecked Boolean @default(false)
+  lawyerReviewedAt  DateTime?
   reviewedById      String?
   reviewedAt        DateTime?
   expiresAt         DateTime?
@@ -223,9 +237,11 @@ model LandlordVerification {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lawyer            User?              @relation("IdentityLawyer", fields: [lawyerId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([userId, createdAt])
+  @@index([lawyerId, status, createdAt])
 }
 
 model PropertyAuthorization {
@@ -241,6 +257,14 @@ model PropertyAuthorization {
   reviewerSourceReference String?
   authorityChecked Boolean             @default(false)
   addressMatched  Boolean              @default(false)
+  lawyerId          String?
+  lawyerAssignedAt  DateTime?
+  lawyerDecision    String?
+  lawyerReason      String?
+  lawyerSourceReference String?
+  lawyerAuthorityChecked Boolean @default(false)
+  lawyerAddressMatched Boolean @default(false)
+  lawyerReviewedAt  DateTime?
   reviewedById    String?
   reviewedAt      DateTime?
   expiresAt       DateTime?
@@ -249,10 +273,12 @@ model PropertyAuthorization {
   updatedAt       DateTime              @updatedAt
   listing         Listing               @relation(fields: [listingId], references: [id], onDelete: Cascade)
   requester       User                  @relation(fields: [requesterId], references: [id], onDelete: Cascade)
+  lawyer          User?                 @relation("PropertyLawyer", fields: [lawyerId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([listingId, createdAt])
   @@index([requesterId, createdAt])
+  @@index([lawyerId, status, createdAt])
 }
 
 model Campus {

@@ -15,6 +15,7 @@ import communityRouter from './routes/community.js'
 import roommatesRouter from './routes/roommates.js'
 import verificationsRouter from './routes/verifications.js'
 import landlordVerificationsRouter from './routes/landlord-verifications.js'
+import lawyerRouter from './routes/lawyer.js'
 import adminRouter from './routes/admin.js'
 import emailDeliveryRouter from './routes/email-delivery.js'
 
@@ -56,6 +57,7 @@ app.use('/api/v1', profileRouter)
 app.use('/api/v1', phoneVerificationRouter)
 app.use('/api/v1/verifications', verificationsRouter)
 app.use('/api/v1/landlord-verifications', landlordVerificationsRouter)
+app.use('/api/v1/lawyer', lawyerRouter)
 app.use('/api/v1', listingsRouter)
 app.use('/api/v1', communityRouter)
 app.use('/api/v1', roommatesRouter)

@@ -147,4 +147,23 @@ describe('account forms', () => {
     expect(await screen.findByText(expectedPage)).toBeTruthy()
     expect(screen.queryByText('Student dashboard opened')).toBeNull()
   })
+
+  it('offers a restricted reviewer sign-in and opens only the assigned role destination', async () => {
+    signInMock.mockResolvedValue({ roles: ['LAWYER'] })
+    render(<MemoryRouter initialEntries={['/login?next=%2Flawyer%2Fcases']}><Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/lawyer/cases" element={<p>Assigned legal cases opened</p>} />
+    </Routes></MemoryRouter>)
+    expect(screen.getByRole('tab', { name: 'Legal Reviewer' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText(/Restricted reviewer accounts are issued by the site operator/)).toBeTruthy()
+    expect(screen.getByLabelText('Reviewer Email')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Create Account' })).toBeNull()
+
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Email'), 'reviewer@example.test')
+    await user.type(screen.getByLabelText('Password'), 'SyntheticPassword123!')
+    await user.click(screen.getByRole('button', { name: 'Log In' }))
+    expect(await screen.findByText('Assigned legal cases opened')).toBeTruthy()
+    expect(signInMock).toHaveBeenCalledWith('reviewer@example.test', 'SyntheticPassword123!')
+  })
 })

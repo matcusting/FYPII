@@ -36,6 +36,8 @@ const AdminAccountsPage = lazy(() => import('./features/admin').then(module => (
 const AdminDeletionRequestsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminDeletionRequestsPage })))
 const AdminAuditLogsPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminAuditLogsPage })))
 const AdminEmailDeliveryPage = lazy(() => import('./features/admin').then(module => ({ default: module.AdminEmailDeliveryPage })))
+const AdminLawyerCasesPage = lazy(() => import('./features/lawyer').then(module => ({ default: module.AdminLawyerCasesPage })))
+const LawyerCasesPage = lazy(() => import('./features/lawyer').then(module => ({ default: module.LawyerCasesPage })))
 
 export default function App() {
   return <BrowserRouter><Routes><Route element={<SiteLayout />}>
@@ -71,6 +73,9 @@ export default function App() {
     <Route path="admin/deletion-requests" element={<AuthGuard roles={['ADMIN']}><AdminDeletionRequestsPage /></AuthGuard>} />
     <Route path="admin/audit-logs" element={<AuthGuard roles={['ADMIN']}><AdminAuditLogsPage /></AuthGuard>} />
     <Route path="admin/email-delivery" element={<AuthGuard roles={['ADMIN']}><AdminEmailDeliveryPage /></AuthGuard>} />
+    <Route path="admin/lawyer-cases" element={<AuthGuard roles={['ADMIN']}><AdminLawyerCasesPage /></AuthGuard>} />
+    <Route path="lawyer" element={<AuthGuard roles={['LAWYER']}><Navigate to="/lawyer/cases" replace /></AuthGuard>} />
+    <Route path="lawyer/cases" element={<AuthGuard roles={['LAWYER']}><LawyerCasesPage /></AuthGuard>} />
     <Route path="privacy" element={<StaticPage kind="privacy" />} />
     <Route path="terms" element={<StaticPage kind="terms" />} />
     <Route path="help" element={<StaticPage kind="help" />} />

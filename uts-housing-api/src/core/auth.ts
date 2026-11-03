@@ -5,7 +5,8 @@ import { prisma } from './db.js'
 import { fail } from './http.js'
 
 const cookieName = 'housing_session'
-const lifetimeMs = 30 * 24 * 60 * 60 * 1000
+const standardLifetimeMs = 30 * 24 * 60 * 60 * 1000
+const lawyerLifetimeMs = 8 * 60 * 60 * 1000
 
 const secret = () => {
   const value = process.env.SESSION_SECRET || ''
@@ -38,6 +39,9 @@ export const hydrateAuth: RequestHandler = async (req, _res, next) => {
     if (!token || !/^[a-f0-9]{64}$/.test(token)) return next()
     const session = await prisma.session.findUnique({ where: { tokenHash: tokenHash(token) }, include: { user: true } })
     if (!session || session.revokedAt || session.expiresAt <= new Date() || session.user.status !== 'ACTIVE') return next()
+    // Applying this cap when reading a session also covers an existing account
+    // that receives the LAWYER role after it signed in.
+    if (session.user.roles.includes('LAWYER') && session.createdAt.getTime() + lawyerLifetimeMs <= Date.now()) return next()
     req.authUser = session.user
     req.authSessionId = session.id
     if (Date.now() - session.lastActiveAt.getTime() > 5 * 60_000) {
@@ -66,10 +70,11 @@ export const requireEmailVerified: RequestHandler = (req, res, next) => {
   next()
 }
 
-export async function createSession(res: Response, userId: string, req: Request): Promise<void> {
+export async function createSession(res: Response, user: Pick<User, 'id' | 'roles'>, req: Request): Promise<void> {
   const token = randomBytes(32).toString('hex')
+  const lifetimeMs = user.roles.includes('LAWYER') ? lawyerLifetimeMs : standardLifetimeMs
   await prisma.session.create({ data: {
-    userId,
+    userId: user.id,
     tokenHash: tokenHash(token),
     device: (req.headers['user-agent'] || 'Unknown device').slice(0, 250),
     ipAddress: req.ip,

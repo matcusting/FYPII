@@ -91,7 +91,7 @@ router.post('/login', limiter(12), asyncRoute(async (req, res) => {
     return fail(res, 401, 'Invalid email or password.', 'INVALID_CREDENTIALS')
   }
   if (req.authSessionId) await prisma.session.updateMany({ where: { id: req.authSessionId }, data: { revokedAt: new Date() } })
-  await createSession(res, user.id, req)
+  await createSession(res, user, req)
   return ok(res, publicUser(user))
 }))
 
