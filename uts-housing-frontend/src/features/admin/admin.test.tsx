@@ -18,6 +18,43 @@ function renderPage(page: React.ReactNode) {
 afterEach(() => { cleanup(); apiMock.mockReset() })
 
 describe('admin moderation', () => {
+  it('places and releases a private evidence hold with a reason and explicit release confirmation', async () => {
+    let held = false
+    apiMock.mockImplementation(async (path: string, options?: { method?: string; body?: string }) => {
+      if (path === '/admin/evidence-holds/student/hold-case' && options?.method === 'PATCH') {
+        held = Boolean(JSON.parse(options.body || '{}').hold)
+        return { id: 'hold-case', evidenceHoldAt: held ? '2026-11-04T00:00:00.000Z' : null }
+      }
+      if (path.startsWith('/admin/verifications?')) return { items: [{ id: 'hold-case', status: 'PENDING', student: { name: 'Synthetic Hold Student' } }], pages: 1 }
+      if (path === '/admin/verifications/hold-case') return { id: 'hold-case', status: 'PENDING', student: { name: 'Synthetic Hold Student' },
+        evidenceHoldAt: held ? '2026-11-04T00:00:00.000Z' : null, evidenceHoldReason: held ? 'Synthetic pending legal dispute' : null }
+      return {}
+    })
+    renderPage(<AdminModerationPage kind="verifications" />)
+    const user = userEvent.setup()
+    await screen.findByText('Synthetic Hold Student')
+    await user.click(screen.getByRole('button', { name: 'Review' }))
+    await screen.findByText('Evidence preservation hold')
+    await user.click(screen.getByRole('button', { name: 'Place hold' }))
+    expect(screen.getByRole('alert').textContent).toContain('10 to 500 characters')
+    expect(apiMock.mock.calls.some(([path, options]) => path === '/admin/evidence-holds/student/hold-case' && options?.method === 'PATCH')).toBe(false)
+    await user.type(screen.getByLabelText('Reason to place hold'), 'Synthetic pending legal dispute')
+    await user.click(screen.getByRole('button', { name: 'Place hold' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Release hold' })).toBeTruthy())
+    expect(screen.getByText(/Synthetic pending legal dispute/)).toBeTruthy()
+    await user.type(screen.getByLabelText('Reason to release hold'), 'Synthetic dispute resolved')
+    await user.click(screen.getByRole('button', { name: 'Release hold' }))
+    expect(screen.getByRole('alert').textContent).toContain('Confirm that the dispute')
+    await user.click(screen.getByRole('checkbox', { name: 'I confirmed the dispute or preservation obligation has ended.' }))
+    await user.click(screen.getByRole('button', { name: 'Release hold' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Place hold' })).toBeTruthy())
+    const calls = apiMock.mock.calls.filter(([path, options]) => path === '/admin/evidence-holds/student/hold-case' && options?.method === 'PATCH')
+    expect(calls.map(([, options]) => JSON.parse(options.body))).toEqual([
+      { hold: true, reason: 'Synthetic pending legal dispute' },
+      { hold: false, reason: 'Synthetic dispute resolved', confirmRelease: true },
+    ])
+  })
+
   it('requires a reviewer to compare the student card ID with the school email before approval', async () => {
     apiMock.mockImplementation(async (path: string, options?: { method?: string }) => {
       if (options?.method === 'PATCH') return { id: 'verify-match', status: 'APPROVED' }

@@ -41,7 +41,7 @@ try {
   ]) {
     await prisma.user.upsert({
       where: { email: person.email },
-      update: {},
+      update: person.studentVerified ? { studentVerified: true, studentVerifiedUntil: new Date('2099-12-31T00:00:00.000Z'), verificationStatus: 'APPROVED' } : {},
       create: {
         id: person.id,
         name: person.name,
@@ -50,6 +50,7 @@ try {
         roles: [person.role],
         emailVerifiedAt: now,
         studentVerified: person.studentVerified,
+        studentVerifiedUntil: person.studentVerified ? new Date('2099-12-31T00:00:00.000Z') : null,
         verificationStatus: person.studentVerified ? 'APPROVED' : 'UNVERIFIED',
       },
     })

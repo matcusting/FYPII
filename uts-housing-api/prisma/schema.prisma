@@ -49,6 +49,7 @@ enum PropertyAuthorityKind {
 enum AuthTokenKind {
   EMAIL_VERIFY
   PASSWORD_RESET
+  ACCOUNT_INVITE
 }
 
 enum ListingStatus {
@@ -93,7 +94,15 @@ model User {
   roles                  Role[]                    @default([STUDENT])
   emailVerifiedAt        DateTime?
   studentVerified        Boolean                   @default(false)
+  studentVerifiedUntil   DateTime?                 @db.Date
   verificationStatus     VerificationStatus       @default(UNVERIFIED)
+  mfaSecretEncrypted     String?
+  mfaPendingEncrypted    String?
+  mfaPendingCreatedAt    DateTime?
+  mfaRecoveryHashes      String[]                  @default([])
+  mfaLastUsedStep        Int?
+  mfaFailedAttempts      Int                       @default(0)
+  mfaLockedUntil         DateTime?
   status                 AccountStatus             @default(ACTIVE)
   createdAt              DateTime                  @default(now())
   updatedAt              DateTime                  @updatedAt
@@ -125,6 +134,8 @@ model User {
   deletionRequests       DeletionRequest[]
   auditActions           AuditLog[]
   mediaUploads           MediaUpload[]
+
+  @@index([studentVerifiedUntil])
 }
 
 model Session {
@@ -135,6 +146,7 @@ model Session {
   ipAddress    String?
   createdAt    DateTime  @default(now())
   lastActiveAt DateTime  @default(now())
+  mfaVerifiedAt DateTime?
   expiresAt    DateTime
   revokedAt    DateTime?
   user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -198,6 +210,8 @@ model StudentVerification {
   enrollmentCheckedAt DateTime?
   studyEndsAt  DateTime? @db.Date
   evidenceRetainUntil DateTime? @db.Date
+  evidenceHoldAt DateTime?
+  evidenceHoldReason String?
   reason       String?
   reviewedById String?
   reviewedAt   DateTime?
@@ -234,6 +248,8 @@ model LandlordVerification {
   reviewedAt        DateTime?
   expiresAt         DateTime?
   revokedAt         DateTime?
+  evidenceHoldAt    DateTime?
+  evidenceHoldReason String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -269,6 +285,8 @@ model PropertyAuthorization {
   reviewedAt      DateTime?
   expiresAt       DateTime?
   revokedAt       DateTime?
+  evidenceHoldAt  DateTime?
+  evidenceHoldReason String?
   createdAt       DateTime              @default(now())
   updatedAt       DateTime              @updatedAt
   listing         Listing               @relation(fields: [listingId], references: [id], onDelete: Cascade)

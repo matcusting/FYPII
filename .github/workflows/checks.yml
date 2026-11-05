@@ -55,7 +55,7 @@ jobs:
         working-directory: uts-housing-api
       - run: npm run db:generate && npm run db:deploy
         working-directory: uts-housing-api
-      - run: npm run typecheck && npm test && npm run build
+      - run: npm run typecheck && npm test -- --fileParallelism=false && npm run build
         working-directory: uts-housing-api
       - name: Check fictional seed on first and repeated runs
         run: |

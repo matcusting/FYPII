@@ -5,7 +5,9 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import multer from 'multer'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
+import { studentVerificationIsCurrent } from '../core/student-verification.js'
 import { currentUser, requireRole } from '../core/auth.js'
+import { MalwareScanError, scanUploadedProof } from '../core/malware-scan.js'
 import { fail, ok } from '../core/http.js'
 
 const router = Router()
@@ -52,7 +54,7 @@ router.post('/', requireRole('STUDENT'), uploadedProof, async (req, res, next) =
   const storedProofPaths: string[] = []
   try {
     const user = currentUser(req)!
-    if (user.studentVerified) return void fail(res, 409, 'Your student status is already verified.', 'ALREADY_VERIFIED')
+    if (studentVerificationIsCurrent(user)) return void fail(res, 409, 'Your student status is already verified.', 'ALREADY_VERIFIED')
     const pending = await prisma.studentVerification.findFirst({ where: { userId: user.id, status: 'PENDING' } })
     if (pending) return void fail(res, 409, 'Your student verification request is already pending.', 'VERIFICATION_PENDING')
     const recentSubmissions = await prisma.studentVerification.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
@@ -83,6 +85,7 @@ router.post('/', requireRole('STUDENT'), uploadedProof, async (req, res, next) =
       { file: studentId, mimeType: studentIdMime, storageKey: `${randomUUID()}${extensionOf(studentIdMime)}` },
       { file: offerLetter, mimeType: offerLetterMime, storageKey: `${randomUUID()}${extensionOf(offerLetterMime)}` },
     ]
+    for (const document of documents) await scanUploadedProof(document.file.buffer)
     const directory = verificationProofDirectory()
     await mkdir(directory, { recursive: true, mode: 0o700 })
     for (const document of documents) {
@@ -94,8 +97,8 @@ router.post('/', requireRole('STUDENT'), uploadedProof, async (req, res, next) =
       // Serialize requests for this student before checking again. Two uploads can
       // otherwise pass the initial pending check at the same time.
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
-      const freshUser = await transaction.user.findUnique({ where: { id: user.id }, select: { status: true, roles: true, email: true, emailVerifiedAt: true, studentVerified: true } })
-      if (!freshUser || freshUser.status !== 'ACTIVE' || !freshUser.roles.includes('STUDENT') || !freshUser.emailVerifiedAt || freshUser.email !== user.email || freshUser.studentVerified) throw new AccountChangedConflict()
+      const freshUser = await transaction.user.findUnique({ where: { id: user.id }, select: { status: true, roles: true, email: true, emailVerifiedAt: true, studentVerified: true, studentVerifiedUntil: true } })
+      if (!freshUser || freshUser.status !== 'ACTIVE' || !freshUser.roles.includes('STUDENT') || !freshUser.emailVerifiedAt || freshUser.email !== user.email || studentVerificationIsCurrent(freshUser)) throw new AccountChangedConflict()
       if (await transaction.studentVerification.findFirst({ where: { userId: user.id, status: 'PENDING' } })) throw new PendingVerificationConflict()
       const submittedToday = await transaction.studentVerification.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
       if (submittedToday >= MAX_DAILY_SUBMISSIONS) throw new SubmissionLimitConflict()
@@ -107,12 +110,13 @@ router.post('/', requireRole('STUDENT'), uploadedProof, async (req, res, next) =
         studentIdKey: documents[0].storageKey, offerLetterKey: documents[1].storageKey,
         note: note.data || null, status: 'PENDING',
       } })
-      await transaction.user.update({ where: { id: user.id }, data: { studentVerified: false, verificationStatus: 'PENDING' } })
+      await transaction.user.update({ where: { id: user.id }, data: { studentVerified: false, studentVerifiedUntil: null, verificationStatus: 'PENDING' } })
       return verification
     })
     return void ok(res, { id: record.id, method: record.method, status: record.status, createdAt: record.createdAt }, 201)
   } catch (error) {
     await Promise.all(storedProofPaths.map(path => rm(path, { force: true }).catch(() => {})))
+    if (error instanceof MalwareScanError) return void fail(res, error.code === 'MALWARE_DETECTED' ? 422 : 503, error.message, error.code)
     if (error instanceof PendingVerificationConflict) return void fail(res, 409, 'Your student verification request is already pending.', 'VERIFICATION_PENDING')
     if (error instanceof SubmissionLimitConflict) return void fail(res, 429, 'You can submit student verification documents up to three times in 24 hours.', 'VERIFICATION_RATE_LIMITED')
     if (error instanceof AccountChangedConflict) return void fail(res, 409, 'Your account changed while submitting documents. Refresh and try again.', 'ACCOUNT_CHANGED')

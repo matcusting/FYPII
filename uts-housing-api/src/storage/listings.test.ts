@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import sharp from 'sharp'
@@ -10,11 +10,13 @@ afterEach(async () => {
   if (privateDirectory) await rm(privateDirectory, { recursive: true, force: true })
   privateDirectory = null
   delete process.env.MEDIA_PRIVATE_DIR
+  delete process.env.MALWARE_SCAN_MODE
 })
 
 async function upload(purpose: 'LISTING_PHOTO' | 'REVIEW_EVIDENCE', bytes: Buffer, mimeType: string) {
   privateDirectory = await mkdtemp(join(tmpdir(), 'housing-upload-test-'))
   process.env.MEDIA_PRIVATE_DIR = privateDirectory
+  process.env.MALWARE_SCAN_MODE = 'test-bypass'
   const ticket = createUploadTicket('uploader', mimeType, bytes.length, purpose)
   const signedUrl = new URL(ticket.uploadUrl, 'http://localhost')
   return { ticket, args: {
@@ -43,6 +45,15 @@ describe('private upload tickets', () => {
     await saveUpload(args)
     expect(await readListingUpload(ticket.objectKey)).toBeNull()
     expect((await readUpload(ticket.objectKey))?.bytes).toEqual(bytes)
+  })
+
+  it('does not persist review evidence when malware scanning is unavailable', async () => {
+    const bytes = Buffer.from('%PDF-1.7\nsynthetic proof')
+    const { args } = await upload('REVIEW_EVIDENCE', bytes, 'application/pdf')
+    process.env.MALWARE_SCAN_MODE = 'clamav'
+    delete process.env.CLAMAV_HOST
+    await expect(saveUpload(args)).rejects.toMatchObject({ code: 'MALWARE_SCANNER_UNAVAILABLE' })
+    await expect(readdir(join(privateDirectory!, 'listings'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('removes embedded metadata from a public photo before storage', async () => {

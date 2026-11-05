@@ -45,4 +45,16 @@ describe('protected routes', () => {
     expect(screen.getByRole('link', { name: 'Go to Your Dashboard' }).getAttribute('href')).toBe('/student')
     expect(screen.queryByRole('heading', { name: 'Admin dashboard' })).toBeNull()
   })
+
+  it('honors the server decision when a historic approval has expired', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(200, { data: {
+      id: 'expired-student', email: 'expired@student.uts.edu.my', roles: ['STUDENT'],
+      studentVerified: false, verificationStatus: 'APPROVED',
+    } })))
+    render(<MemoryRouter initialEntries={['/roommates']}><AuthProvider><Routes>
+      <Route path="/roommates" element={<AuthGuard roles={['STUDENT']} verifiedStudent><h1>Roommate matches</h1></AuthGuard>} />
+    </Routes></AuthProvider></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Student verification required' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Roommate matches' })).toBeNull()
+  })
 })

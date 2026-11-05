@@ -191,6 +191,7 @@ export function ProfilePage() {
           : pendingVerification || verification.isSuccess ? <p className="text-sm text-gray-600">{t('Your application is being reviewed.')}</p>
             : user?.emailVerified !== true ? <p className="text-sm text-amber-800">{t('Verify your university-issued email before uploading your Student ID and offer letter.')} <Link to="/verify-email" className="font-semibold underline">{t('Verify Email')}</Link></p>
               : <form onSubmit={submitVerification} noValidate className="space-y-5 text-sm">
+                {verificationStatus === 'EXPIRED' && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Your student verification has expired after the study end date. Upload a current offer letter and Student ID for another review.')}</p>}
                 {rejectedVerification && <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">{t('Your previous verification was not approved. You may submit new documents for review.')}</p>}
                 <p className="text-gray-600">{t('Your verified university email and two documents are required. An administrator will review your Student ID photo and offer letter before student access is approved.')}</p>
                 <div>

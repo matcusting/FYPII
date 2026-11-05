@@ -8,10 +8,12 @@ import { prisma } from '../core/db.js'
 import { currentUser, requireRole } from '../core/auth.js'
 import { approvalExpiresAt, approvalIsCurrent, effectiveApprovalStatus } from '../core/approval.js'
 import { addUtcCalendarYears, parseUtcDateOnly } from '../core/retention-dates.js'
+import { effectiveStudentVerificationStatus, studentVerificationIsCurrent } from '../core/student-verification.js'
 import { fail, ok } from '../core/http.js'
 import { uploadMetadata } from '../storage/listings.js'
-import { removeStoredVerificationDocuments, verificationProofDirectory, verificationProofMime } from './verifications.js'
-import { landlordProofDirectory, landlordProofMime, removeStoredLandlordDocuments } from './landlord-verifications.js'
+import { verificationProofDirectory, verificationProofMime } from './verifications.js'
+import { landlordProofDirectory, landlordProofMime } from './landlord-verifications.js'
+import { processPendingFileDeletions } from '../workers/file-deletion.js'
 
 const router = Router()
 router.use(requireRole('ADMIN'))
@@ -47,7 +49,7 @@ const queueStatuses: Record<ModerationKind, readonly string[]> = {
   reports: ['OPEN', 'RESOLVED', 'DISMISSED'],
   accounts: ['ACTIVE', 'SUSPENDED', 'DELETED'],
 }
-const accountSelect = { id: true, name: true, email: true, roles: true, emailVerifiedAt: true, studentVerified: true, verificationStatus: true, status: true, createdAt: true, updatedAt: true } as const
+const accountSelect = { id: true, name: true, email: true, roles: true, emailVerifiedAt: true, studentVerified: true, studentVerifiedUntil: true, verificationStatus: true, status: true, createdAt: true, updatedAt: true } as const
 const personSelect = { id: true, name: true, email: true } as const
 const verificationPersonSelect = { ...personSelect, emailVerifiedAt: true } as const
 const landlordPersonSelect = { ...verificationPersonSelect, status: true, roles: true, profile: { select: { phone: true } } } as const
@@ -77,7 +79,7 @@ function statusOf(req: Request): string {
 
 function accountOf(row: {
   id: string; name: string; email: string; roles: unknown; emailVerifiedAt: Date | null;
-  studentVerified: boolean; verificationStatus: unknown; status: unknown; createdAt: Date; updatedAt: Date
+  studentVerified: boolean; studentVerifiedUntil: Date | null; verificationStatus: string; status: unknown; createdAt: Date; updatedAt: Date
 }) {
   return {
     id: row.id,
@@ -85,8 +87,9 @@ function accountOf(row: {
     email: row.email,
     roles: row.roles,
     emailVerified: Boolean(row.emailVerifiedAt),
-    studentVerified: row.studentVerified,
-    verificationStatus: row.verificationStatus,
+    studentVerified: studentVerificationIsCurrent(row),
+    studentVerifiedUntil: row.studentVerifiedUntil?.toISOString().slice(0, 10) || null,
+    verificationStatus: effectiveStudentVerificationStatus(row),
     status: row.status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
@@ -97,6 +100,7 @@ function verificationOf(row: {
   id: string; userId: string; method: unknown; university: string; note: string | null; status: unknown;
   enrollmentCheckStatus: string; enrollmentCheckReference: string | null; enrollmentCheckedAt: Date | null;
   studyEndsAt: Date | null; evidenceRetainUntil: Date | null;
+  evidenceHoldAt: Date | null; evidenceHoldReason: string | null;
   reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date;
   proofKey: string | null; studentIdKey: string | null; offerLetterKey: string | null;
   user: { id: string; name: string; email: string; emailVerifiedAt: Date | null }
@@ -109,7 +113,8 @@ function verificationOf(row: {
     enrollmentCheckStatus: row.enrollmentCheckStatus, enrollmentCheckReference: row.enrollmentCheckReference,
     enrollmentCheckedAt: row.enrollmentCheckedAt,
     ...(detail ? { studyEndsAt: row.studyEndsAt?.toISOString().slice(0, 10) || null,
-      evidenceRetainUntil: row.evidenceRetainUntil?.toISOString().slice(0, 10) || null } : {}),
+      evidenceRetainUntil: row.evidenceRetainUntil?.toISOString().slice(0, 10) || null,
+      evidenceHoldAt: row.evidenceHoldAt, evidenceHoldReason: row.evidenceHoldReason } : {}),
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt,
     ...(detail && row.proofKey ? { proofUrl: `/api/v1/admin/verifications/${row.id}/proof` } : {}),
     ...(detail && row.studentIdKey ? { studentIdUrl: `/api/v1/admin/verifications/${row.id}/student-id` } : {}),
@@ -144,13 +149,15 @@ function landlordVerificationOf(row: {
   lawyerId: string | null; lawyerAssignedAt: Date | null; lawyerDecision: string | null; lawyerReason: string | null; lawyerSourceReference: string | null;
   lawyerIdentityMatched: boolean; lawyerCompanyRegistryChecked: boolean; lawyerReviewedAt: Date | null; lawyer?: { name: string } | null;
   status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null;
+  evidenceHoldAt: Date | null; evidenceHoldReason: string | null;
   user: { id: string; name: string; email: string; emailVerifiedAt: Date | null; profile: { phone: string | null } | null }
 }, detail = false) {
   return {
     id: row.id, userId: row.userId, kind: row.kind, status: effectiveApprovalStatus(row), moderationReason: row.reason,
     reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt,
     landlord: { id: row.user.id, name: row.user.name, email: row.user.email, emailVerified: Boolean(row.user.emailVerifiedAt), phone: row.user.profile?.phone || null },
-    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, identityMatched: row.identityMatched, companyRegistryChecked: row.companyRegistryChecked,
+    ...(detail ? { evidenceHoldAt: row.evidenceHoldAt, evidenceHoldReason: row.evidenceHoldReason,
+      reviewerSourceReference: row.reviewerSourceReference, identityMatched: row.identityMatched, companyRegistryChecked: row.companyRegistryChecked,
       lawyerReviewRequired: row.status === 'PENDING', lawyerReview: row.lawyerId ? { lawyerId: row.lawyerId, lawyerName: row.lawyer?.name || null,
         assignedAt: row.lawyerAssignedAt, decision: row.lawyerDecision, reason: row.lawyerReason, sourceReference: row.lawyerSourceReference,
         identityMatched: row.lawyerIdentityMatched, companyRegistryChecked: row.lawyerCompanyRegistryChecked, reviewedAt: row.lawyerReviewedAt } : null } : {}),
@@ -166,6 +173,7 @@ function propertyAuthorizationOf(row: {
   lawyerId: string | null; lawyerAssignedAt: Date | null; lawyerDecision: string | null; lawyerReason: string | null; lawyerSourceReference: string | null;
   lawyerAuthorityChecked: boolean; lawyerAddressMatched: boolean; lawyerReviewedAt: Date | null; lawyer?: { name: string } | null;
   addressSnapshot: string; status: string; reason: string | null; reviewedAt: Date | null; reviewedById: string | null; createdAt: Date; expiresAt: Date | null; revokedAt: Date | null;
+  evidenceHoldAt: Date | null; evidenceHoldReason: string | null;
   requester: { id: string; name: string; email: string };
   listing: { id: string; title: string; address: string | null; status: string }
 }, detail = false) {
@@ -174,7 +182,8 @@ function propertyAuthorizationOf(row: {
     status: effectiveApprovalStatus(row), moderationReason: row.reason, reviewedAt: row.reviewedAt, reviewedById: row.reviewedById, createdAt: row.createdAt, expiresAt: row.expiresAt, revokedAt: row.revokedAt,
     landlord: { id: row.requester.id, name: row.requester.name, email: row.requester.email },
     listing: row.listing,
-    ...(detail ? { reviewerSourceReference: row.reviewerSourceReference, authorityChecked: row.authorityChecked, addressMatched: row.addressMatched,
+    ...(detail ? { evidenceHoldAt: row.evidenceHoldAt, evidenceHoldReason: row.evidenceHoldReason,
+      reviewerSourceReference: row.reviewerSourceReference, authorityChecked: row.authorityChecked, addressMatched: row.addressMatched,
       lawyerReviewRequired: row.status === 'PENDING', lawyerReview: row.lawyerId ? { lawyerId: row.lawyerId, lawyerName: row.lawyer?.name || null,
         assignedAt: row.lawyerAssignedAt, decision: row.lawyerDecision, reason: row.lawyerReason, sourceReference: row.lawyerSourceReference,
         authorityChecked: row.lawyerAuthorityChecked, addressMatched: row.lawyerAddressMatched, reviewedAt: row.lawyerReviewedAt } : null } : {}),
@@ -214,6 +223,7 @@ async function notify(transaction: Prisma.TransactionClient, userId: string, ema
 
 class ModerationConflict extends Error {}
 class LastAdminConflict extends Error {}
+class EvidenceHoldConflict extends Error {}
 
 async function atomicDecision<T>(work: (transaction: Prisma.TransactionClient) => Promise<T>): Promise<T | null> {
   try { return await prisma.$transaction(work) }
@@ -278,6 +288,48 @@ router.post('/lawyer-assignments', asyncRoute(async (req, res) => {
   })
   if ('error' in result) return void fail(res, result.error === 'NOT_FOUND' ? 404 : result.error === 'CASE_CLOSED' ? 409 : 400,
     'The case or lawyer assignment is unavailable.', result.error)
+  ok(res, result)
+}))
+
+// A preservation hold is specific to one verification application. Hold
+// changes share the applicant lock used by account deletion, then lock the
+// case row used by the retention worker, so neither path can bypass a new
+// hold during concurrent maintenance.
+router.patch('/evidence-holds/:kind/:id', asyncRoute(async (req, res) => {
+  const kind = z.enum(['student', 'identity', 'property']).safeParse(req.params.kind)
+  const id = z.string().uuid().safeParse(req.params.id)
+  const body = z.object({ hold: z.boolean(), reason: z.string().trim().min(10).max(500).regex(/^[^\u0000-\u001f\u007f]+$/), confirmRelease: z.boolean().optional() }).safeParse(req.body)
+  if (!kind.success || !id.success || !body.success || (!body.data.hold && body.data.confirmRelease !== true)) {
+    return void fail(res, 400, 'Choose a valid case and write a private reason; releasing a hold also needs explicit confirmation.', 'INVALID_EVIDENCE_HOLD')
+  }
+  const actorId = currentUser(req)!.id
+  const result = await prisma.$transaction(async tx => {
+    const owner = kind.data === 'student' ? await tx.studentVerification.findUnique({ where: { id: id.data }, select: { userId: true } })
+      : kind.data === 'identity' ? await tx.landlordVerification.findUnique({ where: { id: id.data }, select: { userId: true } })
+        : await tx.propertyAuthorization.findUnique({ where: { id: id.data }, select: { requesterId: true } })
+    if (!owner) return { error: 'NOT_FOUND' } as const
+    const ownerId = 'userId' in owner ? owner.userId : owner.requesterId
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${ownerId}))::text`
+    if (kind.data === 'student') await tx.$queryRaw`SELECT id FROM "StudentVerification" WHERE id = ${id.data} FOR UPDATE`
+    else if (kind.data === 'identity') await tx.$queryRaw`SELECT id FROM "LandlordVerification" WHERE id = ${id.data} FOR UPDATE`
+    else await tx.$queryRaw`SELECT id FROM "PropertyAuthorization" WHERE id = ${id.data} FOR UPDATE`
+    const fresh = kind.data === 'student' ? await tx.studentVerification.findUnique({ where: { id: id.data }, select: { evidenceHoldAt: true, userId: true } })
+      : kind.data === 'identity' ? await tx.landlordVerification.findUnique({ where: { id: id.data }, select: { evidenceHoldAt: true, userId: true } })
+        : await tx.propertyAuthorization.findUnique({ where: { id: id.data }, select: { evidenceHoldAt: true, requesterId: true } })
+    if (!fresh || ('userId' in fresh ? fresh.userId : fresh.requesterId) !== ownerId) return { error: 'NOT_FOUND' } as const
+    if (Boolean(fresh.evidenceHoldAt) === body.data.hold) return { error: 'UNCHANGED' } as const
+    const heldAt = body.data.hold ? new Date() : null
+    const reason = body.data.hold ? body.data.reason : null
+    if (kind.data === 'student') await tx.studentVerification.update({ where: { id: id.data }, data: { evidenceHoldAt: heldAt, evidenceHoldReason: reason } })
+    else if (kind.data === 'identity') await tx.landlordVerification.update({ where: { id: id.data }, data: { evidenceHoldAt: heldAt, evidenceHoldReason: reason } })
+    else await tx.propertyAuthorization.update({ where: { id: id.data }, data: { evidenceHoldAt: heldAt, evidenceHoldReason: reason } })
+    const targetType = kind.data === 'student' ? 'STUDENT_VERIFICATION' : kind.data === 'identity' ? 'LANDLORD_VERIFICATION' : 'PROPERTY_AUTHORIZATION'
+    await audit(tx, actorId, body.data.hold ? 'EVIDENCE_HOLD_PLACED' : 'EVIDENCE_HOLD_RELEASED', targetType, id.data,
+      { held: !body.data.hold }, { held: body.data.hold, reason: body.data.reason })
+    return { kind: kind.data, id: id.data, evidenceHoldAt: heldAt, evidenceHoldReason: reason } as const
+  })
+  if ('error' in result) return void fail(res, result.error === 'NOT_FOUND' ? 404 : 409,
+    result.error === 'NOT_FOUND' ? 'This verification case does not exist.' : 'This preservation hold has already been changed.', result.error)
   ok(res, result)
 }))
 
@@ -377,10 +429,13 @@ router.patch('/verifications/:id/study-end', asyncRoute(async (req, res) => {
   if (!proof) return void fail(res, 409, 'The original offer letter is unavailable; request a new verification submission.', 'PROOF_UNAVAILABLE')
   const evidenceRetainUntil = addUtcCalendarYears(studyEndsAt, 1)
   const changed = await atomicDecision(async transaction => {
+    await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.userId}))::text`
     await transaction.$queryRaw`SELECT id FROM "StudentVerification" WHERE id = ${id.data} FOR UPDATE`
     const fresh = await transaction.studentVerification.findUniqueOrThrow({ where: { id: id.data } })
     if (fresh.status !== 'APPROVED' || fresh.offerLetterKey !== existing.offerLetterKey) throw new ModerationConflict()
     const row = await transaction.studentVerification.update({ where: { id: id.data }, data: { studyEndsAt, evidenceRetainUntil } })
+    const latest = await transaction.studentVerification.findFirst({ where: { userId: existing.userId, status: 'APPROVED' }, orderBy: [{ reviewedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }], select: { studyEndsAt: true } })
+    await transaction.user.update({ where: { id: existing.userId }, data: { studentVerified: Boolean(latest?.studyEndsAt), studentVerifiedUntil: latest?.studyEndsAt || null } })
     await audit(transaction, currentUser(req)!.id, 'STUDENT_STUDY_END_CORRECTED', 'STUDENT_VERIFICATION', id.data,
       { studyEndsAt: fresh.studyEndsAt?.toISOString().slice(0, 10) || null, evidenceRetainUntil: fresh.evidenceRetainUntil?.toISOString().slice(0, 10) || null },
       { studyEndsAt: body.data.studyEndsAt, evidenceRetainUntil: evidenceRetainUntil.toISOString().slice(0, 10), reason: body.data.reason })
@@ -549,9 +604,9 @@ router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
     if (!activeAssignedLawyer(previous, previous.lawyerAuthorityChecked && previous.lawyerAddressMatched)) return void fail(res, 400, 'An active assigned lawyer must first recommend approval with the required independent checks.', 'LAWYER_REVIEW_REQUIRED')
     if (previous.lawyerId === currentUser(req)!.id) return void fail(res, 403, 'The lawyer who reviewed this case cannot make the final decision.', 'SELF_REVIEW')
     if (previous.listing.ownerId !== previous.requesterId || !previous.listing.address || previous.listing.address !== previous.addressSnapshot || previous.listing.status === 'ARCHIVED') return void fail(res, 400, 'The property address or listing changed. Ask for a new authorization request.', 'LISTING_CHANGED')
-    const account = await prisma.user.findUnique({ where: { id: previous.requesterId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true } })
+    const account = await prisma.user.findUnique({ where: { id: previous.requesterId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true, studentVerifiedUntil: true } })
     const identity = await prisma.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } })
-    if (!account || account.status !== 'ACTIVE' || !account.emailVerifiedAt || !(account.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : account.roles.includes('STUDENT') && account.studentVerified)) return void fail(res, 400, 'Verify the property owner account before reviewing its authorization.', 'IDENTITY_REQUIRED')
+    if (!account || account.status !== 'ACTIVE' || !account.emailVerifiedAt || !(account.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : account.roles.includes('STUDENT') && studentVerificationIsCurrent(account))) return void fail(res, 400, 'Verify the property owner account before reviewing its authorization.', 'IDENTITY_REQUIRED')
     const [proof, supporting] = await Promise.all([
       storedLandlordDocument(previous.proofKey, previous.requesterId, 'PROPERTY_AUTHORIZATION', ['application/pdf', 'image/jpeg', 'image/png']),
       previous.kind !== 'OWNER' ? storedLandlordDocument(previous.supportingKey, previous.requesterId, 'PROPERTY_AUTHORIZATION', ['application/pdf', 'image/jpeg', 'image/png']) : Promise.resolve(null),
@@ -568,7 +623,7 @@ router.patch('/property-authorizations/:id', asyncRoute(async (req, res) => {
       const listing = await transaction.listing.findUniqueOrThrow({ where: { id: previous.listingId } })
       const owner = await transaction.user.findUniqueOrThrow({ where: { id: previous.requesterId } })
       const identity = await transaction.landlordVerification.findFirst({ where: { userId: previous.requesterId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } })
-      if (listing.ownerId !== previous.requesterId || listing.address !== previous.addressSnapshot || listing.status === 'ARCHIVED' || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && owner.studentVerified)
+      if (listing.ownerId !== previous.requesterId || listing.address !== previous.addressSnapshot || listing.status === 'ARCHIVED' || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && studentVerificationIsCurrent(owner))
         || !activeAssignedLawyer(currentCase, currentCase.lawyerAuthorityChecked && currentCase.lawyerAddressMatched) || currentCase.lawyerId === actorId) throw new ModerationConflict()
     }
     const updated = await transaction.propertyAuthorization.updateMany({ where: { id: id.data, status: status === 'REVOKED' ? 'APPROVED' : 'PENDING',
@@ -609,7 +664,6 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
     const activeAdmins = await prisma.user.count({ where: { status: 'ACTIVE', roles: { has: 'ADMIN' } } })
     if (activeAdmins <= 1) return void fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
   }
-  let verificationUploads: Array<{ storageKey: string; purpose: string }> = []
   const result = await atomicDecision(async transaction => {
     if (body.data.status === 'APPROVED' && previous.user.roles.includes('ADMIN')) {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(31415926)`
@@ -618,7 +672,12 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
     }
     if (body.data.status === 'APPROVED') {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
-      verificationUploads = await transaction.mediaUpload.findMany({ where: { ownerId: previous.userId, purpose: { in: ['VERIFICATION', 'LANDLORD_IDENTITY', 'PROPERTY_AUTHORIZATION'] } }, select: { storageKey: true, purpose: true } })
+      const held = await Promise.all([
+        transaction.studentVerification.count({ where: { userId: previous.userId, evidenceHoldAt: { not: null } } }),
+        transaction.landlordVerification.count({ where: { userId: previous.userId, evidenceHoldAt: { not: null } } }),
+        transaction.propertyAuthorization.count({ where: { requesterId: previous.userId, evidenceHoldAt: { not: null } } }),
+      ])
+      if (held.some(count => count > 0)) throw new EvidenceHoldConflict()
     }
     const updated = await transaction.deletionRequest.updateMany({ where: { id: id.data, status: 'PENDING' }, data: { status: body.data.status } })
     if (!updated.count) throw new ModerationConflict()
@@ -626,25 +685,46 @@ router.patch('/deletion-requests/:id', asyncRoute(async (req, res) => {
     if (body.data.status === 'APPROVED') {
       await transaction.session.updateMany({ where: { userId: previous.userId, revokedAt: null }, data: { revokedAt: new Date() } })
       await transaction.authToken.deleteMany({ where: { userId: previous.userId } })
-      await transaction.listing.updateMany({ where: { ownerId: previous.userId }, data: { status: 'ARCHIVED', showExactLocation: false, latitude: null, longitude: null, address: null } })
+      await transaction.listing.updateMany({ where: { ownerId: previous.userId }, data: { status: 'ARCHIVED', title: 'Deleted listing', description: '', houseRules: null,
+        approximateArea: '', contactMethod: 'IN_APP', showExactLocation: false, latitude: null, longitude: null, address: null } })
+      await transaction.listingPhoto.deleteMany({ where: { listing: { ownerId: previous.userId } } })
+      await transaction.review.updateMany({ where: { authorId: previous.userId }, data: { body: '[deleted]', experienceDescription: '[deleted]', experienceProofKey: null, active: false } })
+      await transaction.review.updateMany({ where: { landlordId: previous.userId }, data: { ownerResponse: null, ownerRespondedAt: null } })
+      await transaction.reviewRevision.updateMany({ where: { editorId: previous.userId }, data: { body: '[deleted]' } })
+      await transaction.inquiry.updateMany({ where: { senderId: previous.userId }, data: { message: '[deleted]' } })
+      await transaction.inquiryMessage.updateMany({ where: { senderId: previous.userId }, data: { body: '[deleted]' } })
+      await transaction.connectionMessage.updateMany({ where: { senderId: previous.userId }, data: { body: '[deleted]' } })
+      await transaction.report.updateMany({ where: { reporterId: previous.userId }, data: { reason: '[deleted]' } })
+      await transaction.notification.deleteMany({ where: { userId: previous.userId } })
+      await transaction.notificationPreference.deleteMany({ where: { userId: previous.userId } })
+      await transaction.phoneVerificationChallenge.deleteMany({ where: { userId: previous.userId } })
+      await transaction.emailJob.deleteMany({ where: { to: previous.user.email } })
       await transaction.roommateProfile.deleteMany({ where: { userId: previous.userId } })
       await transaction.profile.deleteMany({ where: { userId: previous.userId } })
       await transaction.studentVerification.deleteMany({ where: { userId: previous.userId } })
       await transaction.landlordVerification.deleteMany({ where: { userId: previous.userId } })
       await transaction.propertyAuthorization.deleteMany({ where: { requesterId: previous.userId } })
-      await transaction.mediaUpload.deleteMany({ where: { ownerId: previous.userId, purpose: { in: ['VERIFICATION', 'LANDLORD_IDENTITY', 'PROPERTY_AUTHORIZATION'] } } })
-      await transaction.user.update({ where: { id: previous.userId }, data: { status: 'DELETED', name: 'Deleted account', email: `deleted-${previous.userId}@invalid.local`, passwordHash: randomBytes(48).toString('hex'), emailVerifiedAt: null, studentVerified: false, verificationStatus: 'UNVERIFIED' } })
+      // Keep the media rows until every private file (including unattached
+      // photos and review proofs) is actually removed. The worker retries a
+      // failed unlink without losing the storage key.
+      await transaction.mediaUpload.updateMany({ where: { ownerId: previous.userId, status: 'PENDING' }, data: { status: 'DELETE_PENDING_EMPTY' } })
+      await transaction.mediaUpload.updateMany({ where: { ownerId: previous.userId,
+        status: { notIn: ['DELETE_PENDING_EMPTY', 'DELETE_PENDING', 'DELETE_QUARANTINED'] } }, data: { status: 'DELETE_PENDING' } })
+      await transaction.user.update({ where: { id: previous.userId }, data: { status: 'DELETED', name: 'Deleted account', email: `deleted-${previous.userId}@invalid.local`, passwordHash: randomBytes(48).toString('hex'), emailVerifiedAt: null, studentVerified: false, studentVerifiedUntil: null, verificationStatus: 'UNVERIFIED' } })
     } else {
       await notify(transaction, previous.userId, previous.user.email, 'DELETION_REQUEST', 'Account deletion request rejected', `Your account deletion request was rejected: ${body.data.reason}`, changed.id)
     }
     await audit(transaction, actorId, `DELETION_REQUEST_${body.data.status}`, 'DELETION_REQUEST', changed.id, { status: previous.status }, { status: changed.status, reason: body.data.reason })
     return changed
-  }).catch(error => error instanceof LastAdminConflict ? 'LAST_ADMIN' as const : Promise.reject(error))
+  }).catch(error => error instanceof LastAdminConflict ? 'LAST_ADMIN' as const
+    : error instanceof EvidenceHoldConflict ? 'EVIDENCE_HOLD' as const : Promise.reject(error))
   if (result === 'LAST_ADMIN') return void fail(res, 409, 'At least one active administrator must remain.', 'LAST_ADMIN')
+  if (result === 'EVIDENCE_HOLD') return void fail(res, 409, 'Release the active evidence preservation hold before deleting this account.', 'EVIDENCE_HOLD_ACTIVE')
   if (!result) return void fail(res, 409, 'This deletion request has already been reviewed.', 'ALREADY_REVIEWED')
   if (body.data.status === 'APPROVED') {
-    await removeStoredVerificationDocuments(verificationUploads.filter(upload => upload.purpose === 'VERIFICATION').map(upload => upload.storageKey))
-    await removeStoredLandlordDocuments(verificationUploads.filter(upload => upload.purpose !== 'VERIFICATION').map(upload => upload.storageKey))
+    // Best effort now; the API's periodic cleanup retries if a filesystem error
+    // occurs after the account deletion transaction commits.
+    await processPendingFileDeletions({ ownerId: previous.userId, limit: 500 }).catch(() => {})
   }
   ok(res, { id: result.id, status: result.status, requestedAt: result.requestedAt })
 }))
@@ -755,27 +835,33 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
       ])
       if (!studentId || !offerLetter) return void fail(res, 400, 'Review both valid student documents before approval.', 'PROOF_REQUIRED')
     }
-    const rejectedKeys = status === 'REJECTED' ? [previous.proofKey, previous.studentIdKey, previous.offerLetterKey] : []
     const changed = await atomicDecision(async transaction => {
       await transaction.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${previous.userId}))::text`
+      const freshCase = await transaction.studentVerification.findUnique({ where: { id: id.data }, select: {
+        status: true, evidenceHoldAt: true, proofKey: true, studentIdKey: true, offerLetterKey: true,
+      } })
+      if (!freshCase || freshCase.status !== 'PENDING') throw new ModerationConflict()
+      const rejectedKeys = [freshCase.proofKey, freshCase.studentIdKey, freshCase.offerLetterKey].filter((key): key is string => Boolean(key))
+      const purgeRejected = status === 'REJECTED' && !freshCase.evidenceHoldAt
       const updated = await transaction.studentVerification.updateMany({ where: { id: id.data, status: 'PENDING' }, data: {
         status: status as VerificationStatus, reason: reason || null, reviewedById: actorId, reviewedAt: new Date(),
         enrollmentCheckStatus, enrollmentCheckReference,
         enrollmentCheckedAt: enrollmentCheckStatus === 'NOT_CHECKED' ? null : new Date(),
         ...(status === 'APPROVED' ? { studyEndsAt, evidenceRetainUntil } : {}),
-        ...(status === 'REJECTED' ? { proofKey: null, studentIdKey: null, offerLetterKey: null } : {}),
+        ...(purgeRejected ? { proofKey: null, studentIdKey: null, offerLetterKey: null } : {}),
       } })
       if (!updated.count) throw new ModerationConflict()
       const row = await transaction.studentVerification.findUniqueOrThrow({ where: { id: id.data } })
-      if (status === 'REJECTED') await transaction.mediaUpload.deleteMany({ where: { ownerId: row.userId, storageKey: { in: rejectedKeys.filter((key): key is string => Boolean(key)) } } })
-      const approved = status === 'APPROVED' || await transaction.studentVerification.count({ where: { userId: row.userId, status: 'APPROVED' } }) > 0
-      await transaction.user.update({ where: { id: row.userId }, data: { studentVerified: approved, verificationStatus: approved ? 'APPROVED' : status as VerificationStatus } })
+      if (purgeRejected) await transaction.mediaUpload.updateMany({ where: { ownerId: row.userId, purpose: 'VERIFICATION', storageKey: { in: rejectedKeys } }, data: { status: 'DELETE_PENDING' } })
+      const latestApproved = status === 'APPROVED' ? { studyEndsAt } : await transaction.studentVerification.findFirst({ where: { userId: row.userId, status: 'APPROVED' }, orderBy: [{ reviewedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }], select: { studyEndsAt: true } })
+      const approved = Boolean(latestApproved?.studyEndsAt)
+      await transaction.user.update({ where: { id: row.userId }, data: { studentVerified: approved, studentVerifiedUntil: latestApproved?.studyEndsAt || null, verificationStatus: approved ? 'APPROVED' : status as VerificationStatus } })
       await audit(transaction, actorId, `VERIFICATION_${status}`, 'STUDENT_VERIFICATION', row.id, { status: previous.status }, { status, reason, enrollmentCheckStatus, ...(status === 'APPROVED' ? { studentIdMatchesEmail: true, studyEndsAt: decision.data.studyEndsAt, evidenceRetainUntil: evidenceRetainUntil?.toISOString().slice(0, 10) } : {}) })
       await notify(transaction, row.userId, previous.user.email, 'STUDENT_VERIFICATION', `Student verification ${status.toLowerCase()}`, status === 'APPROVED' ? 'Your student verification has been approved.' : `Your student verification was rejected: ${reason}`, row.id)
       return row
     })
     if (!changed) return void fail(res, 409, 'This verification has already been reviewed.', 'ALREADY_REVIEWED')
-    if (status === 'REJECTED') await removeStoredVerificationDocuments(rejectedKeys)
+    if (status === 'REJECTED') await processPendingFileDeletions({ ownerId: previous.userId, limit: 50 }).catch(() => {})
     return void ok(res, verificationOf({ ...changed, user: previous.user }, true))
   }
 
@@ -790,11 +876,11 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
     if (status === 'PUBLISHED' && (!previous.address?.trim() || previous.address.trim().length < 10 || previous.address.trim().length > 250)) return void fail(res, 400, 'Enter the full property address before publishing.', 'ADDRESS_REQUIRED')
     if (status === 'PUBLISHED') {
       const [owner, authorization] = await Promise.all([
-        prisma.user.findUnique({ where: { id: previous.ownerId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true } }),
+        prisma.user.findUnique({ where: { id: previous.ownerId }, select: { status: true, roles: true, emailVerifiedAt: true, studentVerified: true, studentVerifiedUntil: true } }),
         prisma.propertyAuthorization.findFirst({ where: { listingId: previous.id, requesterId: previous.ownerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true, addressSnapshot: true } }),
       ])
       const identity = owner?.roles.includes('LANDLORD') ? await prisma.landlordVerification.findFirst({ where: { userId: previous.ownerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } }) : null
-      if (!owner || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && owner.studentVerified)) return void fail(res, 400, 'The listing owner must complete account verification before publication.', 'IDENTITY_REQUIRED')
+      if (!owner || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && studentVerificationIsCurrent(owner))) return void fail(res, 400, 'The listing owner must complete account verification before publication.', 'IDENTITY_REQUIRED')
       if (!approvalIsCurrent(authorization) || authorization?.addressSnapshot !== previous.address) return void fail(res, 400, 'Approve proof of rental authority for this exact address before publication.', 'AUTHORIZATION_REQUIRED')
     }
     const changed = await atomicDecision(async transaction => {
@@ -807,7 +893,7 @@ router.patch('/:kind/:id', asyncRoute(async (req, res) => {
           transaction.propertyAuthorization.findFirst({ where: { listingId: previous.id, requesterId: previous.ownerId }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }),
         ])
         const identity = owner.roles.includes('LANDLORD') ? await transaction.landlordVerification.findFirst({ where: { userId: owner.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { status: true, expiresAt: true } }) : null
-        if (listing.status !== previous.status || listing.address !== previous.address || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && owner.studentVerified) || !approvalIsCurrent(authorization) || authorization?.addressSnapshot !== listing.address) throw new ModerationConflict()
+        if (listing.status !== previous.status || listing.address !== previous.address || owner.status !== 'ACTIVE' || !owner.emailVerifiedAt || !(owner.roles.includes('LANDLORD') ? approvalIsCurrent(identity) : owner.roles.includes('STUDENT') && studentVerificationIsCurrent(owner)) || !approvalIsCurrent(authorization) || authorization?.addressSnapshot !== listing.address) throw new ModerationConflict()
       }
       const updated = await transaction.listing.updateMany({ where: { id: id.data, status: previous.status }, data: { status: status as ListingStatus, moderationReason: reason || null, reviewedAt: new Date() } })
       if (!updated.count) throw new ModerationConflict()

@@ -1,0 +1,200 @@
+name: uts-housing
+
+x-database-environment: &database-environment
+  NODE_ENV: production
+  DB_HOST: db
+  DB_PORT: "5432"
+  DB_NAME: housing
+  DB_USER: housing
+  DB_PASSWORD_FILE: /run/secrets/db_password
+
+x-application-environment: &application-environment
+  <<: *database-environment
+  HOST: 0.0.0.0
+  PORT: "3001"
+  TRUST_PROXY: "1"
+  FRONTEND_ORIGIN: https://${SITE_DOMAIN:?Set SITE_DOMAIN}
+  PUBLIC_BASE_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN}
+  SESSION_SECRET_FILE: /run/secrets/session_secret
+  MFA_ENCRYPTION_KEY_FILE: /run/secrets/mfa_encryption_key
+  SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:?Set SMTP_USER}
+  SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+  EMAIL_FROM: ${EMAIL_FROM:?Set EMAIL_FROM}
+  GEOCODER_URL: ${GEOCODER_URL:?Set GEOCODER_URL}
+  MEDIA_PRIVATE_DIR: /srv/housing/private
+  SMS_PROVIDER: disabled
+  MALWARE_SCAN_MODE: clamav
+  CLAMAV_HOST: clamav
+  CLAMAV_PORT: "3310"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: housing
+      POSTGRES_USER: housing
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      POSTGRES_INITDB_ARGS: --data-checksums
+    secrets: [db_password]
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U housing -d housing"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamav_data:/var/lib/clamav
+    networks: [scanner, egress]
+
+  migrate:
+    image: uts-housing-api:${DEPLOY_TAG:-local}
+    entrypoint: [node, scripts/with-production-secrets.mjs]
+    command: [node, --import, tsx, prisma/migrate.ts]
+    restart: "no"
+    environment: *database-environment
+    secrets: [db_password]
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+
+  api:
+    image: uts-housing-api:${DEPLOY_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    entrypoint: [node, scripts/with-production-secrets.mjs]
+    command: [node, dist/src/server.js]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=128m
+    environment: *application-environment
+    secrets: [db_password, session_secret, mfa_encryption_key, smtp_password]
+    volumes:
+      - private_media:/srv/housing/private
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      clamav:
+        condition: service_started
+    networks: [backend, scanner, egress]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3001/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 12
+      start_period: 5m
+
+  email-worker:
+    image: uts-housing-api:${DEPLOY_TAG:-local}
+    entrypoint: [node, scripts/with-production-secrets.mjs]
+    command: [node, dist/src/workers/email.js]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    environment:
+      <<: *database-environment
+      PUBLIC_BASE_URL: https://${SITE_DOMAIN:?Set SITE_DOMAIN}
+      SMTP_HOST: ${SMTP_HOST:?Set SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:?Set SMTP_USER}
+      SMTP_PASSWORD_FILE: /run/secrets/smtp_password
+      EMAIL_FROM: ${EMAIL_FROM:?Set EMAIL_FROM}
+    secrets: [db_password, smtp_password]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks: [backend, egress]
+
+  web:
+    image: uts-housing-web:${DEPLOY_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_OPERATOR_NAME: ${VITE_OPERATOR_NAME:?Set the public operator name}
+        VITE_SUPPORT_EMAIL: ${VITE_SUPPORT_EMAIL:?Set the support email}
+    restart: unless-stopped
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks: [egress]
+
+  maintenance:
+    profiles: [maintenance]
+    image: uts-housing-maintenance:${DEPLOY_TAG:-local}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.maintenance
+    entrypoint: [node, scripts/with-production-secrets.mjs]
+    command: [node, -e, "console.error('Supply an explicit maintenance command.'); process.exit(2)"]
+    working_dir: /app/uts-housing-api
+    read_only: true
+    user: "1000:1000"
+    tmpfs:
+      - /run/backup-work:rw,nosuid,nodev,size=${BACKUP_TMPFS_SIZE:-2147483648},uid=1000,gid=1000,mode=0700
+    environment:
+      <<: *database-environment
+      MEDIA_PRIVATE_DIR: /srv/housing/private
+      BACKUP_TARGET_DIR: /backups
+      BACKUP_WORK_DIR: /run/backup-work
+      BACKUP_PASSPHRASE_FILE: /run/secrets/backup_passphrase
+      API_HEALTH_URL: http://api:3001/health/live
+    secrets: [db_password, backup_passphrase]
+    volumes:
+      - private_media:/srv/housing/private
+      - type: bind
+        source: ${BACKUP_DESTINATION:?Set an off-device BACKUP_DESTINATION}
+        target: /backups
+        bind:
+          create_host_path: false
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [backend]
+
+networks:
+  backend:
+    internal: true
+  scanner:
+    internal: true
+  egress: {}
+
+volumes:
+  db_data: {}
+  private_media: {}
+  clamav_data: {}
+  caddy_data: {}
+  caddy_config: {}
+
+secrets:
+  db_password:
+    file: ${DB_PASSWORD_FILE_HOST:?Set DB_PASSWORD_FILE_HOST}
+  session_secret:
+    file: ${SESSION_SECRET_FILE_HOST:?Set SESSION_SECRET_FILE_HOST}
+  mfa_encryption_key:
+    file: ${MFA_ENCRYPTION_KEY_FILE_HOST:?Set MFA_ENCRYPTION_KEY_FILE_HOST}
+  smtp_password:
+    file: ${SMTP_PASSWORD_FILE_HOST:?Set SMTP_PASSWORD_FILE_HOST}
+  backup_passphrase:
+    file: ${BACKUP_PASSPHRASE_FILE_HOST:?Set BACKUP_PASSPHRASE_FILE_HOST}

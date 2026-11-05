@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useForm, useWatch } from 'react-hook-form'
-import { api, messageOf } from '../../lib/api'
+import { api, ApiError, messageOf } from '../../lib/api'
 import { useAuth } from '../../lib/auth'
 import { useI18n } from '../../lib/i18n'
 import { homeForUser, loginDestination } from '../../lib/routeAccess'
@@ -26,6 +26,8 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [error, setError] = useState<string | null>(null)
+  const [mfaRequired, setMfaRequired] = useState(false)
+  const [mfaCode, setMfaCode] = useState('')
   const [roleTab, setRoleTab] = useState<'STUDENT' | 'LANDLORD' | 'LAWYER'>(() =>
     searchParams.get('role') === 'lawyer' || searchParams.get('next')?.startsWith('/lawyer') ? 'LAWYER' : 'STUDENT')
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginValues>({
@@ -36,10 +38,15 @@ export function LoginPage() {
   async function submit(values: LoginValues) {
     setError(null)
     try {
-      const signedInUser = await signIn(values.email, values.password)
-      navigate(loginDestination(searchParams.get('next'), signedInUser), { replace: true })
+      const signedInUser = mfaRequired
+        ? await signIn(values.email, values.password, mfaCode)
+        : await signIn(values.email, values.password)
+      navigate(signedInUser.mfaSetupRequired ? '/mfa-setup' : loginDestination(searchParams.get('next'), signedInUser), { replace: true })
     } catch (failure) {
-      setError(messageOf(failure))
+      if (failure instanceof ApiError && failure.code === 'MFA_REQUIRED') {
+        setMfaRequired(true)
+        setError(null)
+      } else setError(messageOf(failure))
     }
   }
 
@@ -68,6 +75,10 @@ export function LoginPage() {
             <input id="login-password" type="password" autoComplete="current-password" aria-label={t('Password')} aria-invalid={!!errors.password} aria-describedby={errors.password ? 'login-password-error' : undefined} {...register('password')} className="mt-2 h-[46px] w-full rounded-lg border border-[#cbd5e1] bg-white px-3 text-[#1f2937] outline-none focus:border-[#203569] focus:ring-2 focus:ring-blue-100" />
             {errors.password && <p id="login-password-error" role="alert" className="mt-1 text-sm text-red-700">{t(errors.password.message || "")}</p>}
           </div>
+          {mfaRequired && <div>
+            <label htmlFor="login-mfa" className="block text-[13px] font-bold text-[#203569]">{t('Authenticator or recovery code')}</label>
+            <input id="login-mfa" type="text" inputMode="text" autoComplete="one-time-code" required value={mfaCode} onChange={event => setMfaCode(event.target.value)} className="mt-2 h-[46px] w-full rounded-lg border border-[#cbd5e1] bg-white px-3 text-[#1f2937] outline-none focus:border-[#203569] focus:ring-2 focus:ring-blue-100" />
+          </div>}
           <button type="submit" aria-label={t('Log In')} disabled={isSubmitting} className="mt-6 flex h-[49px] w-full items-center justify-center rounded-lg bg-[#203569] px-4 font-bold text-white shadow-sm transition hover:bg-[#1a2b56] disabled:cursor-not-allowed disabled:opacity-60">{isSubmitting ? t('Logging in…') : roleTab === 'STUDENT' ? t('Verify & Login') : roleTab === 'LANDLORD' ? t('Login as Landlord') : t('Login as Legal Reviewer')}</button>
         </form>
       </div>
@@ -299,4 +310,49 @@ export function ResetPasswordPage() {
       )}
     </AuthLayout>
   )
+}
+
+export function AcceptInvitePage() {
+  const { t } = useI18n()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [token, setToken] = useState(searchParams.get('token') || '')
+  const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [acceptedRole, setAcceptedRole] = useState<'ADMIN' | 'LAWYER' | null>(null)
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!token) { setError('The invitation link is missing. Ask the site operator for a new invitation.'); return }
+    if (password.length < 12) { setError('Use a password of at least 12 characters.'); return }
+    if (password !== confirmPassword) { setError('The passwords do not match.'); return }
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await api<{ accepted: true; role: 'ADMIN' | 'LAWYER' }>('/auth/accept-invite', {
+        method: 'POST', body: JSON.stringify({ token, password }),
+      })
+      setAcceptedRole(result.role)
+      setToken('')
+      setPassword('')
+      setConfirmPassword('')
+      setSearchParams({}, { replace: true })
+    } catch (failure) { setError(messageOf(failure)) }
+    finally { setBusy(false) }
+  }
+
+  return <AuthLayout title="Accept Invitation" description="Confirm your assigned account by choosing a password. The link verifies your email and can be used only once within 24 hours.">
+    {acceptedRole ? <div className="space-y-5">
+      <FormNotice success="Invitation accepted. Sign in with your new password." />
+      <Link to={acceptedRole === 'LAWYER' ? '/login?role=lawyer&next=%2Flawyer%2Fcases' : '/login?next=%2Fadmin'} className={primaryButtonClass}>{t('Go to Login')}</Link>
+    </div> : <form onSubmit={submit} noValidate className="space-y-5">
+      <FormNotice error={error || (!token ? 'The invitation link is missing. Ask the site operator for a new invitation.' : null)} />
+      {token && <>
+        <div><label htmlFor="invite-password" className="font-medium text-slate-800">{t('New Password')}</label><input id="invite-password" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={password} onChange={event => setPassword(event.target.value)} className={fieldClass} /><p className="mt-1 text-sm text-slate-500">{t('Use at least 12 characters. Your password is never sent by email.')}</p></div>
+        <div><label htmlFor="invite-confirm" className="font-medium text-slate-800">{t('Confirm New Password')}</label><input id="invite-confirm" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} className={fieldClass} /></div>
+        <button type="submit" disabled={busy} className={`${primaryButtonClass} w-full`}>{t(busy ? 'Accepting…' : 'Activate Account')}</button>
+      </>}
+    </form>}
+  </AuthLayout>
 }

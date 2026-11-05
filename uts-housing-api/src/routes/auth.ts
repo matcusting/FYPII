@@ -5,9 +5,11 @@ import { rateLimit } from 'express-rate-limit'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
-import { clearSession, createSession, currentUser, requireAuth, tokenHash } from '../core/auth.js'
+import { clearSession, createSession, currentUser, requireAuth, requireSession, tokenHash } from '../core/auth.js'
 import { queueEmail } from '../core/mail.js'
+import { authenticatorUri, decryptMfaSecret, encryptMfaSecret, matchingTotpStep, newMfaSecret, newRecoveryCodes, normalizeRecoveryCode } from '../core/mfa.js'
 import { normalizeSmsPhone } from '../core/sms.js'
+import { effectiveStudentVerificationStatus, studentVerificationIsCurrent } from '../core/student-verification.js'
 
 const router = Router()
 const email = z.email().max(254).transform(value => value.trim().toLowerCase())
@@ -19,21 +21,58 @@ const registerSchema = z.object({
   name: z.string().trim().min(2).max(100), email, password,
   role: z.enum(['STUDENT', 'LANDLORD']), phone: phone.optional(), acceptTerms: z.literal(true),
 })
-const loginSchema = z.object({ email, password: z.string().min(1).max(128) })
+const loginSchema = z.object({ email, password: z.string().min(1).max(128), mfaCode: z.string().trim().max(30).optional() })
 const tokenSchema = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/i) })
 const verificationSchema = z.union([tokenSchema, z.object({
   email, code: z.string().trim().regex(/^[a-z0-9]{6}$/i).transform(value => value.toUpperCase()),
 })])
 const resetSchema = tokenSchema.extend({ password })
+const inviteSchema = tokenSchema.extend({ password: z.string().min(12).max(128) })
 const forgotSchema = z.object({ email })
 
 const limiter = (max: number) => rateLimit({ windowMs: 15 * 60 * 1000, limit: max, standardHeaders: 'draft-8', legacyHeaders: false,
   handler: (_req, res) => { fail(res, 429, 'Too many attempts. Please try again later.', 'RATE_LIMITED') },
 })
 
-function publicUser(user: { id: string; name: string; email: string; roles: string[]; status: string; emailVerifiedAt: Date | null; studentVerified: boolean; verificationStatus: string }) {
+function publicUser(user: { id: string; name: string; email: string; roles: string[]; status: string; emailVerifiedAt: Date | null; studentVerified: boolean; studentVerifiedUntil: Date | null; verificationStatus: string; mfaSecretEncrypted: string | null }, mfaVerified = false) {
   return { id: user.id, name: user.name, email: user.email, roles: user.roles, status: user.status,
-    emailVerified: !!user.emailVerifiedAt, studentVerified: user.studentVerified, verificationStatus: user.verificationStatus }
+    emailVerified: !!user.emailVerifiedAt, studentVerified: studentVerificationIsCurrent(user),
+    studentVerifiedUntil: user.studentVerifiedUntil?.toISOString().slice(0, 10) || null,
+    verificationStatus: effectiveStudentVerificationStatus(user),
+    mfaSetupRequired: process.env.NODE_ENV === 'production' && user.roles.some(role => role === 'ADMIN' || role === 'LAWYER') && !user.mfaSecretEncrypted,
+    mfaVerified }
+}
+
+async function verifyLoginMfa(userId: string, submittedCode: string): Promise<boolean> {
+  return prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`
+    const account = await tx.user.findUnique({ where: { id: userId } })
+    if (!account || account.status !== 'ACTIVE' || !account.mfaSecretEncrypted) return false
+    const now = new Date()
+    if (account.mfaLockedUntil && account.mfaLockedUntil > now) return false
+    const secret = decryptMfaSecret(account.mfaSecretEncrypted, account.id)
+    const step = matchingTotpStep(secret, submittedCode)
+    const recovery = normalizeRecoveryCode(submittedCode)
+    const recoveryHash = recovery ? tokenHash(`mfa-recovery:${account.id}:${recovery}`) : null
+    const recoveryIndex = recoveryHash ? account.mfaRecoveryHashes.indexOf(recoveryHash) : -1
+    if (step !== null && (account.mfaLastUsedStep === null || step > account.mfaLastUsedStep)) {
+      await tx.user.update({ where: { id: account.id }, data: { mfaLastUsedStep: step, mfaFailedAttempts: 0, mfaLockedUntil: null } })
+      return true
+    }
+    if (recoveryIndex >= 0) {
+      await tx.user.update({ where: { id: account.id }, data: {
+        mfaRecoveryHashes: account.mfaRecoveryHashes.filter((_, index) => index !== recoveryIndex), mfaFailedAttempts: 0, mfaLockedUntil: null,
+      } })
+      await tx.auditLog.create({ data: { actorId: account.id, action: 'MFA_RECOVERY_CODE_USED', targetType: 'ACCOUNT', targetId: account.id } })
+      return true
+    }
+    const attempts = (account.mfaLockedUntil && account.mfaLockedUntil <= now ? 0 : account.mfaFailedAttempts) + 1
+    await tx.user.update({ where: { id: account.id }, data: {
+      mfaFailedAttempts: attempts >= 8 ? 0 : attempts,
+      mfaLockedUntil: attempts >= 8 ? new Date(now.getTime() + 15 * 60_000) : null,
+    } })
+    return false
+  })
 }
 
 function authUrl(path: string, token: string) {
@@ -90,14 +129,24 @@ router.post('/login', limiter(12), asyncRoute(async (req, res) => {
   if (!user || user.status !== 'ACTIVE' || !(await argon2.verify(user.passwordHash, parsed.data.password))) {
     return fail(res, 401, 'Invalid email or password.', 'INVALID_CREDENTIALS')
   }
+  if (process.env.NODE_ENV === 'production' && user.roles.some(role => role === 'ADMIN' || role === 'LAWYER') && !user.emailVerifiedAt) {
+    return fail(res, 403, 'Verify the privileged account email before signing in.', 'EMAIL_NOT_VERIFIED')
+  }
+  const privileged = user.roles.some(role => role === 'ADMIN' || role === 'LAWYER')
+  let mfaVerified = false
+  if (privileged && user.mfaSecretEncrypted) {
+    if (!parsed.data.mfaCode) return fail(res, 401, 'Enter your authenticator or recovery code.', 'MFA_REQUIRED')
+    mfaVerified = await verifyLoginMfa(user.id, parsed.data.mfaCode)
+    if (!mfaVerified) return fail(res, 401, 'The authenticator or recovery code is invalid or temporarily locked.', 'INVALID_MFA_CODE')
+  }
   if (req.authSessionId) await prisma.session.updateMany({ where: { id: req.authSessionId }, data: { revokedAt: new Date() } })
-  await createSession(res, user, req)
-  return ok(res, publicUser(user))
+  await createSession(res, user, req, mfaVerified)
+  return ok(res, publicUser(user, mfaVerified))
 }))
 
 router.get('/delivery-mode', (_req, res) => ok(res, { localOutbox: process.env.NODE_ENV !== 'production' && !process.env.SMTP_HOST }))
 
-router.get('/me', requireAuth, (req, res) => ok(res, publicUser(currentUser(req)!)))
+router.get('/me', requireSession, (req, res) => ok(res, publicUser(currentUser(req)!, Boolean(req.authMfaVerified))))
 
 router.post('/logout', asyncRoute(async (req, res) => {
   if (req.authSessionId && currentUser(req)) await prisma.session.updateMany({ where: { id: req.authSessionId, userId: currentUser(req)!.id }, data: { revokedAt: new Date() } })
@@ -116,6 +165,71 @@ router.delete('/sessions/:id', requireAuth, asyncRoute(async (req, res) => {
   if (!result.count) return fail(res, 404, 'Session not found.', 'NOT_FOUND')
   if (req.authSessionId === req.params.id) clearSession(res)
   return ok(res, { revoked: true })
+}))
+
+// An invited administrator/reviewer can access these two endpoints with a
+// limited password-authenticated session. All other production routes require
+// a session upgraded by a confirmed authenticator code.
+function mayEnrollMfa(req: Parameters<typeof currentUser>[0]): boolean {
+  const account = currentUser(req)
+  return Boolean(account && req.authSessionId && account.emailVerifiedAt
+    && account.roles.some(role => role === 'ADMIN' || role === 'LAWYER')
+    && (!account.mfaSecretEncrypted || req.authMfaVerified))
+}
+
+router.post('/mfa/setup', requireSession, limiter(8), asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  if (!mayEnrollMfa(req)) return fail(res, 403, 'A verified privileged session is required.', 'MFA_SETUP_FORBIDDEN')
+  const parsed = z.object({ password: z.string().min(1).max(128) }).safeParse(req.body)
+  if (!parsed.success || !(await argon2.verify(currentUser(req)!.passwordHash, parsed.data.password))) {
+    return fail(res, 401, 'The password is incorrect.', 'INVALID_CREDENTIALS')
+  }
+  const account = currentUser(req)!
+  const secret = newMfaSecret()
+  const pendingEncrypted = encryptMfaSecret(secret, account.id)
+  await prisma.user.update({ where: { id: account.id }, data: { mfaPendingEncrypted: pendingEncrypted, mfaPendingCreatedAt: new Date(), mfaFailedAttempts: 0, mfaLockedUntil: null } })
+  return ok(res, { secret, authenticatorUri: authenticatorUri(secret, account.email), expiresInSeconds: 600 })
+}))
+
+router.post('/mfa/confirm', requireSession, limiter(12), asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  if (!mayEnrollMfa(req)) return fail(res, 403, 'A verified privileged session is required.', 'MFA_SETUP_FORBIDDEN')
+  const parsed = z.object({ code: z.string().trim().regex(/^\d{6}$/) }).safeParse(req.body)
+  if (!parsed.success) return fail(res, 400, 'Enter the six-digit code from your authenticator.', 'INVALID_MFA_CODE')
+  const userId = currentUser(req)!.id
+  const sessionId = req.authSessionId!
+  const outcome = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`
+    const account = await tx.user.findUnique({ where: { id: userId } })
+    const now = new Date()
+    if (!account || account.status !== 'ACTIVE' || !account.emailVerifiedAt || !account.mfaPendingEncrypted
+      || !account.mfaPendingCreatedAt || account.mfaPendingCreatedAt.getTime() + 600_000 <= now.getTime()
+      || (account.mfaSecretEncrypted && !req.authMfaVerified)) return null
+    if (account.mfaLockedUntil && account.mfaLockedUntil > now) return null
+    const secret = decryptMfaSecret(account.mfaPendingEncrypted, account.id)
+    const step = matchingTotpStep(secret, parsed.data.code, now.getTime())
+    if (step === null) {
+      const attempts = account.mfaFailedAttempts + 1
+      await tx.user.update({ where: { id: userId }, data: {
+        mfaFailedAttempts: attempts >= 8 ? 0 : attempts,
+        mfaLockedUntil: attempts >= 8 ? new Date(now.getTime() + 15 * 60_000) : null,
+      } })
+      return null
+    }
+    const codes = newRecoveryCodes()
+    await tx.user.update({ where: { id: userId }, data: {
+      mfaSecretEncrypted: account.mfaPendingEncrypted, mfaPendingEncrypted: null, mfaPendingCreatedAt: null,
+      mfaRecoveryHashes: codes.map(code => tokenHash(`mfa-recovery:${userId}:${normalizeRecoveryCode(code)}`)),
+      mfaLastUsedStep: step, mfaFailedAttempts: 0, mfaLockedUntil: null,
+    } })
+    await tx.session.updateMany({ where: { userId, id: { not: sessionId }, revokedAt: null }, data: { revokedAt: now } })
+    const upgraded = await tx.session.updateMany({ where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: now } }, data: { mfaVerifiedAt: now } })
+    if (!upgraded.count) throw new Error('The enrolment session expired.')
+    await tx.auditLog.create({ data: { actorId: userId, action: account.mfaSecretEncrypted ? 'MFA_ROTATED' : 'MFA_ENROLLED', targetType: 'ACCOUNT', targetId: userId } })
+    return codes
+  })
+  if (!outcome) return fail(res, 400, 'The authenticator code is invalid, expired, or temporarily locked.', 'INVALID_MFA_CODE')
+  return ok(res, { enrolled: true, recoveryCodes: outcome })
 }))
 
 router.post('/verify-email', limiter(20), asyncRoute(async (req, res) => {
@@ -214,6 +328,40 @@ router.post('/reset-password', limiter(12), asyncRoute(async (req, res) => {
   if (!consumed) return fail(res, 400, 'The reset token is invalid or expired.', 'INVALID_TOKEN')
   clearSession(res)
   return ok(res, { reset: true })
+}))
+
+// Privileged accounts are created suspended by an operator-only database CLI.
+// This single-use mailbox link verifies the recipient and lets them choose a
+// password without ever placing that password in CLI output or server logs.
+router.post('/accept-invite', limiter(8), asyncRoute(async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store')
+  const invalid = () => fail(res, 400, 'The invitation is invalid, expired, or already used.', 'INVALID_INVITATION')
+  const parsed = inviteSchema.safeParse(req.body)
+  if (!parsed.success || /^(password|password123|12345678|qwerty123)$/i.test(parsed.data.password)) return invalid()
+  const token = await prisma.authToken.findUnique({ where: { tokenHash: tokenHash(parsed.data.token) } })
+  if (!token || token.kind !== 'ACCOUNT_INVITE' || token.usedAt || token.expiresAt <= new Date()) return invalid()
+  const hash = await argon2.hash(parsed.data.password, { type: argon2.argon2id })
+  const accepted = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${token.userId} FOR UPDATE`
+    const currentToken = await tx.authToken.findUnique({ where: { id: token.id } })
+    const account = await tx.user.findUnique({ where: { id: token.userId } })
+    if (!currentToken || currentToken.kind !== 'ACCOUNT_INVITE' || currentToken.usedAt || currentToken.expiresAt <= new Date()
+      || !account || account.status !== 'SUSPENDED' || account.emailVerifiedAt
+      || account.roles.length !== 1 || (account.roles[0] !== 'ADMIN' && account.roles[0] !== 'LAWYER')) return null
+    const now = new Date()
+    const consumed = await tx.authToken.updateMany({ where: { id: token.id, usedAt: null, expiresAt: { gt: now } }, data: { usedAt: now } })
+    if (!consumed.count) return null
+    await tx.authToken.updateMany({ where: { userId: account.id, kind: 'ACCOUNT_INVITE', usedAt: null }, data: { usedAt: now } })
+    await tx.user.update({ where: { id: account.id }, data: { status: 'ACTIVE', emailVerifiedAt: now, passwordHash: hash } })
+    await tx.session.updateMany({ where: { userId: account.id, revokedAt: null }, data: { revokedAt: now } })
+    if (req.authSessionId) await tx.session.updateMany({ where: { id: req.authSessionId, revokedAt: null }, data: { revokedAt: now } })
+    await tx.auditLog.create({ data: { actorId: account.id, action: 'PRIVILEGED_INVITE_ACCEPTED', targetType: 'ACCOUNT',
+      targetId: account.id, after: { role: account.roles[0], emailVerified: true } } })
+    return account.roles[0]
+  })
+  if (!accepted) return invalid()
+  clearSession(res)
+  return ok(res, { accepted: true, role: accepted })
 }))
 
 export default router

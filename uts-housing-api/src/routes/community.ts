@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
+import { studentVerificationIsCurrent } from '../core/student-verification.js'
 import { currentUser, requireAuth, requireEmailVerified } from '../core/auth.js'
 import { publicListingWhere } from '../core/approval.js'
 import { fail, ok } from '../core/http.js'
@@ -231,7 +232,7 @@ router.get('/reviews/mine', requireAuth, asyncRoute(async (req, res) => {
 
 router.post('/listings/:listingId/reviews', requireAuth, requireEmailVerified, asyncRoute(async (req, res) => {
   const user = currentUser(req)!
-  if (!user.roles.includes('STUDENT') || !user.studentVerified) return fail(res, 403, 'Only verified students can submit rental reviews.', 'VERIFICATION_REQUIRED')
+  if (!user.roles.includes('STUDENT') || !studentVerificationIsCurrent(user)) return fail(res, 403, 'Only verified students can submit rental reviews.', 'VERIFICATION_REQUIRED')
   const parsed = reviewSchema.safeParse(req.body)
   if (!parsed.success) return fail(res, 400, 'Enter a rating, a written review, rental experience details and proof of that experience.', 'VALIDATION_ERROR')
   const listingId = String(req.params.listingId)

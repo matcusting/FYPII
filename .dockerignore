@@ -1,0 +1,14 @@
+.git
+.github
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.env
+**/.env.*
+**/data
+**/uploads
+preview-downloads
+*.log
+*.uthbak
+*.partial

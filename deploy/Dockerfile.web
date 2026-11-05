@@ -1,0 +1,21 @@
+# syntax=docker/dockerfile:1.7
+FROM node:24-bookworm-slim AS build
+WORKDIR /app/uts-housing-frontend
+COPY uts-housing-frontend/package.json uts-housing-frontend/package-lock.json ./
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then \
+      NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca npm ci --strict-ssl=true; \
+    else \
+      npm ci --strict-ssl=true; \
+    fi
+COPY uts-housing-frontend/ ./
+ARG VITE_OPERATOR_NAME
+ARG VITE_SUPPORT_EMAIL
+ENV VITE_OPERATOR_NAME=${VITE_OPERATOR_NAME}
+ENV VITE_SUPPORT_EMAIL=${VITE_SUPPORT_EMAIL}
+RUN npm run build
+
+FROM caddy:2.10-alpine
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+COPY --from=build /app/uts-housing-frontend/dist /srv/site
+EXPOSE 80 443

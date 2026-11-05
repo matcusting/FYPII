@@ -5,7 +5,10 @@ export interface User {
   roles: string[]
   emailVerified?: boolean
   studentVerified?: boolean
+  studentVerifiedUntil?: string | null
   verificationStatus?: string
+  mfaSetupRequired?: boolean
+  mfaVerified?: boolean
 }
 
 export interface Listing {

@@ -16,6 +16,10 @@ function message(template: string, payload: Record<string, unknown>) {
       : `Hello ${name},\n\nVerify your UTS Housing email address using this link:\n${url}\n\nThe link expires in 24 hours. If you did not create an account, ignore this message.\n`
   }
   if (template === 'password-reset') return `Hello ${name},\n\nReset your UTS Housing password using this link:\n${url}\n\nThe link expires in one hour. If you did not request a reset, ignore this message.\n`
+  if (template === 'account-invite') {
+    const role = payload.role === 'ADMIN' ? 'site administrator' : 'legal reviewer'
+    return `Hello ${name},\n\nYou have been invited to join UTS Housing as a ${role}. Open this private link to verify your email and choose your password:\n${url}\n\nThe invitation expires in 24 hours and can be used once. If you were not expecting it, do not open the link; contact the site operator through a separate trusted channel.\n`
+  }
   if (template === 'notification') {
     const body = typeof payload.body === 'string' ? payload.body : 'You have a new account notification.'
     const action = typeof payload.actionUrl === 'string' ? payload.actionUrl : '/dashboard'
@@ -39,7 +43,19 @@ async function deliver(to: string, subject: string, text: string) {
   await writeFile(join(outbox, `${Date.now()}-${randomUUID()}.txt`), `To: ${to}\nFrom: ${from}\nSubject: ${subject}\n\n${text}`, { mode: 0o600 })
 }
 
+export async function scrubExpiredCredentialJobs(now = new Date()) {
+  // Undelivered credential mail is useless after its token expires. Remove
+  // codes and links from the queue before the next delivery attempt, and scrub
+  // old terminal failures left by earlier worker versions as well.
+  await prisma.emailJob.updateMany({ where: { status: { in: ['PENDING', 'FAILED'] }, OR: [
+    { template: 'password-reset', createdAt: { lte: new Date(now.getTime() - 60 * 60_000) } },
+    { template: { in: ['email-verification', 'account-invite'] }, createdAt: { lte: new Date(now.getTime() - 24 * 60 * 60_000) } },
+  ] }, data: { status: 'FAILED', attempts: 5, payload: {}, lastError: 'ExpiredCredential' } })
+  await prisma.$executeRaw`UPDATE "EmailJob" SET "payload" = '{}'::jsonb WHERE "status" = 'FAILED' AND "attempts" >= 5 AND "payload" <> '{}'::jsonb`
+}
+
 export async function processEmailJobs() {
+  await scrubExpiredCredentialJobs()
   const due = await prisma.emailJob.findMany({ where: { status: { in: ['PENDING', 'FAILED'] }, attempts: { lt: 5 }, nextAttemptAt: { lte: new Date() } },
     orderBy: { createdAt: 'asc' }, take: 20 })
   for (const job of due) {
@@ -52,7 +68,9 @@ export async function processEmailJobs() {
       await prisma.emailJob.update({ where: { id: job.id }, data: { status: 'SENT', sentAt: new Date(), payload: {} } })
     } catch (error) {
       const retryMinutes = Math.min(60, 2 ** (job.attempts + 1))
-      await prisma.emailJob.update({ where: { id: job.id }, data: { status: 'FAILED', nextAttemptAt: new Date(Date.now() + retryMinutes * 60_000), lastError: error instanceof Error ? error.name : 'DeliveryError' } })
+      const exhausted = job.attempts + 1 >= 5
+      await prisma.emailJob.update({ where: { id: job.id }, data: { status: 'FAILED', nextAttemptAt: new Date(Date.now() + retryMinutes * 60_000),
+        lastError: error instanceof Error ? error.name : 'DeliveryError', ...(exhausted ? { payload: {} } : {}) } })
       console.error('Email delivery failed for job:', job.id)
     }
   }

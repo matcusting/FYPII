@@ -5,9 +5,11 @@ import { Router, type NextFunction, type Request, type Response } from 'express'
 import multer from 'multer'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
+import { studentVerificationIsCurrent } from '../core/student-verification.js'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { approvalIsCurrent, effectiveApprovalStatus } from '../core/approval.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
+import { MalwareScanError, scanUploadedProof } from '../core/malware-scan.js'
 
 const router = Router()
 const MAX_PROOF_BYTES = 5_000_000
@@ -92,6 +94,7 @@ router.post('/identity', requireAuth, uploadFields([
       return void fail(res, 400, 'Upload an ID photo; companies also need registration and representative-authority documents.', 'INVALID_PROOF')
     }
     const proofs = [identity, company, representative].filter((proof): proof is Proof => !!proof)
+    for (const proof of proofs) await scanUploadedProof(proof.file.buffer)
     await storeProofs(proofs, written)
     const record = await prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
@@ -120,6 +123,7 @@ router.post('/identity', requireAuth, uploadFields([
     return void ok(res, { id: record.id, kind: record.kind, status: record.status, createdAt: record.createdAt }, 201)
   } catch (error) {
     if (!committed) await removeStoredLandlordDocuments(written).catch(() => {})
+    if (error instanceof MalwareScanError) return void fail(res, error.code === 'MALWARE_DETECTED' ? 422 : 503, error.message, error.code)
     if (error instanceof PendingConflict) return void fail(res, 409, 'Your landlord identity application is already pending.', 'VERIFICATION_PENDING')
     if (error instanceof SubmissionLimitConflict) return void fail(res, 429, 'You can submit identity documents up to three times in 24 hours.', 'VERIFICATION_RATE_LIMITED')
     if (error instanceof Error && error.message === 'ACCOUNT_CHANGED') return void fail(res, 409, 'Your account changed while uploading documents. Refresh and try again.', 'ACCOUNT_CHANGED')
@@ -145,7 +149,7 @@ router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCoun
     if (listing.status === 'ARCHIVED') return void fail(res, 409, 'Archived listings cannot be verified.', 'INVALID_STATUS')
     if (!user.emailVerifiedAt) return void fail(res, 403, 'Verify your email before submitting property documents.', 'EMAIL_UNVERIFIED')
     const isLandlord = user.roles.includes('LANDLORD')
-    const isVerifiedStudent = user.roles.includes('STUDENT') && user.studentVerified
+    const isVerifiedStudent = user.roles.includes('STUDENT') && studentVerificationIsCurrent(user)
     if (!isLandlord && !isVerifiedStudent) return void fail(res, 403, 'Only verified landlords or students can submit property authorization.', 'FORBIDDEN')
     if (isLandlord) {
       const identity = await prisma.landlordVerification.findFirst({ where: { userId: user.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
@@ -159,13 +163,14 @@ router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCoun
     const supporting = files.supporting?.length ? proofFrom(files, 'supporting') : null
     if (!proof || (kind.data !== 'OWNER' && !supporting) || (kind.data === 'OWNER' && files.supporting?.length)) return void fail(res, 400, 'Upload ownership proof, or a lease/owner proof plus written authorization for agents and sublets.', 'INVALID_PROOF')
     const proofs = [proof, supporting].filter((item): item is Proof => !!item)
+    for (const item of proofs) await scanUploadedProof(item.file.buffer)
     await storeProofs(proofs, written)
     const record = await prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${listing.id}))::text`
       const freshOwner = await tx.user.findUniqueOrThrow({ where: { id: user.id } })
       const freshIdentity = isLandlord ? await tx.landlordVerification.findFirst({ where: { userId: user.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }) : null
-      if (freshOwner.status !== 'ACTIVE' || !freshOwner.emailVerifiedAt || !(isLandlord ? freshOwner.roles.includes('LANDLORD') && approvalIsCurrent(freshIdentity) : freshOwner.roles.includes('STUDENT') && freshOwner.studentVerified)) throw new Error('IDENTITY_CHANGED')
+      if (freshOwner.status !== 'ACTIVE' || !freshOwner.emailVerifiedAt || !(isLandlord ? freshOwner.roles.includes('LANDLORD') && approvalIsCurrent(freshIdentity) : freshOwner.roles.includes('STUDENT') && studentVerificationIsCurrent(freshOwner))) throw new Error('IDENTITY_CHANGED')
       const fresh = await tx.listing.findUniqueOrThrow({ where: { id: listing.id }, select: { address: true, status: true } })
       if (fresh.address !== listing.address || fresh.status === 'ARCHIVED') throw new Error('LISTING_CHANGED')
       if (await tx.propertyAuthorization.findFirst({ where: { listingId: listing.id, addressSnapshot: listing.address!, status: 'PENDING' } })) throw new PendingConflict()
@@ -180,6 +185,7 @@ router.post('/listings/:id', requireAuth, uploadFields([{ name: 'proof', maxCoun
     return void ok(res, { id: record.id, kind: record.kind, status: record.status, createdAt: record.createdAt }, 201)
   } catch (error) {
     if (!committed) await removeStoredLandlordDocuments(written).catch(() => {})
+    if (error instanceof MalwareScanError) return void fail(res, error.code === 'MALWARE_DETECTED' ? 422 : 503, error.message, error.code)
     if (error instanceof PendingConflict) return void fail(res, 409, 'A property authorization application is already pending for this address.', 'VERIFICATION_PENDING')
     if (error instanceof SubmissionLimitConflict) return void fail(res, 429, 'You can submit property documents up to three times in 24 hours.', 'VERIFICATION_RATE_LIMITED')
     if (error instanceof Error && error.message === 'IDENTITY_CHANGED') return void fail(res, 409, 'Your account verification changed. Refresh and try again.', 'IDENTITY_CHANGED')

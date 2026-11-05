@@ -53,6 +53,13 @@ beforeEach(() => {
 })
 
 describe('private account contact phone', () => {
+  it('reports an expired study-end verification as expired to the student', async () => {
+    const expired = { ...student, studentVerified: true, studentVerifiedUntil: new Date('2024-06-30T00:00:00.000Z') }
+    const result = await call('GET', '/profile', expired)
+    expect(result.status).toBe(200)
+    expect(result.data).toMatchObject({ data: { verificationStatus: 'EXPIRED', studentVerifiedUntil: '2024-06-30' } })
+  })
+
   it('saves a landlord phone and returns it in the owner profile response', async () => {
     const saved = await call('PATCH', '/profile', landlord, { displayName: 'Updated Landlord', phone: '+60 12-345 6789' })
     expect(saved.status).toBe(200)

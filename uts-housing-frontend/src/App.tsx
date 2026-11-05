@@ -9,6 +9,8 @@ const RegisterPage = lazy(() => import('./features/public').then(module => ({ de
 const VerifyEmailPage = lazy(() => import('./features/public').then(module => ({ default: module.VerifyEmailPage })))
 const ForgotPasswordPage = lazy(() => import('./features/public').then(module => ({ default: module.ForgotPasswordPage })))
 const ResetPasswordPage = lazy(() => import('./features/public').then(module => ({ default: module.ResetPasswordPage })))
+const AcceptInvitePage = lazy(() => import('./features/public').then(module => ({ default: module.AcceptInvitePage })))
+const MfaSetupPage = lazy(() => import('./features/public').then(module => ({ default: module.MfaSetupPage })))
 const StaticPage = lazy(() => import('./features/public').then(module => ({ default: module.StaticPage })))
 const NotFoundPage = lazy(() => import('./features/public').then(module => ({ default: module.NotFoundPage })))
 const ListingsPage = lazy(() => import('./features/listings').then(module => ({ default: module.ListingsPage })))
@@ -50,6 +52,8 @@ export default function App() {
     <Route path="verify-email" element={<VerifyEmailPage />} />
     <Route path="forgot-password" element={<ForgotPasswordPage />} />
     <Route path="reset-password" element={<ResetPasswordPage />} />
+    <Route path="accept-invite" element={<AcceptInvitePage />} />
+    <Route path="mfa-setup" element={<MfaSetupPage />} />
     <Route path="dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
     <Route path="profile" element={<AuthGuard><ProfilePage /></AuthGuard>} />
     <Route path="favorites" element={<AuthGuard><FavoritesPage /></AuthGuard>} />

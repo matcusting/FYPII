@@ -1,7 +1,8 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
+import { scanUploadedProof } from '../core/malware-scan.js'
 
 export const MAX_LISTING_PHOTO_BYTES = 5 * 1024 * 1024
 const PHOTO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
@@ -20,6 +21,15 @@ export interface ListingUploadMetadata {
 
 function storageDirectory() {
   return resolve(process.env.MEDIA_PRIVATE_DIR || process.env.UPLOAD_DIR || './uploads', 'listings')
+}
+
+export async function removeUploadBytes(objectKey: string) {
+  if (!/^[0-9a-f-]{36}$/.test(objectKey)) throw new Error('Invalid upload key.')
+  const directory = storageDirectory()
+  await Promise.all([
+    rm(resolve(directory, objectKey), { force: true }),
+    rm(resolve(directory, `${objectKey}.json`), { force: true }),
+  ])
 }
 
 function uploadSecret() {
@@ -87,14 +97,23 @@ export async function saveUpload(args: {
   const received = Buffer.from(sig, 'hex')
   if (received.length !== expected.length || !timingSafeEqual(received, expected)) throw new Error('This upload link is invalid or has expired.')
   if (bytes.length !== declaredSize || !validImageSignature(bytes, mimeType)) throw new Error('The file content or size does not match the selected file.')
+  // Scan the original bytes before passing an image to Sharp or storing any
+  // proof. All upload purposes use the same fail-closed scanner policy.
+  await scanUploadedProof(bytes)
   // Sharp drops EXIF, XMP and other metadata by default. GPS tags on public
   // photos must not disclose a pin the owner chose to keep private.
   const storedBytes = purpose === 'LISTING_PHOTO' ? await stripPublicPhotoMetadata(bytes, mimeType) : bytes
   const directory = storageDirectory()
   await mkdir(directory, { recursive: true, mode: 0o700 })
   const metadata: ListingUploadMetadata = { key: objectKey, ownerId, mimeType, size: storedBytes.length, purpose, uploadedAt: new Date().toISOString() }
-  await writeFile(resolve(directory, objectKey), storedBytes, { flag: 'wx', mode: 0o600 })
-  await writeFile(resolve(directory, `${objectKey}.json`), JSON.stringify(metadata), { flag: 'wx', mode: 0o600 })
+  const source = resolve(directory, objectKey)
+  await writeFile(source, storedBytes, { flag: 'wx', mode: 0o600 })
+  try {
+    await writeFile(resolve(directory, `${objectKey}.json`), JSON.stringify(metadata), { flag: 'wx', mode: 0o600 })
+  } catch (error) {
+    await rm(source, { force: true })
+    throw error
+  }
   return metadata
 }
 

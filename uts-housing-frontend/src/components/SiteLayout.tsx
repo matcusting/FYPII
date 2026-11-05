@@ -4,7 +4,7 @@ import { messageOf } from '../lib/api'
 import { hasRole, useAuth } from '../lib/auth'
 import { LanguageSwitcher, useI18n } from '../lib/i18n'
 
-const authScreens = new Set(['/', '/login', '/register', '/verify-email', '/forgot-password', '/reset-password'])
+const authScreens = new Set(['/', '/login', '/register', '/verify-email', '/forgot-password', '/reset-password', '/accept-invite', '/mfa-setup'])
 const studentPaths = /^\/(?:student(?:\/|$)|dashboard$|profile$|favorites$|requests$|reviews\/mine$|roommates(?:\/|$)|listings(?:\/|$)|my-listings$)/
 const landlordPaths = /^\/(?:landlord(?:\/|$)|dashboard$|profile$|requests$|my-listings$|listings\/new$|listings\/[^/]+\/edit$)/
 
@@ -110,6 +110,7 @@ export default function SiteLayout() {
     ...(hasRole(user, 'STUDENT', 'LANDLORD') ? [{ to: '/my-listings', label: t('My Listings') }] : []),
     ...(hasRole(user, 'ADMIN') ? [{ to: '/admin', label: t('Admin') }] : []),
     ...(hasRole(user, 'LAWYER') ? [{ to: '/lawyer/cases', label: t('Legal Review Cases') }] : []),
+    ...(hasRole(user, 'ADMIN', 'LAWYER') ? [{ to: '/mfa-setup', label: t('Authenticator Settings') }] : []),
   ]
   return <div className="site-shell">
     <a className="skip-link" href="#main">{t('Skip to main content')}</a>

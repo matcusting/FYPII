@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { ForgotPasswordPage, LoginPage, RegisterPage, VerifyEmailPage } from './AuthPages'
+import { ApiError } from '../../lib/api'
+import { AcceptInvitePage, ForgotPasswordPage, LoginPage, RegisterPage, VerifyEmailPage } from './AuthPages'
 
 const { apiMock, signInMock } = vi.hoisted(() => ({ apiMock: vi.fn(), signInMock: vi.fn() }))
 vi.mock('../../lib/api', async importOriginal => ({ ...(await importOriginal<typeof import('../../lib/api')>()), api: apiMock }))
@@ -12,6 +13,25 @@ vi.mock('../../lib/auth', () => ({ useAuth: () => ({ user: null, signIn: signInM
 afterEach(() => { cleanup(); apiMock.mockReset(); signInMock.mockReset() })
 
 describe('account forms', () => {
+  it('accepts a privileged invitation only after choosing a new password', async () => {
+    apiMock.mockResolvedValue({ accepted: true, role: 'LAWYER' })
+    render(<MemoryRouter initialEntries={['/accept-invite?token=example-token']}><AcceptInvitePage /></MemoryRouter>)
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('New Password'), 'short')
+    await user.click(screen.getByRole('button', { name: 'Activate Account' }))
+    expect(await screen.findByText('Use a password of at least 12 characters.')).toBeTruthy()
+    expect(apiMock).not.toHaveBeenCalled()
+    await user.clear(screen.getByLabelText('New Password'))
+    await user.type(screen.getByLabelText('New Password'), 'A-long-synthetic-password!')
+    await user.type(screen.getByLabelText('Confirm New Password'), 'A-long-synthetic-password!')
+    await user.click(screen.getByRole('button', { name: 'Activate Account' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/auth/accept-invite', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ token: 'example-token', password: 'A-long-synthetic-password!' }),
+    })))
+    expect(await screen.findByText('Invitation accepted. Sign in with your new password.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to Login' }).getAttribute('href')).toContain('role=lawyer')
+  })
+
   it('explains where local verification codes go when SMTP is unavailable', async () => {
     apiMock.mockResolvedValue({ localOutbox: true })
     render(<MemoryRouter><VerifyEmailPage /></MemoryRouter>)
@@ -165,5 +185,23 @@ describe('account forms', () => {
     await user.click(screen.getByRole('button', { name: 'Log In' }))
     expect(await screen.findByText('Assigned legal cases opened')).toBeTruthy()
     expect(signInMock).toHaveBeenCalledWith('reviewer@example.test', 'SyntheticPassword123!')
+  })
+
+  it('asks a privileged account for its second factor before opening the reviewer area', async () => {
+    signInMock.mockRejectedValueOnce(new ApiError('Enter your authenticator or recovery code.', 401, 'MFA_REQUIRED'))
+      .mockResolvedValueOnce({ roles: ['LAWYER'], mfaVerified: true })
+    render(<MemoryRouter initialEntries={['/login?next=%2Flawyer%2Fcases']}><Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/lawyer/cases" element={<p>Reviewer area opened</p>} />
+    </Routes></MemoryRouter>)
+    const user = userEvent.setup()
+    await user.type(screen.getByLabelText('Email'), 'reviewer@example.test')
+    await user.type(screen.getByLabelText('Password'), 'SyntheticPassword123!')
+    await user.click(screen.getByRole('button', { name: 'Log In' }))
+    await user.type(await screen.findByLabelText('Authenticator or recovery code'), '123456')
+    expect(screen.queryByText('Reviewer area opened')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Log In' }))
+    expect(await screen.findByText('Reviewer area opened')).toBeTruthy()
+    expect(signInMock).toHaveBeenLastCalledWith('reviewer@example.test', 'SyntheticPassword123!', '123456')
   })
 })

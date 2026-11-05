@@ -43,7 +43,9 @@ app.use(cors({ origin(origin, callback) {
 }, credentials: true }))
 app.use(cookieParser())
 app.use(csrfOrigin)
-app.use(express.json({ limit: '1mb' }))
+// API clients send plain JSON. Reject compressed request bodies so the
+// body-parser decompression path is never reachable from the public gateway.
+app.use(express.json({ limit: '1mb', inflate: false }))
 app.use(hydrateAuth)
 
 app.get('/health/live', (_req, res) => ok(res, { status: 'live' }))
@@ -72,6 +74,9 @@ const onError: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
     if (error.code === 'P2025') return void fail(res, 404, 'The requested record was not found.', 'NOT_FOUND')
   }
   if (error instanceof ZodError) return void fail(res, 400, 'The request contains invalid data.', 'VALIDATION_ERROR')
+  if (error && typeof error === 'object' && 'type' in error && error.type === 'encoding.unsupported') {
+    return void fail(res, 415, 'Send an uncompressed request body.', 'UNSUPPORTED_ENCODING')
+  }
   if (error instanceof SyntaxError && 'body' in error) return void fail(res, 400, 'The JSON request body is invalid.', 'INVALID_JSON')
   if (error instanceof Error && error.message === 'CORS origin denied') return void fail(res, 403, 'The request origin is not allowed.', 'CORS_REJECTED')
   if (error instanceof Error && error.name === 'MulterError') return void fail(res, 400, 'The uploaded file was rejected.', 'UPLOAD_REJECTED')

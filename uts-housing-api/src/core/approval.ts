@@ -26,6 +26,7 @@ export function approvalExpiresAt(kind: 'identity' | 'property', now = new Date(
   return chosen > now && chosen <= latest ? chosen : null
 }
 import type { Prisma } from '@prisma/client'
+import { currentMalaysiaDate } from './student-verification.js'
 
 
 export function listingApprovalWhere(now = new Date()): Prisma.ListingWhereInput {
@@ -35,7 +36,7 @@ export function listingApprovalWhere(now = new Date()): Prisma.ListingWhereInput
       status: 'ACTIVE', emailVerifiedAt: { not: null },
       OR: [
         { roles: { has: 'LANDLORD' }, landlordVerifications: { some: { status: 'APPROVED', expiresAt: { gt: now } } } },
-        { roles: { has: 'STUDENT' }, NOT: { roles: { has: 'LANDLORD' } }, studentVerified: true },
+        { roles: { has: 'STUDENT' }, NOT: { roles: { has: 'LANDLORD' } }, studentVerified: true, studentVerifiedUntil: { gte: currentMalaysiaDate(now) } },
       ],
     },
   }

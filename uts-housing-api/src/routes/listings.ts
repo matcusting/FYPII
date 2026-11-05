@@ -5,8 +5,10 @@ import { prisma } from '../core/db.js'
 import { currentUser, requireAuth } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
 import { approvalIsCurrent, publicListingWhere } from '../core/approval.js'
+import { studentVerificationIsCurrent } from '../core/student-verification.js'
 import { geocodeAddress } from '../core/geocode.js'
-import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, saveUpload, type UploadPurpose } from '../storage/listings.js'
+import { MalwareScanError } from '../core/malware-scan.js'
+import { createUploadTicket, isAllowedUploadType, listingUploadMetadata, readListingUpload, readUpload, removeUploadBytes, saveUpload, type UploadPurpose } from '../storage/listings.js'
 
 const router = Router()
 const locationRetryAt = new Map<string, number>()
@@ -98,7 +100,7 @@ async function publishClearance(db: Prisma.TransactionClient, owner: User, listi
   if (owner.roles.includes('LANDLORD')) {
     const identity = await db.landlordVerification.findFirst({ where: { userId: owner.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
     if (!approvalIsCurrent(identity)) return 'LANDLORD_IDENTITY_REQUIRED'
-  } else if (!owner.roles.includes('STUDENT') || !owner.studentVerified) return 'STUDENT_VERIFICATION_REQUIRED'
+  } else if (!owner.roles.includes('STUDENT') || !studentVerificationIsCurrent(owner)) return 'STUDENT_VERIFICATION_REQUIRED'
   const authorization = await db.propertyAuthorization.findFirst({ where: { listingId: listing.id, requesterId: owner.id, addressSnapshot: listing.address || '' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] })
   return approvalIsCurrent(authorization) ? null : 'PROPERTY_AUTHORIZATION_REQUIRED'
 }
@@ -163,9 +165,16 @@ router.post('/uploads/sign', requireAuth, withErrors(async (req, res) => {
   if (!mayPost(user)) { fail(res, 403, 'This account cannot upload property files.', 'FORBIDDEN'); return }
   const request = z.object({ fileName: z.string().min(1).max(255), contentType: z.string(), size: z.number().int(), purpose: z.enum(['LISTING_PHOTO', 'REVIEW_EVIDENCE']).default('LISTING_PHOTO') }).safeParse(req.body)
   if (!request.success || !isAllowedUploadType(request.data.purpose as UploadPurpose, request.data.contentType, request.data.size)) { failValidation(res, 'Choose an allowed file under 5 MB.'); return }
-  if (request.data.purpose === 'REVIEW_EVIDENCE' && (!user.roles.includes('STUDENT') || !user.studentVerified)) { fail(res, 403, 'Only verified students can upload rental experience proof.', 'FORBIDDEN'); return }
+  if (request.data.purpose === 'REVIEW_EVIDENCE' && (!user.roles.includes('STUDENT') || !studentVerificationIsCurrent(user))) { fail(res, 403, 'Only verified students can upload rental experience proof.', 'FORBIDDEN'); return }
   const ticket = createUploadTicket(user.id, request.data.contentType, request.data.size, request.data.purpose)
-  await prisma.mediaUpload.create({ data: { ownerId: user.id, storageKey: ticket.objectKey, mimeType: request.data.contentType, size: request.data.size, purpose: request.data.purpose, status: 'PENDING' } })
+  const created = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
+    const fresh = await tx.user.findUnique({ where: { id: user.id }, select: { status: true } })
+    if (fresh?.status !== 'ACTIVE') return false
+    await tx.mediaUpload.create({ data: { ownerId: user.id, storageKey: ticket.objectKey, mimeType: request.data.contentType, size: request.data.size, purpose: request.data.purpose, status: 'PENDING' } })
+    return true
+  })
+  if (!created) { fail(res, 409, 'This account can no longer upload files.', 'ACCOUNT_CHANGED'); return }
   ok(res, ticket, 201)
 }))
 
@@ -181,12 +190,36 @@ router.put('/uploads/:objectKey', requireAuth, raw({ type: ['image/jpeg', 'image
   const sig = queryText(req, 'sig')
   if (mimeType !== row.mimeType || purpose !== row.purpose || declaredSize !== row.size || req.get('content-type')?.split(';')[0] !== row.mimeType || !Buffer.isBuffer(req.body)) { failValidation(res, 'The uploaded file does not match its upload link.'); return }
   try {
-    await saveUpload({ objectKey, ownerId: user.id, mimeType, declaredSize, expires, sig, purpose: purpose as UploadPurpose, bytes: req.body as Buffer })
+    await prisma.$transaction(async tx => {
+      // Account deletion and uploads for this owner share one lock. A late PUT
+      // must never recreate a file after deletion has queued it for removal.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
+      const [freshUser, freshUpload] = await Promise.all([
+        tx.user.findUnique({ where: { id: user.id }, select: { status: true } }),
+        tx.mediaUpload.findUnique({ where: { storageKey: objectKey }, select: { ownerId: true, status: true } }),
+      ])
+      if (freshUser?.status !== 'ACTIVE' || freshUpload?.ownerId !== user.id || freshUpload.status !== 'PENDING') throw new Error('UPLOAD_CHANGED')
+      try {
+        await saveUpload({ objectKey, ownerId: user.id, mimeType, declaredSize, expires, sig, purpose: purpose as UploadPurpose, bytes: req.body as Buffer })
+        const changed = await tx.mediaUpload.updateMany({ where: { storageKey: objectKey, ownerId: user.id, status: 'PENDING' }, data: { status: 'UPLOADED' } })
+        if (!changed.count) throw new Error('UPLOAD_CHANGED')
+      } catch (error) {
+        await removeUploadBytes(objectKey).catch(() => {})
+        throw error
+      }
+    }, { timeout: 20_000 })
   } catch (error) {
+    if (error instanceof MalwareScanError) {
+      fail(res, error.code === 'MALWARE_DETECTED' ? 422 : 503, error.message, error.code)
+      return
+    }
+    if (error instanceof Error && error.message === 'UPLOAD_CHANGED') {
+      fail(res, 409, 'This upload is no longer available. Refresh and try again.', 'UPLOAD_CHANGED')
+      return
+    }
     failValidation(res, error instanceof Error ? error.message : 'The upload failed validation.')
     return
   }
-  await prisma.mediaUpload.update({ where: { storageKey: objectKey }, data: { status: 'UPLOADED' } })
   ok(res, { uploaded: true })
 }))
 
@@ -309,6 +342,10 @@ router.post('/listings', requireAuth, withErrors(async (req, res) => {
   if (!photos) { failValidation(res, 'Upload valid property photos before attaching them.'); return }
   const coordinates = await geocodeAddress(value.address)
   const created = await prisma.$transaction(async tx => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${user.id}))::text`
+    const fresh = await tx.user.findUnique({ where: { id: user.id }, select: { status: true } })
+    const readyPhotos = photos.length ? await tx.mediaUpload.count({ where: { ownerId: user.id, storageKey: { in: photos.map(photo => photo.key) }, purpose: 'LISTING_PHOTO', status: 'UPLOADED' } }) : 0
+    if (fresh?.status !== 'ACTIVE' || readyPhotos !== photos.length) throw new Error('LISTING_CHANGED')
     const listing = await tx.listing.create({ data: {
       ownerId: user.id, campusId: value.campusId, title: value.title, description: value.description, propertyType: value.propertyType, roomType: value.roomType,
       rent: value.rent.toFixed(2), deposit: value.deposit.toFixed(2), currency: value.currency, availableFrom: new Date(`${value.availableFrom}T00:00:00.000Z`),
@@ -318,7 +355,8 @@ router.post('/listings', requireAuth, withErrors(async (req, res) => {
     if (value.amenityIds.length) await tx.listingAmenity.createMany({ data: value.amenityIds.map(amenityId => ({ listingId: listing.id, amenityId })) })
     if (photos.length) await tx.listingPhoto.createMany({ data: photos.map(({ key, mimeType }, sortOrder) => ({ listingId: listing.id, storageKey: key, mimeType, sortOrder })) })
     return listing
-  })
+  }).catch(error => error instanceof Error && error.message === 'LISTING_CHANGED' ? null : Promise.reject(error))
+  if (!created) { fail(res, 409, 'The account or uploaded photos changed. Refresh and try again.', 'LISTING_CHANGED'); return }
   const result = await prisma.listing.findUniqueOrThrow({ where: { id: created.id }, include: listingInclude })
   ok(res, serializeListing(result, user), 201)
 }))
@@ -380,9 +418,16 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
       if (existing.status === 'PUBLISHED' || existing.status === 'PAUSED') { update.status = addressChanged ? 'DRAFT' : 'PENDING_REVIEW'; update.reviewedAt = null }
       if (existing.status === 'REJECTED' || (addressChanged && existing.status === 'PENDING_REVIEW')) update.status = 'DRAFT'
       try { await prisma.$transaction(async tx => {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.ownerId}))::text`
         await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${existing.id}))::text`
+        const freshOwner = await tx.user.findUnique({ where: { id: existing.ownerId }, select: { status: true } })
+        if (freshOwner?.status !== 'ACTIVE') throw new Error('LISTING_CHANGED')
         const fresh = await tx.listing.findUniqueOrThrow({ where: { id: existing.id }, select: { address: true, status: true } })
         if (fresh.address !== existing.address || fresh.status !== existing.status) throw new Error('LISTING_CHANGED')
+        if (newPhotos.length) {
+          const count = await tx.mediaUpload.count({ where: { ownerId: user.id, purpose: 'LISTING_PHOTO', status: 'UPLOADED', storageKey: { in: newPhotos.map(photo => photo.key) } } })
+          if (count !== newPhotos.length) throw new Error('LISTING_CHANGED')
+        }
         if (addressChanged) {
           await tx.propertyAuthorization.updateMany({ where: { listingId: existing.id, status: { in: ['PENDING', 'APPROVED'] } }, data: { status: 'REJECTED', reason: 'Property address changed; submit new proof.', reviewedAt: new Date() } })
         }

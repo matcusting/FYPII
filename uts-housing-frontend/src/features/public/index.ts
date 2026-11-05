@@ -1,4 +1,5 @@
 export { HomePage } from './HomePage'
-export { LoginPage, RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage } from './AuthPages'
+export { LoginPage, RegisterPage, VerifyEmailPage, ForgotPasswordPage, ResetPasswordPage, AcceptInvitePage } from './AuthPages'
+export { MfaSetupPage } from './MfaSetupPage'
 export { StaticPage, NotFoundPage } from './StaticPages'
 export type { StaticPageKind } from './StaticPages'

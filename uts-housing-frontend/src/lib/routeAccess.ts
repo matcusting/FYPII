@@ -25,7 +25,7 @@ export function loginDestination(next: string | null, user: User): string {
     return home
   }
 
-  if (['/', '/login', '/register', '/verify-email', '/forgot-password', '/reset-password'].includes(pathname)) return home
+  if (['/', '/login', '/register', '/verify-email', '/forgot-password', '/reset-password', '/accept-invite'].includes(pathname)) return home
   if (/^\/student(?:\/|$)/.test(pathname) && !hasRole(user, 'STUDENT')) return home
   if (/^\/landlord(?:\/|$)/.test(pathname) && !hasRole(user, 'LANDLORD')) return home
   if (/^\/admin(?:\/|$)/.test(pathname) && !hasRole(user, 'ADMIN')) return home

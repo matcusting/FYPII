@@ -17,6 +17,7 @@ type Candidate = {
   expiresAt: Date | null
   revokedAt: Date | null
   evidenceRetainUntil: Date | null
+  evidenceHoldAt: Date | null
   keys: string[]
 }
 
@@ -37,7 +38,13 @@ export function validateRetentionPolicy(policy: Policy): void {
 }
 
 export function retentionAnchor(candidate: Candidate): Date | null {
-  if (candidate.kind === 'student') return candidate.status === 'APPROVED' ? candidate.evidenceRetainUntil : null
+  if (candidate.kind === 'student') {
+    // Normally rejected student evidence is removed during the decision. A
+    // hold preserves it; once the hold is released, finish that deferred
+    // cleanup on the next maintenance run without inventing a study end date.
+    return candidate.status === 'APPROVED' ? candidate.evidenceRetainUntil
+      : candidate.status === 'REJECTED' ? candidate.reviewedAt : null
+  }
   if (candidate.status === 'REJECTED') return candidate.reviewedAt
   if (candidate.status === 'REVOKED') return candidate.revokedAt
   if (candidate.status !== 'APPROVED') return null
@@ -47,10 +54,13 @@ export function retentionAnchor(candidate: Candidate): Date | null {
 }
 
 export function isRetentionEligible(candidate: Candidate, policyVersion: number, now: Date): boolean {
+  // A preservation hold overrides every normal expiry and survives status
+  // changes until an administrator explicitly releases it.
+  if (candidate.evidenceHoldAt) return false
   const anchor = retentionAnchor(candidate)
   if (!anchor || !candidate.keys.length) return false
   return candidate.kind === 'student'
-    ? policyVersion === 1 && utcDayAfter(anchor).getTime() <= now.getTime()
+    ? policyVersion === 1 && (candidate.status === 'REJECTED' ? anchor.getTime() <= now.getTime() : utcDayAfter(anchor).getTime() <= now.getTime())
     : policyVersion === 2 && addUtcCalendarYears(anchor, 2).getTime() <= now.getTime()
 }
 
@@ -66,6 +76,7 @@ function asCandidate(kind: Kind, row: Record<string, unknown>): Candidate {
     status: row.status as string, reviewedAt: row.reviewedAt as Date | null,
     expiresAt: (row.expiresAt as Date | null) || null, revokedAt: (row.revokedAt as Date | null) || null,
     evidenceRetainUntil: (row.evidenceRetainUntil as Date | null) || null,
+    evidenceHoldAt: (row.evidenceHoldAt as Date | null) || null,
     keys: keysOf(row, kind),
   }
 }
@@ -86,13 +97,16 @@ async function eligibleCandidates(db: PrismaClient, kind: Kind, policyVersion: n
   while (true) {
     const pageSize = 500
     const page = kind === 'student' ? await db.studentVerification.findMany({
-      where: { status: 'APPROVED', evidenceRetainUntil: { not: null }, OR: [{ proofKey: { not: null } }, { studentIdKey: { not: null } }, { offerLetterKey: { not: null } }] },
+      where: { evidenceHoldAt: null, AND: [
+        { OR: [{ status: 'APPROVED', evidenceRetainUntil: { not: null } }, { status: 'REJECTED' }] },
+        { OR: [{ proofKey: { not: null } }, { studentIdKey: { not: null } }, { offerLetterKey: { not: null } }] },
+      ] },
       orderBy: { id: 'asc' }, take: pageSize, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     }) : kind === 'identity' ? await db.landlordVerification.findMany({
-      where: { status: { in: ['APPROVED', 'REJECTED', 'REVOKED'] }, OR: [{ identityKey: { not: null } }, { companyKey: { not: null } }, { representationKey: { not: null } }] },
+      where: { status: { in: ['APPROVED', 'REJECTED', 'REVOKED'] }, evidenceHoldAt: null, OR: [{ identityKey: { not: null } }, { companyKey: { not: null } }, { representationKey: { not: null } }] },
       orderBy: { id: 'asc' }, take: pageSize, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     }) : await db.propertyAuthorization.findMany({
-      where: { status: { in: ['APPROVED', 'REJECTED', 'REVOKED'] }, OR: [{ proofKey: { not: null } }, { supportingKey: { not: null } }] },
+      where: { status: { in: ['APPROVED', 'REJECTED', 'REVOKED'] }, evidenceHoldAt: null, OR: [{ proofKey: { not: null } }, { supportingKey: { not: null } }] },
       orderBy: { id: 'asc' }, take: pageSize, ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     })
     for (const row of page) {
@@ -151,6 +165,10 @@ async function retireOne(db: PrismaClient, candidate: Candidate, policyVersion: 
   const holding = resolve(privateRoot, 'retention-quarantine', randomUUID())
   try {
     await db.$transaction(async tx => {
+      // Hold changes and account deletion acquire the applicant lock first.
+      // Use the same order here so a hold placed after the dry-run cannot be
+      // overtaken while files are being moved into quarantine.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${candidate.ownerId}))::text`
       await lockCase(tx, candidate)
       const fresh = await loadCandidate(tx, candidate.kind, candidate.id)
       if (!fresh || fresh.ownerId !== candidate.ownerId || fresh.keys.join(',') !== candidate.keys.join(',') || !isRetentionEligible(fresh, policyVersion, now)) {
@@ -178,7 +196,9 @@ async function retireOne(db: PrismaClient, candidate: Candidate, policyVersion: 
       await tx.mediaUpload.deleteMany({ where: { ownerId: fresh.ownerId, purpose: purposes[fresh.kind], storageKey: { in: fresh.keys } } })
       await tx.auditLog.create({ data: {
         actorId, action: 'EVIDENCE_RETENTION_PURGED', targetType: targetTypes[fresh.kind], targetId: fresh.id,
-        before: { files: fresh.keys.length }, after: { files: 0, retentionPolicy: fresh.kind === 'student' ? 'offer_end_plus_one_calendar_year' : 'anchor_plus_two_calendar_years', basis: fresh.kind === 'student' ? 'offer_end' : fresh.status === 'APPROVED' ? 'approval_expiry' : fresh.status === 'REVOKED' ? 'revocation' : 'rejection' },
+        before: { files: fresh.keys.length }, after: { files: 0,
+          retentionPolicy: fresh.kind === 'student' ? fresh.status === 'REJECTED' ? 'rejection_after_preservation_hold' : 'offer_end_plus_one_calendar_year' : 'anchor_plus_two_calendar_years',
+          basis: fresh.kind === 'student' ? fresh.status === 'REJECTED' ? 'rejection' : 'offer_end' : fresh.status === 'APPROVED' ? 'approval_expiry' : fresh.status === 'REVOKED' ? 'revocation' : 'rejection' },
       } })
     }, { timeout: 20_000 })
   } catch (error) {

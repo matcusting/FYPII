@@ -13,11 +13,13 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
   let prisma: typeof import('../core/db.js').prisma
   const studentId = randomUUID()
   const rejectedStudentId = randomUUID()
+  const expiredStudentId = randomUUID()
   const adminId = randomUUID()
   const campusId = randomUUID()
   const studentEmail = `verification-${studentId}@student.uts.edu.my`
   const rejectedStudentEmail = `verification-${rejectedStudentId}@student.uts.edu.my`
-  const cookies: Record<'student' | 'rejectedStudent' | 'admin', string> = { student: '', rejectedStudent: '', admin: '' }
+  const expiredStudentEmail = `verification-${expiredStudentId}@student.uts.edu.my`
+  const cookies: Record<'student' | 'rejectedStudent' | 'expiredStudent' | 'admin', string> = { student: '', rejectedStudent: '', expiredStudent: '', admin: '' }
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x11])
   const pdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')
 
@@ -27,6 +29,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     process.env.SESSION_SECRET = 'local-verification-test-secret-123456789'
     privateDir = await mkdtemp(join(tmpdir(), 'housing-verification-integration-'))
     process.env.MEDIA_PRIVATE_DIR = privateDir
+    process.env.MALWARE_SCAN_MODE = 'test-bypass'
     const [appModule, dbModule, authModule] = await Promise.all([
       import('../app.js'), import('../core/db.js'), import('../core/auth.js'),
     ])
@@ -35,9 +38,10 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     await prisma.user.createMany({ data: [
       { id: studentId, name: 'Synthetic Student', email: studentEmail, passwordHash: 'test-only', roles: ['STUDENT'], emailVerifiedAt: new Date() },
       { id: rejectedStudentId, name: 'Synthetic Rejected Student', email: rejectedStudentEmail, passwordHash: 'test-only', roles: ['STUDENT'], emailVerifiedAt: new Date() },
+      { id: expiredStudentId, name: 'Synthetic Expired Student', email: expiredStudentEmail, passwordHash: 'test-only', roles: ['STUDENT'], emailVerifiedAt: new Date(), studentVerified: true, studentVerifiedUntil: new Date('2024-06-30T00:00:00.000Z'), verificationStatus: 'APPROVED' },
       { id: adminId, name: 'Synthetic Reviewer', email: `admin-${adminId}@example.test`, passwordHash: 'test-only', roles: ['ADMIN'], emailVerifiedAt: new Date() },
     ] })
-    for (const [role, id] of [['student', studentId], ['rejectedStudent', rejectedStudentId], ['admin', adminId]] as const) {
+    for (const [role, id] of [['student', studentId], ['rejectedStudent', rejectedStudentId], ['expiredStudent', expiredStudentId], ['admin', adminId]] as const) {
       const token = randomBytes(32).toString('hex')
       await prisma.session.create({ data: { userId: id, tokenHash: authModule.tokenHash(token), expiresAt: new Date(Date.now() + 60_000) } })
       cookies[role] = `housing_session=${token}`
@@ -54,13 +58,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     if (server) await new Promise<void>(resolve => server.close(() => resolve()))
     if (prisma) {
       await prisma.auditLog.deleteMany({ where: { actorId: adminId } })
-      await prisma.emailJob.deleteMany({ where: { to: { in: [studentEmail, rejectedStudentEmail] } } })
-      await prisma.user.deleteMany({ where: { id: { in: [studentId, rejectedStudentId, adminId] } } })
+      await prisma.emailJob.deleteMany({ where: { to: { in: [studentEmail, rejectedStudentEmail, expiredStudentEmail] } } })
+      await prisma.user.deleteMany({ where: { id: { in: [studentId, rejectedStudentId, expiredStudentId, adminId] } } })
       await prisma.campus.deleteMany({ where: { id: campusId } })
       await prisma.$disconnect()
     }
     if (privateDir) await rm(privateDir, { recursive: true, force: true })
     delete process.env.MEDIA_PRIVATE_DIR
+    delete process.env.MALWARE_SCAN_MODE
   })
 
   function form() {
@@ -71,7 +76,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     return body
   }
 
-  function request(path: string, role: 'student' | 'rejectedStudent' | 'admin' | 'guest', method = 'GET', body?: BodyInit) {
+  function request(path: string, role: 'student' | 'rejectedStudent' | 'expiredStudent' | 'admin' | 'guest', method = 'GET', body?: BodyInit) {
     return fetch(base + path, { method, headers: {
       Origin: 'http://localhost:5173',
       ...(role === 'guest' ? {} : { Cookie: cookies[role] }),
@@ -153,5 +158,14 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('student document verification i
     expect(record).toMatchObject({ status: 'REJECTED', studentIdKey: null, offerLetterKey: null })
     expect(await prisma.mediaUpload.count({ where: { ownerId: rejectedStudentId, purpose: 'VERIFICATION' } })).toBe(0)
     expect((await request('/verifications', 'rejectedStudent', 'POST', form())).status).toBe(201)
+  })
+
+  it('expires approved student access after the study end and accepts a new proof submission', async () => {
+    const before = await (await request('/auth/me', 'expiredStudent')).json() as { data: { studentVerified: boolean; verificationStatus: string } }
+    expect(before.data).toMatchObject({ studentVerified: false, verificationStatus: 'EXPIRED' })
+    expect((await request('/roommates/matches', 'expiredStudent')).status).toBe(403)
+    expect((await request('/verifications', 'expiredStudent', 'POST', form())).status).toBe(201)
+    const account = await prisma.user.findUniqueOrThrow({ where: { id: expiredStudentId } })
+    expect(account).toMatchObject({ studentVerified: false, studentVerifiedUntil: null, verificationStatus: 'PENDING' })
   })
 })

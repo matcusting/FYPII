@@ -17,6 +17,7 @@ vi.mock('../core/db.js', () => ({ prisma: { campus: database.campus, user: datab
 vi.mock('../core/auth.js', () => ({
   clearSession: vi.fn(), createSession: vi.fn(), currentUser: vi.fn(),
   requireAuth: ((_req: Request, _res: Response, next: NextFunction) => next()) as RequestHandler,
+  requireSession: ((_req: Request, _res: Response, next: NextFunction) => next()) as RequestHandler,
   tokenHash: () => 'token-hash',
 }))
 vi.mock('../core/mail.js', () => ({ queueEmail }))

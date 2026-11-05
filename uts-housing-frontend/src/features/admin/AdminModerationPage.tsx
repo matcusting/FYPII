@@ -332,6 +332,57 @@ function StudentStudyEndCorrection({ id, row }: { id: string; row: DataRecord })
   </form>
 }
 
+function EvidenceHoldControls({ id, kind, row }: { id: string; kind: 'verifications' | 'landlord-verifications' | 'property-authorizations'; row: DataRecord }) {
+  const { t } = useI18n()
+  const queryClient = useQueryClient()
+  const [reason, setReason] = useState('')
+  const [confirmRelease, setConfirmRelease] = useState(false)
+  const [validation, setValidation] = useState('')
+  const [saved, setSaved] = useState(false)
+  const held = Boolean(row.evidenceHoldAt)
+  const caseKind = kind === 'verifications' ? 'student' : kind === 'landlord-verifications' ? 'identity' : 'property'
+  const mutation = useMutation({
+    mutationFn: () => api(`/admin/evidence-holds/${caseKind}/${encodeURIComponent(id)}`, {
+      method: 'PATCH', body: JSON.stringify({ hold: !held, reason: reason.trim(), ...(held ? { confirmRelease: true } : {}) }),
+    }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['admin', kind] })
+      setReason('')
+      setConfirmRelease(false)
+      setValidation('')
+      setSaved(true)
+    },
+  })
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (reason.trim().length < 10 || reason.trim().length > 500 || [...reason.trim()].some(char => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)) {
+      setValidation('Write a private reason of 10 to 500 characters without document details or line breaks.')
+      return
+    }
+    if (held && !confirmRelease) {
+      setValidation('Confirm that the dispute or preservation obligation has ended before releasing this hold.')
+      return
+    }
+    setValidation('')
+    setSaved(false)
+    mutation.mutate()
+  }
+
+  return <form onSubmit={submit} noValidate className="mb-5 rounded-lg border border-amber-200 bg-white p-4">
+    <h3 className="font-semibold text-slate-900">{t('Evidence preservation hold')}</h3>
+    <p className="mt-1 text-sm text-slate-700">{t('A held case is excluded from document retention cleanup. Use a short private case reference; do not copy identity numbers or document contents.')}</p>
+    <p className="mt-3 text-sm font-semibold text-slate-900">{t('Current hold status')}: {t(held ? 'On hold' : 'No hold')}</p>
+    {held && <p className="mt-1 text-sm text-slate-700">{t('Placed at')}: {dateText(row.evidenceHoldAt)}</p>}
+    {held && typeof row.evidenceHoldReason === 'string' && <p className="mt-1 break-words text-sm text-slate-700">{t('Private hold reason')}: {row.evidenceHoldReason}</p>}
+    <div className="field mt-3"><label htmlFor={`evidence-hold-reason-${id}`}>{t(held ? 'Reason to release hold' : 'Reason to place hold')}</label><textarea id={`evidence-hold-reason-${id}`} rows={2} minLength={10} maxLength={500} required value={reason} onChange={event => setReason(event.currentTarget.value)} /></div>
+    {held && <label className="mt-3 flex items-start gap-2 text-sm text-slate-800"><input type="checkbox" checked={confirmRelease} onChange={event => setConfirmRelease(event.currentTarget.checked)} className="mt-1" />{t('I confirmed the dispute or preservation obligation has ended.')}</label>}
+    {(validation || mutation.error) && <p role="alert" className="mt-3 text-sm text-red-700">{validation ? t(validation) : messageOf(mutation.error)}</p>}
+    {saved && <p role="status" className="mt-3 text-sm text-emerald-800">{t('Evidence hold change saved with an audit record.')}</p>}
+    <button type="submit" disabled={mutation.isPending} className="button mt-3">{t(mutation.isPending ? 'Saving…' : held ? 'Release hold' : 'Place hold')}</button>
+  </form>
+}
+
 export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
   const { t } = useI18n()
   const config = configuration[kind]
@@ -510,6 +561,7 @@ export function AdminModerationPage({ kind }: { kind: ModerationKind }) {
                           <QueryState loading={detail.isPending} error={detail.error ? messageOf(detail.error) : null} empty={!asRecord(detail.data)} emptyText="The server did not provide details for this record." onRetry={() => { void detail.refetch() }} />
                           {asRecord(detail.data) && !detail.error && <>
                             <ModerationDetails kind={kind} row={asRecord(detail.data)!} />
+                            {(kind === 'verifications' || kind === 'landlord-verifications' || kind === 'property-authorizations') && <EvidenceHoldControls key={`${kind}-${id}`} id={id} kind={kind} row={asRecord(detail.data)!} />}
                             {kind === 'verifications' && currentStatus === 'APPROVED' && firstText(asRecord(detail.data), 'verificationMethod', 'method') === 'DOCUMENTS' && privateVerificationUrl(asRecord(detail.data)!, 'offerLetterUrl', 'offer-letter') && <StudentStudyEndCorrection key={id} id={id} row={asRecord(detail.data)!} />}
                           </>}
                         </>}

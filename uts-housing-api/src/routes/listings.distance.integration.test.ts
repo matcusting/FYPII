@@ -20,7 +20,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('campus distance search and land
     await prisma.campus.create({ data: { id: campusId, name: 'Synthetic Distance Campus', university: 'Synthetic University', latitude: 2.322, longitude: 111.839 } })
     await prisma.user.createMany({ data: [
       { id: ownerId, name: 'Synthetic Owner', email: `distance-owner-${ownerId}@demo.local`, passwordHash: 'test', roles: ['LANDLORD'], emailVerifiedAt: new Date() },
-      { id: authorId, name: 'Synthetic Reviewer', email: `distance-reviewer-${authorId}@demo.local`, passwordHash: 'test', roles: ['STUDENT'], emailVerifiedAt: new Date(), studentVerified: true },
+      { id: authorId, name: 'Synthetic Reviewer', email: `distance-reviewer-${authorId}@demo.local`, passwordHash: 'test', roles: ['STUDENT'], emailVerifiedAt: new Date(), studentVerified: true, studentVerifiedUntil: new Date('2099-12-31') },
     ] })
     await prisma.landlordVerification.create({ data: { userId: ownerId, kind: 'INDIVIDUAL', status: 'APPROVED', expiresAt: new Date(Date.now() + 86_400_000) } })
     for (const [id, latitude, title] of [[nearId, 2.322, 'Near synthetic home'], [farId, 2.422, 'Far synthetic home']] as const) {

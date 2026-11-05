@@ -96,6 +96,7 @@ export const accountTranslations: Record<string, { ms: string; zh: string }> = {
   'Student Verification': { ms: 'Pengesahan Pelajar', zh: '学生认证' },
   'Current status:': { ms: 'Status semasa:', zh: '当前状态：' },
   'Your student verification is complete.': { ms: 'Pengesahan pelajar anda telah selesai.', zh: '你的学生认证已完成。' },
+  'Your student verification has expired after the study end date. Upload a current offer letter and Student ID for another review.': { ms: 'Pengesahan pelajar anda tamat selepas tarikh akhir pengajian. Muat naik surat tawaran terkini dan kad pelajar untuk semakan baharu.', zh: '你的学生认证已在学业结束日期后到期。请上传最新录取通知书和学生证重新审核。' },
   'Your application is being reviewed.': { ms: 'Permohonan anda sedang disemak.', zh: '你的申请正在审核中。' },
   'Verify your university-issued email before uploading your Student ID and offer letter.': { ms: 'Sahkan e-mel yang diberikan oleh universiti sebelum memuat naik kad pelajar dan surat tawaran.', zh: '上传学生证和录取通知书前，请先验证学校邮箱。' },
   'Verify your university-issued email before submitting documents.': { ms: 'Sahkan e-mel yang diberikan oleh universiti sebelum menghantar dokumen.', zh: '提交材料前请先验证学校邮箱。' },

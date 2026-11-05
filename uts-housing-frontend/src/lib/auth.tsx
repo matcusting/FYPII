@@ -10,7 +10,7 @@ interface AuthContextValue {
   loading: boolean
   error: string | null
   refresh: () => Promise<User | null>
-  signIn: (email: string, password: string) => Promise<User>
+  signIn: (email: string, password: string, mfaCode?: string) => Promise<User>
   signOut: () => Promise<void>
 }
 
@@ -29,7 +29,7 @@ function normalizeUser(raw: User): User {
     }
     return ''
   }).filter(Boolean) : []
-  return { ...raw, roles, studentVerified: raw.studentVerified === true || status?.toUpperCase() === 'APPROVED' }
+  return { ...raw, roles, studentVerified: typeof raw.studentVerified === 'boolean' ? raw.studentVerified : status?.toUpperCase() === 'APPROVED' }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -88,8 +88,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('storage', onStorage)
     }
   }, [refresh])
-  const signIn = useCallback(async (email: string, password: string) => {
-    await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+  const signIn = useCallback(async (email: string, password: string, mfaCode?: string) => {
+    await api('/auth/login', { method: 'POST', body: JSON.stringify({ email, password, ...(mfaCode ? { mfaCode } : {}) }) })
     const current = await refresh()
     if (!current) throw new Error('You signed in, but your account details could not be loaded.')
     broadcastAuthChange()
@@ -120,6 +120,7 @@ export function AuthGuard({ children, roles, verifiedStudent = false }: { childr
   const location = useLocation()
   if (loading) return <div className="container py-16" role="status">{t('Checking your sign-in status…')}</div>
   if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />
+  if (user.mfaSetupRequired && hasRole(user, 'ADMIN', 'LAWYER')) return <Navigate to="/mfa-setup" replace />
   if (roles && !hasRole(user, ...roles)) return <div className="container py-16"><h1>{t('Access denied')}</h1><p>{t('This account does not have permission to view this page. Signed in as {email}.', { email: user.email })}</p><Link to={homeForUser(user)} className="mt-4 inline-block font-semibold text-blue-800 underline">{t('Go to Your Dashboard')}</Link></div>
   if (verifiedStudent && !user.studentVerified) return <div className="container py-16"><h1>{t('Student verification required')}</h1><p>{t('Verify your student status before using this feature.')}</p></div>
   return <>{children}</>

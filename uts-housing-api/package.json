@@ -14,10 +14,13 @@
     "db:deploy": "node --env-file-if-exists=.env --import tsx prisma/migrate.ts",
     "db:init-local": "node --env-file-if-exists=.env --import tsx prisma/local-init.ts",
     "lawyer:provision": "node --env-file-if-exists=.env --import tsx prisma/provision-lawyer.ts",
+    "account:invite": "node --env-file-if-exists=.env --import tsx prisma/invite-account.ts",
+    "account:mfa-recover": "node --env-file-if-exists=.env --import tsx prisma/recover-privileged-mfa.ts",
     "db:seed": "node --env-file-if-exists=.env --import tsx prisma/seed.ts",
     "locations:backfill": "node --env-file-if-exists=.env --import tsx prisma/backfill-locations.ts",
     "email:worker": "node --env-file-if-exists=.env --import tsx src/workers/email.ts",
     "email:check": "node --env-file-if-exists=.env --import tsx src/workers/check-smtp.ts",
+    "files:cleanup": "node --env-file-if-exists=.env --import tsx src/workers/file-deletion-cli.ts",
     "evidence:retention": "node --env-file-if-exists=.env --import tsx src/workers/evidence-retention-cli.ts",
     "evidence:recover": "node --env-file-if-exists=.env --import tsx src/workers/evidence-retention-recover.ts"
   },

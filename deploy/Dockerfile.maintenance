@@ -1,0 +1,28 @@
+# syntax=docker/dockerfile:1.7
+# Alternate, self-managed Compose deployment only. Render does not share its
+# private disk with a second service and cannot use this maintenance image.
+FROM node:24-bookworm-slim AS build
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app/uts-housing-api
+COPY uts-housing-api/package.json uts-housing-api/package-lock.json ./
+RUN --mount=type=secret,id=proxy_ca \
+    if [ -s /run/secrets/proxy_ca ]; then NODE_EXTRA_CA_CERTS=/run/secrets/proxy_ca npm ci --strict-ssl=true; \
+    else npm ci --strict-ssl=true; fi
+COPY uts-housing-api/ ./
+RUN npm run db:generate && npm run build
+
+FROM postgres:16-bookworm
+# Debian variants match, so the official Node binary and npm install can be
+# copied without downloading an unrelated Node version into the maintenance job.
+COPY --from=build /usr/local/bin/node /usr/local/bin/node
+COPY --from=build /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/npm
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && useradd -m -u 1000 -s /usr/sbin/nologin housing \
+    && mkdir -p /app/scripts /srv/housing/private /backups \
+    && chown -R housing:housing /app /srv/housing /backups
+ENV NODE_ENV=production
+WORKDIR /app/uts-housing-api
+COPY --from=build --chown=housing:housing /app/uts-housing-api /app/uts-housing-api
+COPY --chown=housing:housing scripts/production-backup.mjs scripts/private-media-audit.mjs /app/scripts/
+USER housing

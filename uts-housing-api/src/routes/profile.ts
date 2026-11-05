@@ -4,6 +4,7 @@ import { currentUser, requireAuth } from '../core/auth.js'
 import { prisma } from '../core/db.js'
 import { asyncRoute, fail, ok } from '../core/http.js'
 import { normalizeSmsPhone } from '../core/sms.js'
+import { effectiveStudentVerificationStatus } from '../core/student-verification.js'
 
 const router = Router()
 const optionalText = (length: number) => z.string().trim().max(length).nullable().optional()
@@ -26,7 +27,7 @@ const preferenceSchema = z.object({
   emailInquiryUpdates: z.boolean().optional(), emailConnectionRequests: z.boolean().optional(), emailProductUpdates: z.boolean().optional(),
 }).strict()
 
-function formatProfile(user: { name: string; email: string; verificationStatus: string }, profile: {
+function formatProfile(user: { name: string; email: string; verificationStatus: string; studentVerified: boolean; studentVerifiedUntil: Date | null }, profile: {
   displayName: string; phone: string | null; phoneVerifiedAt: Date | null; university: string | null; bio: string | null; preferredLocation: string | null;
   budgetMin: { toString(): string } | null; budgetMax: { toString(): string } | null;
   preferredMoveInDate: Date | null
@@ -37,7 +38,8 @@ function formatProfile(user: { name: string; email: string; verificationStatus: 
     bio: profile?.bio || null, preferredLocation: profile?.preferredLocation || null,
     budgetMin: profile?.budgetMin?.toString() || null, budgetMax: profile?.budgetMax?.toString() || null,
     preferredMoveInDate: profile?.preferredMoveInDate?.toISOString().slice(0, 10) || null,
-    verificationStatus: user.verificationStatus,
+    verificationStatus: effectiveStudentVerificationStatus(user),
+    studentVerifiedUntil: user.studentVerifiedUntil?.toISOString().slice(0, 10) || null,
   }
 }
 

@@ -48,6 +48,7 @@ async function submit({ method = 'DOCUMENTS', studentId = true, offerLetter = tr
 beforeEach(async () => {
   privateDir = await mkdtemp(join(tmpdir(), 'student-verification-test-'))
   process.env.MEDIA_PRIVATE_DIR = privateDir
+  process.env.MALWARE_SCAN_MODE = 'test-bypass'
   vi.clearAllMocks()
   db.findPending.mockResolvedValue(null)
   db.countSubmissions.mockResolvedValue(0)
@@ -62,6 +63,7 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   delete process.env.MEDIA_PRIVATE_DIR
+  delete process.env.MALWARE_SCAN_MODE
   if (privateDir) await rm(privateDir, { recursive: true, force: true })
 })
 
@@ -75,6 +77,17 @@ describe('two-document student verification', () => {
       university: 'University of Technology Sarawak', studentIdKey: expect.stringMatching(/\.jpg$/), offerLetterKey: expect.stringMatching(/\.pdf$/),
     }) }))
     expect(await readdir(join(privateDir, 'verifications'))).toHaveLength(2)
+  })
+
+  it('does not persist or mark proof READY when the configured scanner is unavailable', async () => {
+    process.env.MALWARE_SCAN_MODE = 'clamav'
+    delete process.env.CLAMAV_HOST
+    const result = await submit()
+    expect(result.status).toBe(503)
+    expect(result.data).toMatchObject({ error: { code: 'MALWARE_SCANNER_UNAVAILABLE' } })
+    expect(db.createMedia).not.toHaveBeenCalled()
+    expect(db.createVerification).not.toHaveBeenCalled()
+    await expect(readdir(join(privateDir, 'verifications'))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('requires both files and an already verified school email', async () => {

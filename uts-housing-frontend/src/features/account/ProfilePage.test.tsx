@@ -139,4 +139,21 @@ describe('landlord profile', () => {
     expect(body.get('studentId')).toBe(studentId)
     expect(body.get('offerLetter')).toBe(offer)
   })
+
+  it('offers fresh document submission after student verification expires', async () => {
+    state.user.id = 'student-1'
+    state.user.name = 'Synthetic Student'
+    state.user.email = 'synthetic@student.uts.edu.my'
+    state.user.roles = ['STUDENT']
+    state.user.emailVerified = true
+    state.user.studentVerified = false
+    state.user.verificationStatus = 'EXPIRED'
+    state.api.mockImplementation((path: string, init?: RequestInit) => {
+      if (path === '/profile' && !init) return Promise.resolve({ displayName: state.user.name, verificationStatus: 'EXPIRED' })
+      throw new Error(`Unexpected API request: ${path}`)
+    })
+    renderPage()
+    expect(await screen.findByText('Your student verification has expired after the study end date. Upload a current offer letter and Student ID for another review.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Submit Verification' })).toBeTruthy()
+  })
 })

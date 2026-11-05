@@ -24,7 +24,7 @@ vi.mock('../core/auth.js', () => ({
 
 import router from './community.js'
 
-const student = { id: 'student-1', roles: ['STUDENT'], studentVerified: true }
+const student = { id: 'student-1', roles: ['STUDENT'], studentVerified: true, studentVerifiedUntil: new Date('2099-12-31') }
 beforeEach(() => { vi.clearAllMocks(); database.listing.count.mockResolvedValue(1) })
 
 function call(method: string, path: string, body?: unknown) {

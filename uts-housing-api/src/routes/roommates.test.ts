@@ -15,7 +15,7 @@ vi.mock('../core/mail.js', () => ({ queueEmail: vi.fn() }))
 
 import router from './roommates.js'
 
-const student = { id: 'student-1', name: 'Student', roles: ['STUDENT'], studentVerified: true, emailVerifiedAt: new Date(), status: 'ACTIVE' }
+const student = { id: 'student-1', name: 'Student', roles: ['STUDENT'], studentVerified: true, studentVerifiedUntil: new Date('2099-12-31'), emailVerifiedAt: new Date(), status: 'ACTIVE' }
 const legacyProfile = {
   userId: 'student-1', displayName: 'Student', university: 'Former public university', bio: 'Quiet student',
   preferredLocation: null, budgetMin: null, budgetMax: null, moveInDate: null, discoverable: true,

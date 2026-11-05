@@ -88,6 +88,29 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('verification evidence retention
     if (privateRoot) await rm(privateRoot, { recursive: true, force: true })
   })
 
+  it('excludes held student, identity and property evidence before and during retention planning', async () => {
+    const heldAt = new Date('2026-11-01T00:00:00.000Z')
+    await Promise.all([
+      prisma.studentVerification.update({ where: { id: studentCaseId }, data: { evidenceHoldAt: heldAt, evidenceHoldReason: 'Synthetic student dispute case' } }),
+      prisma.landlordVerification.update({ where: { id: expiredIdentityId }, data: { evidenceHoldAt: heldAt, evidenceHoldReason: 'Synthetic identity dispute case' } }),
+      prisma.propertyAuthorization.update({ where: { id: expiredPropertyId }, data: { evidenceHoldAt: heldAt, evidenceHoldReason: 'Synthetic property dispute case' } }),
+    ])
+    const policy = { student: 1, identity: 2, property: 2 }
+    const held = await retention.planEvidenceRetention(policy, { db: prisma, now, privateRoot })
+    expect([held.byKind.student.total, held.byKind.identity.total, held.byKind.property.total]).toEqual([0, 0, 0])
+    expect((await retention.applyEvidenceRetention(policy, adminId, { db: prisma, now, privateRoot })).processed).toBe(0)
+    for (const key of [keys.student, keys.expiredIdentity, keys.expiredProperty]) {
+      expect(await prisma.mediaUpload.findUnique({ where: { storageKey: key } })).not.toBeNull()
+    }
+    await Promise.all([
+      prisma.studentVerification.update({ where: { id: studentCaseId }, data: { evidenceHoldAt: null, evidenceHoldReason: null } }),
+      prisma.landlordVerification.update({ where: { id: expiredIdentityId }, data: { evidenceHoldAt: null, evidenceHoldReason: null } }),
+      prisma.propertyAuthorization.update({ where: { id: expiredPropertyId }, data: { evidenceHoldAt: null, evidenceHoldReason: null } }),
+    ])
+    const released = await retention.planEvidenceRetention(policy, { db: prisma, now, privateRoot })
+    expect([released.byKind.student.total, released.byKind.identity.total, released.byKind.property.total]).toEqual([1, 1, 1])
+  })
+
   it('dry-runs without changes, purges only eligible evidence, and is idempotent', async () => {
     const policy = { student: 1, identity: 2, property: 2 }
     const plan = await retention.planEvidenceRetention(policy, { db: prisma, now, privateRoot })
@@ -107,6 +130,37 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('verification evidence retention
     expect(await prisma.auditLog.count({ where: { actorId: adminId, action: 'EVIDENCE_RETENTION_PURGED' } })).toBe(3)
     expect((await lstat(join(privateRoot, 'landlord-verifications', keys.pendingProperty))).isFile()).toBe(true)
     expect((await retention.applyEvidenceRetention(policy, adminId, { db: prisma, now, privateRoot })).processed).toBe(0)
+  })
+
+  it('rechecks a new hold after waiting for the applicant lock', async () => {
+    const id = randomUUID()
+    const key = `${randomUUID()}.jpg`
+    await addEvidence(landlordId, key, 'LANDLORD_IDENTITY', 'landlord-verifications')
+    await prisma.landlordVerification.create({ data: { id, userId: landlordId, kind: 'INDIVIDUAL',
+      status: 'APPROVED', reviewedAt: old, expiresAt: expiry, identityKey: key } })
+
+    let unlock!: () => void
+    let locked!: () => void
+    const unlocked = new Promise<void>(resolve => { unlock = resolve })
+    const lockReady = new Promise<void>(resolve => { locked = resolve })
+    const holding = prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${landlordId}))::text`
+      locked()
+      await unlocked
+      await tx.landlordVerification.update({ where: { id }, data: {
+        evidenceHoldAt: now, evidenceHoldReason: 'Synthetic dispute opened during cleanup',
+      } })
+    }, { timeout: 10_000 })
+    await lockReady
+    const applying = retention.applyEvidenceRetention({ identity: 2 }, adminId, { db: prisma, now, privateRoot })
+      .then(() => ({ error: null }), error => ({ error }))
+    await new Promise(resolve => setTimeout(resolve, 100))
+    unlock()
+    await holding
+    expect((await applying).error).toBeInstanceOf(Error)
+    expect((await applying).error?.message).toContain('An evidence record changed during retention')
+    expect((await prisma.landlordVerification.findUniqueOrThrow({ where: { id } })).identityKey).toBe(key)
+    expect((await lstat(join(privateRoot, 'landlord-verifications', key))).isFile()).toBe(true)
   })
 
   it('starts the two-year clock at rejection or revocation for both landlord and property proof', async () => {
@@ -149,6 +203,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('verification evidence retention
       expect(await prisma.mediaUpload.findUnique({ where: { storageKey: item.key } })).toBeNull()
       await expect(lstat(join(privateRoot, 'landlord-verifications', item.key))).rejects.toMatchObject({ code: 'ENOENT' })
     }
+  })
+
+  it('cleans deferred rejected student evidence only after its hold is released', async () => {
+    const id = randomUUID()
+    const key = `${randomUUID()}.jpg`
+    await addEvidence(studentId, key, 'VERIFICATION', 'verifications')
+    await prisma.studentVerification.create({ data: { id, userId: studentId, method: 'DOCUMENTS', university: 'Synthetic University', status: 'REJECTED', reviewedAt: old,
+      studentIdKey: key, evidenceHoldAt: old, evidenceHoldReason: 'Synthetic rejected student dispute' } })
+    const policy = { student: 1 }
+    expect((await retention.planEvidenceRetention(policy, { db: prisma, now, privateRoot })).byKind.student.total).toBe(0)
+    await prisma.studentVerification.update({ where: { id }, data: { evidenceHoldAt: null, evidenceHoldReason: null } })
+    expect((await retention.planEvidenceRetention(policy, { db: prisma, now, privateRoot })).byKind.student.total).toBe(1)
+    expect((await retention.applyEvidenceRetention(policy, adminId, { db: prisma, now, privateRoot })).processed).toBe(1)
+    expect((await prisma.studentVerification.findUniqueOrThrow({ where: { id } })).studentIdKey).toBeNull()
+    await expect(lstat(join(privateRoot, 'verifications', key))).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('restores a crashed pre-commit move only when the database still references it', async () => {

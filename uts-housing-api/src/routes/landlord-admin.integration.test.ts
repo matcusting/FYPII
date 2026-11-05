@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Server } from 'node:http'
@@ -41,6 +41,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     process.env.SESSION_SECRET = 'local-landlord-test-secret-123456789'
     privateDir = await mkdtemp(join(tmpdir(), 'housing-landlord-integration-'))
     process.env.MEDIA_PRIVATE_DIR = privateDir
+    process.env.MALWARE_SCAN_MODE = 'test-bypass'
     const [appModule, dbModule, authModule] = await Promise.all([
       import('../app.js'), import('../core/db.js'), import('../core/auth.js'),
     ])
@@ -52,7 +53,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
       { id: adminId, name: 'Synthetic Reviewer', email: adminEmail, passwordHash: 'test-only', roles: ['ADMIN'], emailVerifiedAt: new Date() },
       { id: lawyerId, name: 'Synthetic Lawyer', email: lawyerEmail, passwordHash: 'test-only', roles: ['LAWYER'] },
       { id: otherLawyerId, name: 'Other Synthetic Lawyer', email: otherLawyerEmail, passwordHash: 'test-only', roles: ['LAWYER'] },
-      { id: studentId, name: 'Synthetic Student', email: studentEmail, passwordHash: 'test-only', roles: ['STUDENT'], emailVerifiedAt: new Date(), studentVerified: true, verificationStatus: 'APPROVED' },
+      { id: studentId, name: 'Synthetic Student', email: studentEmail, passwordHash: 'test-only', roles: ['STUDENT'], emailVerifiedAt: new Date(), studentVerified: true, studentVerifiedUntil: new Date('2099-12-31'), verificationStatus: 'APPROVED' },
     ] })
     await prisma.profile.create({ data: { userId: landlordId, displayName: 'Synthetic Landlord', phone: '+60 12-345 6789' } })
     await prisma.profile.create({ data: { userId: companyId, displayName: 'Synthetic Company Representative', phone: '+60 12-345 6790' } })
@@ -90,6 +91,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     }
     if (privateDir) await rm(privateDir, { recursive: true, force: true })
     delete process.env.MEDIA_PRIVATE_DIR
+    delete process.env.MALWARE_SCAN_MODE
   })
 
   function request(path: string, role: 'landlord' | 'company' | 'admin' | 'lawyer' | 'otherLawyer' | 'student' | 'guest', method = 'GET', body?: BodyInit) {
@@ -134,6 +136,20 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     expect(response.status).toBe(200)
   }
 
+  it('rejects identity uploads before storage when the malware scanner is unavailable', async () => {
+    process.env.MALWARE_SCAN_MODE = 'clamav'
+    delete process.env.CLAMAV_HOST
+    try {
+      const response = await request('/landlord-verifications/identity', 'landlord', 'POST', identityForm())
+      expect(response.status).toBe(503)
+      expect(await code(response)).toBe('MALWARE_SCANNER_UNAVAILABLE')
+      expect(await prisma.landlordVerification.count({ where: { userId: landlordId } })).toBe(0)
+      await expect(readdir(join(privateDir, 'landlord-verifications'))).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      process.env.MALWARE_SCAN_MODE = 'test-bypass'
+    }
+  })
+
   it('limits lawyer sessions to eight hours even when an old session has a later expiry', async () => {
     const password = 'SyntheticLawyerOnly123!'
     await prisma.user.update({ where: { id: otherLawyerId }, data: { passwordHash: await argon2.hash(password) } })
@@ -147,6 +163,21 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     expect((await fetch(base + '/lawyer/cases', { headers: { Cookie: cookie } })).status).toBe(200)
     await prisma.session.update({ where: { id: session.id }, data: { createdAt: new Date(Date.now() - 9 * 60 * 60 * 1000) } })
     expect((await fetch(base + '/lawyer/cases', { headers: { Cookie: cookie } })).status).toBe(401)
+  })
+
+  it('limits administrator sessions to eight hours even when an old session has a later expiry', async () => {
+    const password = 'SyntheticAdminOnly123!'
+    await prisma.user.update({ where: { id: adminId }, data: { passwordHash: await argon2.hash(password) } })
+    const login = await request('/auth/login', 'guest', 'POST', JSON.stringify({ email: adminEmail, password }))
+    expect(login.status).toBe(200)
+    expect(login.headers.get('set-cookie')).toContain('Max-Age=28800')
+    const cookie = login.headers.get('set-cookie')!.split(';')[0]
+    const session = await prisma.session.findFirstOrThrow({ where: { userId: adminId }, orderBy: { createdAt: 'desc' } })
+    expect(session.expiresAt.getTime() - session.createdAt.getTime()).toBeGreaterThan(7 * 60 * 60 * 1000)
+    expect(session.expiresAt.getTime() - session.createdAt.getTime()).toBeLessThanOrEqual(8 * 60 * 60 * 1000)
+    expect((await fetch(base + '/admin/overview', { headers: { Cookie: cookie } })).status).toBe(200)
+    await prisma.session.update({ where: { id: session.id }, data: { createdAt: new Date(Date.now() - 9 * 60 * 60 * 1000) } })
+    expect((await fetch(base + '/admin/overview', { headers: { Cookie: cookie } })).status).toBe(401)
   })
 
   it('requires an independent registry check for a company representative', async () => {
@@ -364,17 +395,35 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('landlord and property authoriza
     expect((await prisma.propertyAuthorization.findUniqueOrThrow({ where: { id: finalAuthorizationId } })).status).toBe('REVOKED')
     expect((await request(`/listings/${listingId}/submit`, 'landlord', 'POST')).status).toBe(403)
 
+    // Account deletion must remove listing files and unattached review proof
+    // as well as identity documents, including JSON sidecars with owner IDs.
+    const ownedPhoto = await prisma.listingPhoto.findFirstOrThrow({ where: { listingId } })
+    const unattachedReviewKey = randomUUID()
+    await mkdir(join(privateDir, 'listings'), { recursive: true })
+    for (const [key, purpose] of [[ownedPhoto.storageKey, 'LISTING_PHOTO'], [unattachedReviewKey, 'REVIEW_EVIDENCE']] as const) {
+      await writeFile(join(privateDir, 'listings', key), jpeg)
+      await writeFile(join(privateDir, 'listings', `${key}.json`), JSON.stringify({ key, ownerId: landlordId, purpose }))
+      await prisma.mediaUpload.create({ data: { ownerId: landlordId, storageKey: key, purpose, status: 'UPLOADED', mimeType: 'image/jpeg', size: jpeg.length } })
+    }
     const deletion = await request('/account/deletion-requests', 'landlord', 'POST', JSON.stringify({ confirmation: 'DELETE_ACCOUNT' }))
     expect(deletion.status).toBe(201)
     const deletionId = (await prisma.deletionRequest.findFirstOrThrow({ where: { userId: landlordId } })).id
+    await prisma.landlordVerification.update({ where: { id: identityId }, data: { evidenceHoldAt: new Date(), evidenceHoldReason: 'Synthetic legal preservation hold' } })
+    const blockedDeletion = await request(`/admin/deletion-requests/${deletionId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Synthetic landlord requested deletion.' }))
+    expect(await code(blockedDeletion)).toBe('EVIDENCE_HOLD_ACTIVE')
+    expect((await prisma.deletionRequest.findUniqueOrThrow({ where: { id: deletionId } })).status).toBe('PENDING')
+    expect((await request(`/admin/landlord-verifications/${identityId}/identity`, 'admin')).status).toBe(200)
+    await prisma.landlordVerification.update({ where: { id: identityId }, data: { evidenceHoldAt: null, evidenceHoldReason: null } })
     const removed = await request(`/admin/deletion-requests/${deletionId}`, 'admin', 'PATCH', JSON.stringify({ status: 'APPROVED', reason: 'Synthetic landlord requested deletion.' }))
     expect(removed.status).toBe(200)
     const companyProofs = await prisma.landlordVerification.findMany({ where: { userId: companyId } })
     expect((await readdir(join(privateDir, 'landlord-verifications'))).sort()).toEqual(
       companyProofs.flatMap(proof => [proof.identityKey, proof.companyKey, proof.representationKey]).sort(),
     )
+    expect(await readdir(join(privateDir, 'listings'))).toHaveLength(0)
+    expect(await prisma.mediaUpload.count({ where: { ownerId: landlordId } })).toBe(0)
     expect(await prisma.landlordVerification.count({ where: { userId: landlordId } })).toBe(0)
     expect(await prisma.propertyAuthorization.count({ where: { listingId } })).toBe(0)
-    expect((await prisma.listing.findUniqueOrThrow({ where: { id: listingId } })).status).toBe('ARCHIVED')
+    expect(await prisma.listing.findUniqueOrThrow({ where: { id: listingId } })).toMatchObject({ status: 'ARCHIVED', title: 'Deleted listing', description: '', address: null })
   })
 })

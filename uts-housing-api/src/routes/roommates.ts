@@ -6,6 +6,7 @@ import { currentUser, requireRole } from '../core/auth.js'
 import { fail, ok } from '../core/http.js'
 import { queueEmail } from '../core/mail.js'
 import { dimensions, evaluateMatch, type MatchingProfile } from '../core/matching.js'
+import { currentMalaysiaDate, studentVerificationIsCurrent } from '../core/student-verification.js'
 
 const router = Router()
 const studentOnly = requireRole('STUDENT')
@@ -117,7 +118,7 @@ function verified(user: ReturnType<typeof currentUser>, res: Response): boolean 
     fail(res, 403, 'Verify your email address before using roommate discovery.', 'EMAIL_NOT_VERIFIED')
     return false
   }
-  if (user.studentVerified) return true
+  if (studentVerificationIsCurrent(user)) return true
   fail(res, 403, 'Student verification is required before using roommate discovery.', 'VERIFICATION_REQUIRED')
   return false
 }
@@ -154,7 +155,7 @@ async function matchesFor(userId: string) {
   const own = await prisma.roommateProfile.findUnique({ where: { userId } })
   if (!own?.discoverable) return null
   const [candidates, blocks, existingRequests] = await Promise.all([
-    prisma.roommateProfile.findMany({ where: { discoverable: true, userId: { not: userId }, user: { roles: { has: 'STUDENT' }, studentVerified: true, emailVerifiedAt: { not: null }, status: 'ACTIVE' } } }),
+    prisma.roommateProfile.findMany({ where: { discoverable: true, userId: { not: userId }, user: { roles: { has: 'STUDENT' }, studentVerified: true, studentVerifiedUntil: { gte: currentMalaysiaDate() }, emailVerifiedAt: { not: null }, status: 'ACTIVE' } } }),
     prisma.userBlock.findMany({ where: { OR: [{ blockerId: userId }, { blockedId: userId }] } }),
     prisma.connectionRequest.findMany({ where: { OR: [{ senderId: userId }, { recipientId: userId }] } }),
   ])
@@ -273,14 +274,14 @@ router.post('/roommates/requests', studentOnly, route(async (req, res) => {
     result = await prisma.$transaction(async tx => {
       await lockConnectionPair(tx, user.id, recipientId)
       const [sender, recipient, blocked, existing, recent] = await Promise.all([
-        tx.user.findUnique({ where: { id: user.id }, select: { studentVerified: true, emailVerifiedAt: true, status: true, roommateProfile: true } }),
-        tx.user.findUnique({ where: { id: recipientId }, select: { roles: true, studentVerified: true, emailVerifiedAt: true, status: true, roommateProfile: true } }),
+        tx.user.findUnique({ where: { id: user.id }, select: { studentVerified: true, studentVerifiedUntil: true, emailVerifiedAt: true, status: true, roommateProfile: true } }),
+        tx.user.findUnique({ where: { id: recipientId }, select: { roles: true, studentVerified: true, studentVerifiedUntil: true, emailVerifiedAt: true, status: true, roommateProfile: true } }),
         tx.userBlock.findFirst({ where: { OR: [{ blockerId: user.id, blockedId: recipientId }, { blockerId: recipientId, blockedId: user.id }] } }),
         tx.connectionRequest.findFirst({ where: { OR: [{ senderId: user.id, recipientId }, { senderId: recipientId, recipientId: user.id }] } }),
         tx.connectionRequest.count({ where: { senderId: user.id, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } } }),
       ])
-      if (!sender?.studentVerified || !sender.emailVerifiedAt || sender.status !== 'ACTIVE' || !sender.roommateProfile?.discoverable) return { kind: 'discovery_disabled' as const }
-      if (!recipient?.roles.includes('STUDENT') || !recipient.studentVerified || !recipient.emailVerifiedAt || recipient.status !== 'ACTIVE' || !recipient.roommateProfile?.discoverable || blocked) return { kind: 'unavailable' as const }
+      if (!studentVerificationIsCurrent(sender) || !sender?.emailVerifiedAt || sender.status !== 'ACTIVE' || !sender.roommateProfile?.discoverable) return { kind: 'discovery_disabled' as const }
+      if (!recipient?.roles.includes('STUDENT') || !studentVerificationIsCurrent(recipient) || !recipient.emailVerifiedAt || recipient.status !== 'ACTIVE' || !recipient.roommateProfile?.discoverable || blocked) return { kind: 'unavailable' as const }
       if (existing) return { kind: 'duplicate' as const }
       if (!evaluateMatch(dbMatchProfile(sender.roommateProfile), dbMatchProfile(recipient.roommateProfile)).eligible) return { kind: 'unavailable' as const }
       if (recent >= 10) return { kind: 'rate_limited' as const }
@@ -316,8 +317,8 @@ router.patch('/roommates/requests/:id', studentOnly, route(async (req, res) => {
   const request = await prisma.connectionRequest.findUnique({ where: { id: req.params.id } })
   if (!request || request.recipientId !== user.id) { fail(res, 404, 'This incoming request could not be found.', 'NOT_FOUND'); return }
   if (parsed.data.status === 'ACCEPTED') {
-    const sender = await prisma.user.findUnique({ where: { id: request.senderId }, select: { roles: true, studentVerified: true, emailVerifiedAt: true, status: true } })
-    if (!sender?.roles.includes('STUDENT') || !sender.studentVerified || !sender.emailVerifiedAt || sender.status !== 'ACTIVE') { fail(res, 404, 'This roommate is unavailable.', 'NOT_FOUND'); return }
+    const sender = await prisma.user.findUnique({ where: { id: request.senderId }, select: { roles: true, studentVerified: true, studentVerifiedUntil: true, emailVerifiedAt: true, status: true } })
+    if (!sender?.roles.includes('STUDENT') || !studentVerificationIsCurrent(sender) || !sender.emailVerifiedAt || sender.status !== 'ACTIVE') { fail(res, 404, 'This roommate is unavailable.', 'NOT_FOUND'); return }
   }
   const blocked = await prisma.userBlock.findFirst({ where: { OR: [
     { blockerId: user.id, blockedId: request.senderId },
