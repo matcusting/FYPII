@@ -57,13 +57,14 @@ There is no SMTP account yet. Production startup intentionally fails without
 one, and the email worker cannot deliver account codes until it exists. Do not
 replace it with the local outbox for a public site.
 
-The dependency audit also needs resolution before a public launch. On the
-current lockfile, npm reported six high-severity API advisories, including
-`body-parser`, `multer`, `nodemailer`, and Prisma's development tooling. The API
-rejects compressed JSON bodies and does not use Multer's vulnerable asynchronous
-`fileFilter`, but that does not replace upgrading and retesting affected
-packages. Re-run `npm audit` for both packages, update supported versions,
-and review the resulting runtime and integration tests before deploying.
+The API's `body-parser`, `multer`, and `nodemailer` packages have been updated
+past the advisories found in the prior lockfile. Three high-severity advisories
+remain in Prisma's CLI/config tooling, which is needed to build the client but
+is removed from the Render runtime image with development and peer dependencies
+after compilation. Re-run `npm audit` for both packages and review any new
+advisories before a public launch; the remaining build-time tooling also needs
+a compatible upstream fix. The API rejects compressed JSON bodies as an
+additional guard.
 
 ## Data, backups, and maintenance
 
@@ -87,8 +88,8 @@ maintenance schedule and backup process are in place. See
 The API service itself retries durable private-file deletions every minute,
 because the separate Render email worker has no access to the private disk.
 
-The lawyer reviewer and administrator should be invited using the dedicated
-account invitation workflow after the real SMTP connection and secure account
+The lawyer reviewer and administrator should be invited using the compiled
+`account:invite:prod` workflow after the real SMTP connection and secure account
 handoff are ready; see
 [`ACCOUNT_INVITATIONS.md`](../uts-housing-api/ACCOUNT_INVITATIONS.md). Do not
 seed public demo credentials into Render. The uploaded sample documents used in

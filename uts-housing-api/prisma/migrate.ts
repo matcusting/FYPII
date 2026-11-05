@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { join, resolve } from 'node:path'
 import { Pool } from 'pg'
 
-const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), 'migrations')
+// Both the local TypeScript runner and compiled production runner use the
+// application working directory; SQL files remain in prisma/migrations.
+const migrationsDirectory = resolve(process.cwd(), 'prisma', 'migrations')
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error('DATABASE_URL is required to apply database migrations.')
 

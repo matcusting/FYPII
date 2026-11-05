@@ -13,7 +13,7 @@ fi
 
 # The migration command uses an advisory lock and verifies checksums. A failed
 # migration prevents the web service from accepting requests.
-npm run db:deploy
+node dist/prisma/migrate.js
 
 PORT=3001 HOST=127.0.0.1 node dist/src/server.js &
 api_pid=$!

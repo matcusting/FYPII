@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "prisma/seed.ts", "prisma/local-init.ts", "prisma/backfill-locations.ts", "prisma/invite-account.ts", "prisma/recover-privileged-mfa.ts"]
+  "include": ["src/**/*.ts", "prisma/migrate.ts", "prisma/seed.ts", "prisma/local-init.ts", "prisma/backfill-locations.ts", "prisma/invite-account.ts", "prisma/recover-privileged-mfa.ts"]
 }

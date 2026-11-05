@@ -58,7 +58,7 @@ services:
   migrate:
     image: uts-housing-api:${DEPLOY_TAG:-local}
     entrypoint: [node, scripts/with-production-secrets.mjs]
-    command: [node, --import, tsx, prisma/migrate.ts]
+    command: [node, dist/prisma/migrate.js]
     restart: "no"
     environment: *database-environment
     secrets: [db_password]
