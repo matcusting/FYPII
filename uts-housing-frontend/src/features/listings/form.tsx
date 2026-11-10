@@ -8,7 +8,7 @@ import { PreviewDocumentNotice } from '../../components/PreviewDocumentNotice'
 import { LocalizedFileInput } from '../../components/LocalizedFileInput'
 import { hasRole, useAuth } from '../../lib/auth'
 import { Field, inputClass, Notice, primaryButton, QueryState, secondaryButton } from './components'
-import { getList, propertyTypes, roomTypes, statusNames, type Amenity, type Campus, type ListingDetails } from './model'
+import { genderPreferences, getList, propertyTypes, roomTypes, statusNames, type Amenity, type Campus, type ListingDetails } from './model'
 
 interface SignedUpload {
   uploadUrl: string
@@ -139,8 +139,10 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     const campusId = String(form.get('campusId') || '')
     const propertyType = String(form.get('propertyType') || '')
     const roomType = String(form.get('roomType') || '')
+    const genderPreference = String(form.get('genderPreference') || '')
     if (title.length < 8 || title.length > 120) { setError('Enter a listing title between 8 and 120 characters.'); return }
     if (!campusId || !propertyType || !roomType) { setError('Select a campus, property type and room type.'); return }
+    if (!genderPreferences.some(([value]) => value === genderPreference)) { setError('Select who may rent this property.'); return }
     if (approximateArea.length < 3 || approximateArea.length > 120) { setError('Enter an approximate area between 3 and 120 characters.'); return }
     if (description.length < 30 || description.length > 5000) { setError('Enter a property description between 30 and 5,000 characters.'); return }
     const rentText = String(form.get('rent') || '').trim()
@@ -157,6 +159,7 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
       campusId,
       propertyType,
       roomType,
+      genderPreference,
       rent: rent.toFixed(2),
       currency: 'MYR',
       deposit: deposit.toFixed(2),
@@ -201,6 +204,7 @@ function ListingEditor({ initial, campuses, amenities }: { initial?: ListingDeta
     <div className="grid gap-6 sm:grid-cols-2"><Field label={t('Campus')} required><select className={inputClass} name="campusId" required defaultValue={initial?.campusId || ''}><option value="" disabled>{t('Select campus')}</option>{campuses.map(campus => <option key={campus.id} value={campus.id}>{campus.name}{campus.university ? ` · ${campus.university}` : ''}</option>)}</select></Field><Field label={t('Room Type')} required><select className={inputClass} name="roomType" required defaultValue={initial?.roomType || ''}><option value="" disabled>{t('Select room type')}</option>{roomTypes.map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></Field></div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label={t('Property Type')} required><select className={inputClass} name="propertyType" required defaultValue={initial?.propertyType || ''}><option value="" disabled>{t('Select property type')}</option>{propertyTypes.map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></Field><div className="space-y-1.5 text-[13px] font-bold text-[#374151]"><label htmlFor="available-from">{t('Available From')} <span className="text-rose-700" aria-hidden="true">*</span></label><EnglishDateInput id="available-from" className={inputClass} name="availableFrom" required defaultValue={initial?.availableFrom?.slice(0, 10) || ''} /></div></div>
     <div className="grid gap-6 sm:grid-cols-2"><Field label={t('Approximate Area')} required hint={t('Only the general area is shown publicly.')}><input className={inputClass} name="approximateArea" required minLength={3} maxLength={120} defaultValue={initial?.approximateArea || ''} placeholder={t('e.g., Sibu Jaya')} /></Field><Field label={t('Furnishing')}><select className={inputClass} name="furnished" defaultValue={String(initial?.furnished ?? false)}><option value="false">{t('Unfurnished')}</option><option value="true">{t('Furnished')}</option></select></Field></div>
+    <Field label={t('Rental eligibility')} required hint={t('This choice is shown to students on your listing.')}><select className={inputClass} name="genderPreference" required defaultValue={initial?.genderPreference || 'ALL'}>{genderPreferences.map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></Field>
     <section className="space-y-3 rounded-lg border border-gray-200 bg-[#fcfcfd] p-4 sm:p-5" aria-labelledby="property-address-heading">
       <div><h2 id="property-address-heading" className="text-[13px] font-bold text-[#374151]">{t('Property Address')}</h2><p className="mt-1 text-xs font-normal text-gray-600">{t('Enter the full street address, building, unit and postcode. The approximate area and campus distance are shown publicly.')}</p><p className="mt-1 text-xs font-normal text-gray-600">{t('Your address is sent to an address lookup service to calculate approximate campus distance. The distance is shown to students.')}</p>{initial && address.trim() === initial.address && <p className="mt-1 text-xs font-semibold text-[#203569]">{initial.distanceKm != null ? t('{distance} km to {campus}', { distance: initial.distanceKm.toFixed(1), campus: initial.campusName || t('campus') }) : t('Distance unavailable for this address')}</p>}</div>
       <Field label={t('Full Property Address')} required><input className={inputClass} name="address" minLength={10} maxLength={250} required autoComplete="street-address" value={address} onChange={event => setAddress(event.currentTarget.value)} placeholder={t('e.g., No. 12, Jalan University, 96000 Sibu, Sarawak')} /></Field>

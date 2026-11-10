@@ -1,9 +1,26 @@
 import type { User } from '@prisma/client'
 import { describe, expect, it, vi } from 'vitest'
+import type { NextFunction, Request, Response } from 'express'
 
-vi.mock('../core/db.js', () => ({ prisma: {} }))
+const database = vi.hoisted(() => ({
+  listing: { count: vi.fn(), findMany: vi.fn() },
+}))
+vi.mock('../core/db.js', () => ({ prisma: database }))
 
-import { canViewExactLocation, listingInput, serializeListing } from './listings.js'
+import router, { canViewExactLocation, listingInput, listingPatch, serializeListing } from './listings.js'
+
+function search(query: Record<string, string>) {
+  const url = `/listings?${new URLSearchParams(query)}`
+  const request = { method: 'GET', url, originalUrl: url, query } as unknown as Request
+  return new Promise<{ status: number; data: Record<string, unknown> }>((resolve, reject) => {
+    let statusCode = 200
+    const responseMethods = {
+      status(code: number) { statusCode = code; return responseMethods },
+      json(data: Record<string, unknown>) { resolve({ status: statusCode, data }); return responseMethods },
+    }
+    router(request, responseMethods as unknown as Response, ((error?: unknown) => reject(error || new Error('No route matched'))) as NextFunction)
+  })
+}
 
 describe('listing location privacy', () => {
   const student = { id: 'student', roles: ['STUDENT'] as const }
@@ -23,7 +40,7 @@ describe('listing location privacy', () => {
 
   it('redacts the full address until consent and student sign-in, and never exposes legacy coordinates', () => {
     const record = {
-      id: 'property', ownerId: 'owner', status: 'PUBLISHED', showExactLocation: false,
+      id: 'property', ownerId: 'owner', status: 'PUBLISHED', showExactLocation: false, genderPreference: 'FEMALE',
       title: 'Property near UTS', rent: 650, deposit: 650, latitude: 2.286, longitude: 111.835, distanceKm: 2.1,
       address: 'Private street address', moderationReason: null,
       campus: { id: 'campus', name: 'UTS', university: 'UTS', latitude: 2.3, longitude: 111.84 },
@@ -37,6 +54,7 @@ describe('listing location privacy', () => {
       expect('latitude' in hidden).toBe(false)
       expect('longitude' in hidden).toBe(false)
       expect(hidden.distanceKm).toBe(2.1)
+      expect(hidden.genderPreference).toBe('FEMALE')
       expect(hidden.address).toBeUndefined()
       expect(hidden.showExactLocation).toBe(false)
     }
@@ -57,8 +75,38 @@ describe('listing location privacy', () => {
       propertyType: 'HOUSE', roomType: 'SINGLE', rent: '650.00', deposit: '650.00',
       availableFrom: '2026-11-01', approximateArea: 'Sibu Jaya',
     }
-    expect(listingInput.safeParse({ ...draft, address: 'No. 12, Jalan Example, Sibu' }).success).toBe(true)
+    const valid = listingInput.safeParse({ ...draft, address: 'No. 12, Jalan Example, Sibu' })
+    expect(valid.success).toBe(true)
+    if (valid.success) expect(valid.data.genderPreference).toBe('ALL')
+    expect(listingInput.safeParse({ ...draft, address: 'No. 12, Jalan Example, Sibu', genderPreference: 'MALE' }).success).toBe(true)
+    expect(listingInput.safeParse({ ...draft, address: 'No. 12, Jalan Example, Sibu', genderPreference: 'UNKNOWN' }).success).toBe(false)
     expect(listingInput.safeParse({ ...draft, address: 'Sibu' }).success).toBe(false)
     expect(listingInput.safeParse(draft).success).toBe(false)
+  })
+
+  it('does not reset rental policy or other defaults on an unrelated patch', () => {
+    expect(listingPatch.parse({ title: 'An updated room title' })).toEqual({ title: 'An updated room title' })
+    expect(listingPatch.parse({ genderPreference: 'FEMALE' })).toEqual({ genderPreference: 'FEMALE' })
+    expect(listingPatch.safeParse({ genderPreference: 'UNKNOWN' }).success).toBe(false)
+  })
+})
+
+describe('listing gender preference search', () => {
+  it('filters exactly by the requested rental policy', async () => {
+    database.listing.count.mockReset().mockResolvedValue(0)
+    database.listing.findMany.mockReset().mockResolvedValue([])
+    const result = await search({ genderPreference: 'MALE' })
+    expect(result.status).toBe(200)
+    expect(database.listing.count).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ AND: expect.arrayContaining([{ genderPreference: 'MALE' }]) }),
+    }))
+  })
+
+  it('rejects an unsupported rental policy', async () => {
+    database.listing.count.mockReset()
+    database.listing.findMany.mockReset()
+    const result = await search({ genderPreference: 'UNKNOWN' })
+    expect(result.status).toBe(400)
+    expect(database.listing.count).not.toHaveBeenCalled()
   })
 })

@@ -159,6 +159,30 @@ export const roommatesTranslations: Record<string, { ms: string; zh: string }> =
     "ms": "Kenali bakal rakan serumah anda",
     "zh": "了解潜在室友"
   },
+  "Gender": {
+    "ms": "Jantina",
+    "zh": "性别"
+  },
+  "Male": {
+    "ms": "Lelaki",
+    "zh": "男"
+  },
+  "Female": {
+    "ms": "Perempuan",
+    "zh": "女"
+  },
+  "Prefer not to disclose": {
+    "ms": "Tidak mahu mendedahkan",
+    "zh": "不愿透露"
+  },
+  "Show my gender to matches": {
+    "ms": "Paparkan jantina saya kepada padanan",
+    "zh": "向匹配对象显示我的性别"
+  },
+  "Your gender stays private unless you choose to show it to matches.": {
+    "ms": "Jantina anda kekal peribadi kecuali anda memilih untuk memaparkannya kepada padanan.",
+    "zh": "你的性别默认保密，只有选择公开后才会显示给匹配对象。"
+  },
   "Hide Confirmation": {
     "ms": "Sembunyikan Pengesahan",
     "zh": "隐藏确认选项"

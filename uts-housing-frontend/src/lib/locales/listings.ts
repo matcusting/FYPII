@@ -1,5 +1,12 @@
 /** English UI text is the lookup key. Listing titles, addresses and messages stay as entered. */
 export const listingsTranslations: Record<string, { ms: string; zh: string }> = {
+  'Rental eligibility': { ms: 'Kelayakan penyewa', zh: '租客性别要求' },
+  'All genders welcome': { ms: 'Semua jantina dialu-alukan', zh: '男女均可' },
+  'Men only': { ms: 'Lelaki sahaja', zh: '仅限男士' },
+  'Women only': { ms: 'Wanita sahaja', zh: '仅限女士' },
+  'All rental policies': { ms: 'Semua syarat penyewa', zh: '不限租客要求' },
+  'This choice is shown to students on your listing.': { ms: 'Pilihan ini akan dipaparkan kepada pelajar pada iklan rumah anda.', zh: '此选项会显示在学生看到的房源中。' },
+  'Select who may rent this property.': { ms: 'Pilih siapa yang boleh menyewa rumah ini.', zh: '请选择此房源允许租给谁。' },
   'Landlord rating across public properties': { ms: 'Penilaian tuan rumah merentas rumah awam', zh: '房东所有公开房源的评分' },
   'No approved landlord reviews yet.': { ms: 'Belum ada ulasan tuan rumah yang diluluskan.', zh: '暂无已通过审核的房东评价。' },
   'Maximum distance to campus (km)': { ms: 'Jarak maksimum ke kampus (km)', zh: '距校区最远距离（公里）' },

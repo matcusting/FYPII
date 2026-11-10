@@ -13,6 +13,33 @@ vi.mock('../../lib/auth', () => ({ useAuth: () => ({ user: { id: 'landlord-1', e
 afterEach(() => { cleanup(); apiMock.mockReset() })
 
 describe('property authorization in listing editor', () => {
+  it('preserves and saves the landlord rental eligibility choice', async () => {
+    apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path === '/listings/listing-1' && init?.method === 'PATCH') return { id: 'listing-1' }
+      if (path === '/listings/listing-1') return {
+        id: 'listing-1', title: 'Room near campus', description: 'A furnished room within walking distance of the university.',
+        address: '12 Jalan Campus, Sibu', approximateArea: 'Sibu', campusId: 'campus-1',
+        roomType: 'SINGLE', propertyType: 'HOUSE', genderPreference: 'MALE', rent: '650.00',
+        deposit: '650.00', availableFrom: '2027-01-01', status: 'DRAFT', photos: [], amenityIds: [],
+      }
+      if (path === '/campuses') return { items: [{ id: 'campus-1', name: 'Main Campus' }] }
+      if (path === '/amenities') return { items: [] }
+      if (path === '/landlord-verifications/me') return { status: 'APPROVED', latest: null }
+      if (path === '/landlord-verifications/listings/listing-1') return { status: 'UNVERIFIED', latest: null }
+      throw new Error(`Unexpected API call: ${path}`)
+    })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={['/listings/listing-1/edit']}><Routes><Route path="/listings/:id/edit" element={<ListingFormPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    const eligibility = await screen.findByRole('combobox', { name: /Rental eligibility/ }) as HTMLSelectElement
+    expect(eligibility.value).toBe('MALE')
+    const user = userEvent.setup()
+    await user.selectOptions(eligibility, 'FEMALE')
+    await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+    await waitFor(() => expect(apiMock).toHaveBeenCalledWith('/listings/listing-1', expect.objectContaining({ method: 'PATCH' })))
+    const patch = apiMock.mock.calls.find(([path, init]) => path === '/listings/listing-1' && init?.method === 'PATCH')
+    expect(JSON.parse(patch![1].body)).toMatchObject({ genderPreference: 'FEMALE' })
+  })
+
   it('uploads authority proof without submitting or saving the listing form', async () => {
     apiMock.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === '/listings/listing-1') return { id: 'listing-1', title: 'Room near campus', address: '12 Jalan Campus, Sibu', status: 'DRAFT', photos: [], amenityIds: [] }

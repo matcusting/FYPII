@@ -58,6 +58,10 @@ export const roomTypes = [
   ['SINGLE', 'Single Room'], ['SHARED', 'Shared Room'], ['MASTER', 'Master Room'], ['ENTIRE', 'Whole Apartment'],
 ] as const
 
+export const genderPreferences = [
+  ['ALL', 'All genders welcome'], ['MALE', 'Men only'], ['FEMALE', 'Women only'],
+] as const
+
 export const statusNames: Record<string, string> = {
   DRAFT: 'Draft', PENDING_REVIEW: 'In review', PUBLISHED: 'Published', REJECTED: 'Rejected',
   PAUSED: 'Paused', RENTED: 'Rented', ARCHIVED: 'Archived',

@@ -6,9 +6,9 @@ import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { query } from '../../lib/api'
 import type { Listing } from '../../lib/types'
 import { Field, inputClass, ListingCard, primaryButton, QueryState, secondaryButton } from './components'
-import { getList, propertyTypes, roomTypes, type Campus } from './model'
+import { genderPreferences, getList, propertyTypes, roomTypes, type Campus } from './model'
 
-const filterNames = ['q', 'area', 'university', 'campusId', 'maxDistanceKm', 'recentlyConfirmed', 'minRent', 'maxRent', 'minDeposit', 'maxDeposit', 'availableBy', 'propertyType', 'roomType', 'amenities', 'furnished', 'sort'] as const
+const filterNames = ['q', 'area', 'university', 'campusId', 'maxDistanceKm', 'recentlyConfirmed', 'minRent', 'maxRent', 'minDeposit', 'maxDeposit', 'availableBy', 'propertyType', 'roomType', 'genderPreference', 'amenities', 'furnished', 'sort'] as const
 
 export function ListingsPage() {
   const { t } = useI18n()
@@ -84,6 +84,7 @@ export function ListingsPage() {
             <div className="space-y-1.5 text-[13px] font-bold text-[#374151]"><label htmlFor="available-by">{t('Available By')}</label><EnglishDateInput id="available-by" className={inputClass} name="availableBy" defaultValue={params.get('availableBy') || ''} /></div>
             <Field label={t('Property Type')}><select className={inputClass} name="propertyType" defaultValue={params.get('propertyType') || ''}><option value="">{t('All Types')}</option>{propertyTypes.map(([value, text]) => <option key={value} value={value}>{t(text)}</option>)}</select></Field>
             <Field label={t('Room Type')}><select className={inputClass} name="roomType" defaultValue={params.get('roomType') || ''}><option value="">{t('All Types')}</option>{roomTypes.map(([value, text]) => <option key={value} value={value}>{t(text)}</option>)}</select></Field>
+            <Field label={t('Rental eligibility')}><select className={inputClass} name="genderPreference" defaultValue={params.get('genderPreference') || ''}><option value="">{t('All rental policies')}</option>{genderPreferences.map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}</select></Field>
             <Field label={t('Facilities')} hint={t('Separate facilities with commas.')}><input className={inputClass} name="amenities" defaultValue={params.get('amenities') || ''} placeholder={t('wifi,parking')} /></Field>
             <Field label={t('Furnished')}><select className={inputClass} name="furnished" defaultValue={params.get('furnished') || ''}><option value="">{t('Any')}</option><option value="true">{t('Yes')}</option><option value="false">{t('No')}</option></select></Field>
             <Field label={t('Sort By')}><select className={inputClass} name="sort" defaultValue={params.get('sort') || 'newest'}><option value="newest">{t('Newest')}</option><option value="distance">{t('Nearest to Campus')}</option><option value="rent_asc">{t('Rent: Low to High')}</option><option value="rent_desc">{t('Rent: High to Low')}</option></select></Field>

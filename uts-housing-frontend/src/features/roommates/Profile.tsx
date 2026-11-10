@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { api, messageOf } from '../../lib/api'
 import { EnglishDateInput, isIsoDate } from '../../components/EnglishDateInput'
 import { useI18n } from '../../lib/i18n'
-import { blankProfile, lifestyleFields, profileOf, profilePayload, type LifestyleKey, type PrivacyField, type RoommateProfile } from './model'
+import { blankProfile, lifestyleFields, profileOf, profilePayload, type Gender, type LifestyleKey, type PrivacyField, type RoommateProfile } from './model'
 import { buttonClass, inputClass, Notice, RoommateShell, secondaryButtonClass, StudentGate } from './ui'
 
 const privacyFields: Array<{ key: PrivacyField; label: string }> = [
@@ -102,6 +102,10 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
       <p className="mb-5 mt-1 text-sm text-gray-600">{t('Once discovery is on, verified students can see only the details you choose to share.')}</p>
       <div className="grid gap-5 sm:grid-cols-2">
         <div><label className="block text-sm font-medium" htmlFor="roommate-display-name">{t('Display Name')}</label><input id="roommate-display-name" className={inputClass} maxLength={80} value={form.displayName} onChange={event => update('displayName', event.currentTarget.value)} autoComplete="nickname" /></div>
+        <div><label className="block text-sm font-medium" htmlFor="roommate-gender">{t('Gender')}</label><select id="roommate-gender" className={inputClass} value={form.gender} onChange={event => {
+          const gender = event.currentTarget.value as Gender
+          setForm(previous => ({ ...previous, gender, visibility: gender === 'UNDISCLOSED' ? { ...previous.visibility, gender: false } : previous.visibility }))
+        }}><option value="UNDISCLOSED">{t('Prefer not to disclose')}</option><option value="MALE">{t('Male')}</option><option value="FEMALE">{t('Female')}</option></select><p className="mt-1 text-xs text-gray-600">{t('Your gender stays private unless you choose to show it to matches.')}</p></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-location">{t('Preferred Location')}</label><input id="roommate-location" className={inputClass} maxLength={120} value={form.preferredLocation} onChange={event => update('preferredLocation', event.currentTarget.value)} placeholder={t('e.g. near campus')} /><p className="mt-1 text-xs text-gray-600">{t('Use a general area rather than sharing your exact address.')}</p></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-move-in">{t('Preferred Move-in Date')}</label><EnglishDateInput id="roommate-move-in" className={inputClass} value={form.moveInDate} onValueChange={value => update('moveInDate', value)} /></div>
         <div><label className="block text-sm font-medium" htmlFor="roommate-budget-min">{t('Minimum Monthly Budget (MYR)')}</label><input id="roommate-budget-min" type="number" min="0" step="1" inputMode="numeric" className={inputClass} value={form.budgetMin} onChange={event => update('budgetMin', event.currentTarget.value)} /></div>
@@ -126,6 +130,10 @@ function ProfileEditor({ initial }: { initial: RoommateProfile }) {
       <legend className="text-[1.1rem] font-bold text-[#1f2937]">{t('Privacy & Discovery')}</legend>
       <p className="mb-4 mt-1 text-sm text-gray-600">{t('Optional details are private by default. When discovery is on, only the details checked below are shown to matches.')}</p>
       <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex items-start gap-3"><input type="checkbox" className="mt-1 accent-emerald-700" checked={form.visibility.gender && form.gender !== 'UNDISCLOSED'} disabled={form.gender === 'UNDISCLOSED'} onChange={event => {
+          const checked = event.currentTarget.checked
+          setForm(previous => ({ ...previous, visibility: { ...previous.visibility, gender: checked } }))
+        }} /><span>{t('Show my gender to matches')}</span></label>
         {privacyFields.map(({ key, label }) => <label key={key} className="flex items-start gap-3"><input type="checkbox" className="mt-1 accent-emerald-700" checked={form.visibility[key]} onChange={event => setForm(previous => ({ ...previous, visibility: { ...previous.visibility, [key]: event.currentTarget.checked } }))} /><span>{t('Show {field} to matches', { field: t(label).toLowerCase() })}</span></label>)}
       </div>
       <label className="mt-6 flex items-start gap-3 border-t border-gray-100 pt-5 font-medium"><input type="checkbox" className="mt-1 accent-[#15803d]" checked={form.discoverable} onChange={event => update('discoverable', event.currentTarget.checked)} /><span>{t('Enable discovery so other verified students can see my matching profile')}</span></label>

@@ -15,11 +15,12 @@ afterEach(() => { cleanup(); apiMock.mockReset() })
 
 describe('listing search', () => {
   it('sends filters to the API and displays approved server results', async () => {
-    apiMock.mockImplementation(async (path: string) => path === '/campuses' ? [{ id: 'campus-1', name: 'Main Campus' }] : { items: [{ id: 'listing-1', title: 'Verified listing', rent: '650.00', currency: 'MYR', status: 'PUBLISHED', distanceKm: 2.3, campusName: 'Main Campus', lastConfirmedAt: new Date().toISOString(), availabilityStale: false }], total: 1, page: 1, pages: 1 })
+    apiMock.mockImplementation(async (path: string) => path === '/campuses' ? [{ id: 'campus-1', name: 'Main Campus' }] : { items: [{ id: 'listing-1', title: 'Verified listing', rent: '650.00', currency: 'MYR', status: 'PUBLISHED', genderPreference: 'MALE', distanceKm: 2.3, campusName: 'Main Campus', lastConfirmedAt: new Date().toISOString(), availabilityStale: false }], total: 1, page: 1, pages: 1 })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(<QueryClientProvider client={client}><MemoryRouter><ListingsPage /></MemoryRouter></QueryClientProvider>)
     expect(await screen.findByText('Verified listing')).toBeTruthy()
     expect(screen.getByText('2.3 km to Main Campus')).toBeTruthy()
+    expect(screen.getByText('Men only', { selector: 'strong' })).toBeTruthy()
     expect(screen.getByText(/Owner confirmed availability on/)).toBeTruthy()
     const user = userEvent.setup()
     await user.selectOptions(screen.getByLabelText('Campus'), 'campus-1')
@@ -27,11 +28,12 @@ describe('listing search', () => {
     await user.type(screen.getByRole('spinbutton', { name: /Maximum distance to campus/ }), '5')
     await user.click(screen.getByLabelText('Only show homes confirmed by the owner in the last 30 days'))
     await user.click(screen.getByText('More Filters'))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Rental eligibility' }), 'FEMALE')
     await user.selectOptions(screen.getByLabelText('Sort By'), 'distance')
     await user.click(screen.getByRole('button', { name: 'Apply filters' }))
     await waitFor(() => expect(apiMock).toHaveBeenCalledWith(expect.stringContaining('campusId=campus-1')))
     expect(apiMock.mock.calls.some(([path]) => typeof path === 'string' && path.includes('maxRent=700'))).toBe(true)
-    expect(apiMock.mock.calls.some(([path]) => typeof path === 'string' && path.includes('maxDistanceKm=5') && path.includes('sort=distance') && path.includes('recentlyConfirmed=true'))).toBe(true)
+    expect(apiMock.mock.calls.some(([path]) => typeof path === 'string' && path.includes('maxDistanceKm=5') && path.includes('sort=distance') && path.includes('recentlyConfirmed=true') && path.includes('genderPreference=FEMALE'))).toBe(true)
   })
 
   it('warns students about stale availability in search and on the listing detail', async () => {
@@ -41,7 +43,7 @@ describe('listing search', () => {
         { id: 'stale-listing', title: 'Older listing', rent: 650, status: 'PUBLISHED', availabilityStale: true },
         { id: 'fresh-listing', title: 'Recently confirmed listing', rent: 700, status: 'PUBLISHED', availabilityStale: false },
       ], total: 2, page: 1, pages: 1 }
-      if (path === '/listings/stale-listing') return { id: 'stale-listing', title: 'Older listing', rent: 650, status: 'PUBLISHED', availabilityStale: true, lastConfirmedAt: null }
+      if (path === '/listings/stale-listing') return { id: 'stale-listing', title: 'Older listing', rent: 650, status: 'PUBLISHED', genderPreference: 'FEMALE', availabilityStale: true, lastConfirmedAt: null }
       if (path === '/listings/stale-listing/reviews?page=1&limit=10') return { items: [], total: 0, page: 1, pages: 1 }
       throw new Error(`Unexpected API call: ${path}`)
     })
@@ -56,5 +58,6 @@ describe('listing search', () => {
     await user.click(screen.getByRole('link', { name: 'View listing: Older listing' }))
     expect(await screen.findByText("The owner has not confirmed this listing's availability within the last 30 days. Check with them before arranging a viewing.")).toBeTruthy()
     expect(screen.getByText('Availability needs reconfirmation.')).toBeTruthy()
+    expect(screen.getByText('Women only')).toBeTruthy()
   })
 })

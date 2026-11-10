@@ -200,11 +200,13 @@ function ModerationDetails({ kind, row }: { kind: ModerationKind; row: DataRecor
       { label: 'Evidence matched to this address', value: row.reviewedAt ? t(row.addressMatched === true ? 'Confirmed' : 'Not recorded') : '' },
     )
   } else if (kind === 'listings') {
+    const rentalPolicy = firstText(row, 'genderPreference')
     details.push(
       { label: 'Title', value: firstText(row, 'title') },
       { label: 'Description', value: firstText(row, 'description') },
       { label: 'Monthly rent', value: firstText(row, 'rent', 'monthlyRent') },
       { label: 'Area', value: firstText(row, 'approximateArea', 'area', 'campusName') },
+      { label: 'Rental eligibility', value: t(({ ALL: 'All genders welcome', MALE: 'Men only', FEMALE: 'Women only' } as Record<string, string>)[rentalPolicy] || 'All genders welcome') },
       { label: 'Owner', value: nestedText(row, 'owner', 'name', 'email') },
     )
   } else if (kind === 'reviews') {

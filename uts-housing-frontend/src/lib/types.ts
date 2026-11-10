@@ -25,6 +25,7 @@ export interface Listing {
   lastConfirmedAt?: string
   propertyType?: string
   roomType?: string
+  genderPreference?: 'ALL' | 'MALE' | 'FEMALE'
   furnished?: boolean
   amenities?: string[]
   photos?: Array<{ id?: string; url: string; alt?: string }>

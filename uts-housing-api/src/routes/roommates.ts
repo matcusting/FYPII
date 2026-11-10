@@ -1,5 +1,5 @@
 import { Router, type Request, type RequestHandler, type Response } from 'express'
-import { Prisma } from '@prisma/client'
+import { Prisma, type StudentGender } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../core/db.js'
 import { currentUser, requireRole } from '../core/auth.js'
@@ -41,6 +41,7 @@ const weightsSchema = z.object({
 const visibilitySchema = z.object({
   university: z.boolean().optional(), bio: z.boolean().optional(), preferredLocation: z.boolean().optional(),
   budget: z.boolean().optional(), moveInDate: z.boolean().optional(), lifestyle: z.boolean().optional(),
+  gender: z.boolean().optional(),
 }).strict()
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
   const date = new Date(`${value}T00:00:00.000Z`)
@@ -48,6 +49,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
 }, 'Enter a valid date as YYYY-MM-DD.')
 const profileSchema = z.object({
   displayName: z.string().trim().max(80).optional(),
+  gender: z.enum(['MALE', 'FEMALE', 'UNDISCLOSED']).optional(),
   university: z.string().trim().max(120).nullable().optional(),
   bio: z.string().trim().max(1000).nullable().optional(),
   preferredLocation: z.string().trim().max(120).nullable().optional(),
@@ -65,7 +67,7 @@ const profileSchema = z.object({
 
 const blankAnswers = Object.fromEntries(dimensions.map(key => [key, null])) as Record<typeof dimensions[number], null>
 const blankWeights = Object.fromEntries(dimensions.map(key => [key, 1])) as Record<typeof dimensions[number], number>
-const blankVisibility = { university: false, bio: false, preferredLocation: false, budget: false, moveInDate: false, lifestyle: false }
+const blankVisibility = { university: false, bio: false, preferredLocation: false, budget: false, moveInDate: false, lifestyle: false, gender: false }
 
 function jsonObject(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -82,23 +84,23 @@ function asDate(value: Date | null | undefined): string | null {
 }
 
 function profileResponse(profile: {
-  displayName: string; university: string | null; bio: string | null; preferredLocation: string | null;
+  displayName: string; gender: StudentGender; university: string | null; bio: string | null; preferredLocation: string | null;
   budgetMin: unknown; budgetMax: unknown; moveInDate: Date | null; discoverable: boolean;
   lifestyle: unknown; roommatePreferences: unknown; importanceWeights: unknown; visibility: unknown;
   smokeFreeOnly: boolean; petFreeOnly: boolean;
 }) {
   return {
-    displayName: profile.displayName, university: profile.university || '', bio: profile.bio || '',
+    displayName: profile.displayName, gender: profile.gender, university: profile.university || '', bio: profile.bio || '',
     preferredLocation: profile.preferredLocation || '', budgetMin: budgetNumber(profile.budgetMin) ?? null,
     budgetMax: budgetNumber(profile.budgetMax) ?? null, moveInDate: asDate(profile.moveInDate),
     discoverable: profile.discoverable, lifestyle: profile.lifestyle, roommatePreferences: profile.roommatePreferences,
-    importanceWeights: profile.importanceWeights, visibility: { ...jsonObject(profile.visibility), university: false },
+    importanceWeights: profile.importanceWeights, visibility: { ...jsonObject(profile.visibility), university: false, gender: profile.gender !== 'UNDISCLOSED' && jsonObject(profile.visibility).gender === true },
     smokeFreeOnly: profile.smokeFreeOnly, petFreeOnly: profile.petFreeOnly,
   }
 }
 
 function publicProfile(profile: {
-  userId: string; displayName: string; bio: string | null;
+  userId: string; displayName: string; gender: StudentGender; bio: string | null;
   preferredLocation: string | null; budgetMin: unknown; budgetMax: unknown; moveInDate: Date | null;
   visibility: unknown;
 }) {
@@ -106,6 +108,7 @@ function publicProfile(profile: {
   return {
     userId: profile.userId,
     displayName: profile.displayName,
+    ...(visible.gender === true && profile.gender !== 'UNDISCLOSED' ? { gender: profile.gender } : {}),
     ...(visible.bio === true ? { bio: profile.bio || '' } : {}),
     ...(visible.preferredLocation === true ? { preferredLocation: profile.preferredLocation || '' } : {}),
     ...(visible.budget === true ? { budgetMin: budgetNumber(profile.budgetMin), budgetMax: budgetNumber(profile.budgetMax) } : {}),
@@ -176,7 +179,7 @@ router.get('/roommates/profile', studentOnly, route(async (req, res) => {
   const user = currentUser(req)!
   const profile = await prisma.roommateProfile.findUnique({ where: { userId: user.id } })
   ok(res, profile ? profileResponse(profile) : {
-    displayName: user.name, university: '', bio: '', preferredLocation: '', budgetMin: null, budgetMax: null,
+    displayName: user.name, gender: 'UNDISCLOSED', university: '', bio: '', preferredLocation: '', budgetMin: null, budgetMax: null,
     moveInDate: null, discoverable: false, lifestyle: blankAnswers, roommatePreferences: blankAnswers,
     importanceWeights: blankWeights, visibility: blankVisibility, smokeFreeOnly: false, petFreeOnly: false,
   })
@@ -193,6 +196,8 @@ router.patch('/roommates/profile', studentOnly, route(async (req, res) => {
   const currentWeights = jsonObject(current?.importanceWeights || blankWeights)
   const currentVisibility = jsonObject(current?.visibility || blankVisibility)
   const displayName = incoming.displayName ?? current?.displayName ?? user.name
+  const gender = incoming.gender ?? current?.gender ?? 'UNDISCLOSED'
+  const previouslySharedGender = (current?.gender === 'MALE' || current?.gender === 'FEMALE') && currentVisibility.gender === true
   const budgetMin = incoming.budgetMin !== undefined ? incoming.budgetMin : budgetNumber(current?.budgetMin)
   const budgetMax = incoming.budgetMax !== undefined ? incoming.budgetMax : budgetNumber(current?.budgetMax)
   if (budgetMin !== null && budgetMax !== null && budgetMin !== undefined && budgetMax !== undefined && budgetMin > budgetMax) { fail(res, 400, 'Minimum budget cannot exceed maximum budget.', 'VALIDATION_ERROR'); return }
@@ -200,6 +205,7 @@ router.patch('/roommates/profile', studentOnly, route(async (req, res) => {
   if ((incoming.discoverable ?? current?.discoverable ?? false) && !displayName.trim()) { fail(res, 400, 'Enter a display name before enabling discovery.', 'VALIDATION_ERROR'); return }
   const data = {
     displayName,
+    gender,
     university: incoming.university !== undefined ? incoming.university : current?.university ?? null,
     bio: incoming.bio !== undefined ? incoming.bio : current?.bio ?? null,
     preferredLocation: incoming.preferredLocation !== undefined ? incoming.preferredLocation : current?.preferredLocation ?? null,
@@ -210,7 +216,7 @@ router.patch('/roommates/profile', studentOnly, route(async (req, res) => {
     lifestyle: { ...currentLifestyle, ...incoming.lifestyle } as Prisma.InputJsonValue,
     roommatePreferences: { ...currentPreferences, ...incoming.roommatePreferences } as Prisma.InputJsonValue,
     importanceWeights: { ...currentWeights, ...incoming.importanceWeights } as Prisma.InputJsonValue,
-    visibility: { ...currentVisibility, ...incoming.visibility, university: false } as Prisma.InputJsonValue,
+    visibility: { ...currentVisibility, ...incoming.visibility, university: false, gender: gender !== 'UNDISCLOSED' && (incoming.visibility?.gender ?? previouslySharedGender) === true } as Prisma.InputJsonValue,
     smokeFreeOnly: incoming.smokeFreeOnly ?? current?.smokeFreeOnly ?? false,
     petFreeOnly: incoming.petFreeOnly ?? current?.petFreeOnly ?? false,
   }

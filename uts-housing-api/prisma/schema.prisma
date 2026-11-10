@@ -62,6 +62,18 @@ enum ListingStatus {
   ARCHIVED
 }
 
+enum StudentGender {
+  MALE
+  FEMALE
+  UNDISCLOSED
+}
+
+enum ListingGenderPreference {
+  ALL
+  MALE
+  FEMALE
+}
+
 enum RequestStatus {
   PENDING
   ACCEPTED
@@ -327,6 +339,7 @@ model Listing {
   description       String
   propertyType      String
   roomType          String
+  genderPreference  ListingGenderPreference @default(ALL)
   rent              Decimal          @db.Decimal(12, 2)
   currency          String           @default("MYR")
   deposit           Decimal          @db.Decimal(12, 2)
@@ -440,6 +453,7 @@ model InquiryMessage {
 model RoommateProfile {
   userId              String    @id
   displayName         String
+  gender              StudentGender @default(UNDISCLOSED)
   university          String?
   bio                 String?
   preferredLocation   String?

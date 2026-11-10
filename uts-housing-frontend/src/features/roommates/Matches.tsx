@@ -21,7 +21,8 @@ function MatchDetails({ match }: { match: Match }) {
         : <p className="text-sm text-gray-500">{t('Add more lifestyle answers to see shared habits.')}</p>}
     </div>
     {match.bio && <p className="mb-4 whitespace-pre-wrap text-sm text-gray-600">{match.bio}</p>}
-    {(match.preferredLocation || match.budgetMin !== undefined || match.budgetMax !== undefined || match.moveInDate) && <dl className="mb-5 grid gap-2 text-sm text-gray-600 sm:grid-cols-2">
+    {(match.gender || match.preferredLocation || match.budgetMin !== undefined || match.budgetMax !== undefined || match.moveInDate) && <dl className="mb-5 grid gap-2 text-sm text-gray-600 sm:grid-cols-2">
+      {match.gender && <div><dt className="font-bold text-[#374151]">{t('Gender')}</dt><dd>{t(match.gender === 'MALE' ? 'Male' : 'Female')}</dd></div>}
       {match.preferredLocation && <div><dt className="font-bold text-[#374151]">{t('Preferred area')}</dt><dd>{match.preferredLocation}</dd></div>}
       {(match.budgetMin !== undefined || match.budgetMax !== undefined) && <div><dt className="font-bold text-[#374151]">{t('Monthly budget')}</dt><dd>{match.budgetMin ?? '—'}–{match.budgetMax ?? '—'} MYR</dd></div>}
       {match.moveInDate && <div><dt className="font-bold text-[#374151]">{t('Move-in date')}</dt><dd>{match.moveInDate.slice(0, 10)}</dd></div>}

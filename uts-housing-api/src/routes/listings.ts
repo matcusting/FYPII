@@ -29,6 +29,7 @@ export const listingInput = z.object({
   campusId: z.string().min(1),
   propertyType: z.enum(['APARTMENT', 'HOUSE', 'STUDIO', 'OTHER']),
   roomType: z.enum(['SINGLE', 'SHARED', 'MASTER', 'ENTIRE']),
+  genderPreference: z.enum(['ALL', 'MALE', 'FEMALE']).default('ALL'),
   rent: money.refine(value => value > 0),
   deposit: money,
   currency: z.literal('MYR').default('MYR'),
@@ -43,7 +44,15 @@ export const listingInput = z.object({
   showExactLocation: z.boolean().default(false),
 })
 
-const listingPatch = listingInput.omit({ photoKeys: true }).partial().extend({
+export const listingPatch = listingInput.omit({ photoKeys: true }).partial().extend({
+  // Zod 4 keeps defaults when .partial() is applied. Remove them here so an
+  // unrelated edit cannot reset a saved listing field.
+  currency: listingInput.shape.currency.removeDefault().optional(),
+  contactMethod: listingInput.shape.contactMethod.removeDefault().optional(),
+  furnished: listingInput.shape.furnished.removeDefault().optional(),
+  amenityIds: listingInput.shape.amenityIds.removeDefault().optional(),
+  showExactLocation: listingInput.shape.showExactLocation.removeDefault().optional(),
+  genderPreference: listingInput.shape.genderPreference.removeDefault().optional(),
   newPhotoKeys: z.array(z.uuid()).max(8).optional(),
   removePhotoIds: z.array(z.uuid()).max(8).optional(),
   status: z.enum(['PAUSED', 'PUBLISHED', 'RENTED']).optional(),
@@ -277,11 +286,13 @@ router.get('/listings', withErrors(async (req, res) => {
   const university = queryText(req, 'university')
   const propertyType = queryText(req, 'propertyType')
   const roomType = queryText(req, 'roomType')
+  const genderPreference = queryText(req, 'genderPreference')
   const furnished = queryText(req, 'furnished')
   const recentlyConfirmed = queryText(req, 'recentlyConfirmed')
   if (search.length > 200 || area.length > 120 || university.length > 120 || campusId.length > 100 || terms.length > 20 || terms.some(term => term.length > 60) ||
     (propertyType && !['APARTMENT', 'HOUSE', 'STUDIO', 'OTHER'].includes(propertyType)) ||
-    (roomType && !['SINGLE', 'SHARED', 'MASTER', 'ENTIRE'].includes(roomType))) { failValidation(res, 'Check the search terms and property filters.'); return }
+    (roomType && !['SINGLE', 'SHARED', 'MASTER', 'ENTIRE'].includes(roomType)) ||
+    (genderPreference && !['ALL', 'MALE', 'FEMALE'].includes(genderPreference))) { failValidation(res, 'Check the search terms and property filters.'); return }
   if (furnished && !['true', 'false'].includes(furnished)) { failValidation(res, 'Choose a valid furnishing filter.'); return }
   if (recentlyConfirmed && recentlyConfirmed !== 'true') { failValidation(res, 'Choose a valid availability confirmation filter.'); return }
   const filters: Prisma.ListingWhereInput[] = []
@@ -292,6 +303,7 @@ router.get('/listings', withErrors(async (req, res) => {
   if (maxDistanceKm != null) filters.push({ distanceKm: { lte: maxDistanceKm } })
   if (propertyType) filters.push({ propertyType })
   if (roomType) filters.push({ roomType })
+  if (genderPreference) filters.push({ genderPreference: genderPreference as 'ALL' | 'MALE' | 'FEMALE' })
   if (furnished) filters.push({ furnished: furnished === 'true' })
   if (recentlyConfirmed === 'true') filters.push({ lastConfirmedAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } })
   if (numbers.minRent != null) filters.push({ rent: { gte: numbers.minRent } })
@@ -347,7 +359,7 @@ router.post('/listings', requireAuth, withErrors(async (req, res) => {
     const readyPhotos = photos.length ? await tx.mediaUpload.count({ where: { ownerId: user.id, storageKey: { in: photos.map(photo => photo.key) }, purpose: 'LISTING_PHOTO', status: 'UPLOADED' } }) : 0
     if (fresh?.status !== 'ACTIVE' || readyPhotos !== photos.length) throw new Error('LISTING_CHANGED')
     const listing = await tx.listing.create({ data: {
-      ownerId: user.id, campusId: value.campusId, title: value.title, description: value.description, propertyType: value.propertyType, roomType: value.roomType,
+      ownerId: user.id, campusId: value.campusId, title: value.title, description: value.description, propertyType: value.propertyType, roomType: value.roomType, genderPreference: value.genderPreference,
       rent: value.rent.toFixed(2), deposit: value.deposit.toFixed(2), currency: value.currency, availableFrom: new Date(`${value.availableFrom}T00:00:00.000Z`),
       approximateArea: value.approximateArea, latitude: coordinates?.latitude ?? null, longitude: coordinates?.longitude ?? null, address: value.address,
       showExactLocation: value.showExactLocation, houseRules: value.houseRules || null, contactMethod: value.contactMethod, furnished: value.furnished, status: 'DRAFT',
@@ -400,6 +412,7 @@ router.patch('/listings/:id', requireAuth, withErrors(async (req, res) => {
     if (value.campusId !== undefined) update.campusId = value.campusId
     if (value.propertyType !== undefined) update.propertyType = value.propertyType
     if (value.roomType !== undefined) update.roomType = value.roomType
+    if (value.genderPreference !== undefined) update.genderPreference = value.genderPreference
     if (value.rent !== undefined) update.rent = value.rent.toFixed(2)
     if (value.deposit !== undefined) update.deposit = value.deposit.toFixed(2)
     if (value.availableFrom !== undefined) update.availableFrom = new Date(`${value.availableFrom}T00:00:00.000Z`)

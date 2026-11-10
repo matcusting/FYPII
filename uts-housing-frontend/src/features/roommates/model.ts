@@ -10,10 +10,12 @@ export const lifestyleFields = [
 
 export type LifestyleKey = typeof lifestyleFields[number]['key']
 export type LifestyleAnswers = Record<LifestyleKey, string>
-export type PrivacyField = 'bio' | 'preferredLocation' | 'budget' | 'moveInDate' | 'lifestyle'
+export type Gender = 'MALE' | 'FEMALE' | 'UNDISCLOSED'
+export type PrivacyField = 'gender' | 'bio' | 'preferredLocation' | 'budget' | 'moveInDate' | 'lifestyle'
 
 export interface RoommateProfile {
   displayName: string
+  gender: Gender
   bio: string
   preferredLocation: string
   budgetMin: string
@@ -31,6 +33,7 @@ export interface RoommateProfile {
 export interface Match {
   id: string
   displayName: string
+  gender?: Exclude<Gender, 'UNDISCLOSED'>
   bio?: string
   preferredLocation?: string
   budgetMin?: number
@@ -48,10 +51,10 @@ const blankAnswers = (): LifestyleAnswers => ({
 
 export function blankProfile(): RoommateProfile {
   return {
-    displayName: '', bio: '', preferredLocation: '', budgetMin: '', budgetMax: '', moveInDate: '',
+    displayName: '', gender: 'UNDISCLOSED', bio: '', preferredLocation: '', budgetMin: '', budgetMax: '', moveInDate: '',
     discoverable: false, lifestyle: blankAnswers(), roommatePreferences: blankAnswers(),
     importanceWeights: { smoking: 1, studySchedule: 1, sleepSchedule: 1, cleanliness: 1, noise: 1, guests: 1, pets: 1 },
-    visibility: { bio: false, preferredLocation: false, budget: false, moveInDate: false, lifestyle: false },
+    visibility: { gender: false, bio: false, preferredLocation: false, budget: false, moveInDate: false, lifestyle: false },
     smokeFreeOnly: false, petFreeOnly: false,
   }
 }
@@ -62,6 +65,10 @@ function record(value: unknown): Record<string, unknown> {
 
 function string(value: unknown): string {
   return typeof value === 'string' ? value : ''
+}
+
+function gender(value: unknown): Gender {
+  return value === 'MALE' || value === 'FEMALE' ? value : 'UNDISCLOSED'
 }
 
 function numericString(value: unknown): string {
@@ -81,7 +88,7 @@ export function profileOf(raw: unknown): RoommateProfile {
   const weights = record(data.importanceWeights)
   const initial = blankProfile()
   return {
-    displayName: string(data.displayName), bio: string(data.bio),
+    displayName: string(data.displayName), gender: gender(data.gender), bio: string(data.bio),
     preferredLocation: string(data.preferredLocation), budgetMin: numericString(data.budgetMin),
     budgetMax: numericString(data.budgetMax), moveInDate: string(data.moveInDate)?.slice(0, 10),
     discoverable: data.discoverable === true,
@@ -128,6 +135,7 @@ export function matchOf(raw: unknown): Match | null {
   const numberOrUndefined = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined
   return {
     id, displayName: string(person.displayName ?? person.name) || 'Verified student',
+    gender: canShow('gender') && (person.gender === 'MALE' || person.gender === 'FEMALE') ? person.gender : undefined,
     bio: canShow('bio') ? string(person.bio) : '',
     preferredLocation: canShow('preferredLocation') ? string(person.preferredLocation ?? person.approximateArea) : '',
     budgetMin: canShow('budget') ? numberOrUndefined(person.budgetMin) : undefined,

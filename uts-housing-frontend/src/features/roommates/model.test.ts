@@ -5,12 +5,16 @@ describe('roommate privacy boundary', () => {
   it('keeps optional candidate fields hidden unless the response marks them public', () => {
     const candidate = {
       userId: 'student-1', score: 85,
-      profile: { displayName: 'Sam', bio: 'Private note', university: 'Private school', budgetMin: 300, moveInDate: '2026-11-01' },
+      profile: { displayName: 'Sam', gender: 'MALE', bio: 'Private note', university: 'Private school', budgetMin: 300, moveInDate: '2026-11-01' },
     }
     expect(matchOf(candidate)).toMatchObject({ id: 'student-1', score: 85, bio: '', moveInDate: '' })
+    expect(matchOf(candidate)?.gender).toBeUndefined()
     expect(matchOf(candidate)).not.toHaveProperty('university')
     expect(matchOf(candidate)?.budgetMin).toBeUndefined()
     expect(matchOf({ ...candidate, publicProfile: { displayName: 'Sam', bio: 'Public note' } })?.bio).toBe('Public note')
+    expect(matchOf({ ...candidate, profile: { ...candidate.profile, visibility: { gender: true } } })?.gender).toBe('MALE')
+    expect(matchOf({ ...candidate, publicProfile: { displayName: 'Sam', gender: 'FEMALE' } })?.gender).toBe('FEMALE')
+    expect(matchOf({ ...candidate, publicProfile: { displayName: 'Sam', gender: 'UNDISCLOSED' } })?.gender).toBeUndefined()
     expect(matchOf({ ...candidate, publicProfile: { displayName: 'Sam', university: 'Legacy public school' } })).not.toHaveProperty('university')
   })
 
@@ -23,8 +27,17 @@ describe('profile defaults', () => {
   it('starts discovery and all optional visibility controls disabled', () => {
     const profile = profileOf(null)
     expect(profile.discoverable).toBe(false)
+    expect(profile.gender).toBe('UNDISCLOSED')
     expect(Object.values(profile.visibility).every(value => value === false)).toBe(true)
+    expect(profilePayload(profile).gender).toBe('UNDISCLOSED')
     expect(profilePayload(profile).budgetMin).toBeNull()
+  })
+
+  it('round-trips an explicitly shared gender while leaving a legacy profile private', () => {
+    const profile = profileOf({ gender: 'FEMALE', visibility: { gender: true } })
+    expect(profilePayload(profile)).toMatchObject({ gender: 'FEMALE', visibility: { gender: true } })
+    expect(profileOf({ gender: 'MALE' }).visibility.gender).toBe(false)
+    expect(profileOf({ gender: 'unexpected' }).gender).toBe('UNDISCLOSED')
   })
 
   it('clears legacy university details when saving a lifestyle profile', () => {
