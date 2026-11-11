@@ -42,7 +42,9 @@ services:
       - key: SMS_PROVIDER
         value: disabled
       - key: GEOCODER_URL
-        sync: false
+        # Fictional-address preview only. Replace with a dedicated provider
+        # before accepting real property addresses.
+        value: https://nominatim.openstreetmap.org/search
       - key: SMTP_HOST
         value: smtp-relay.brevo.com
       - key: SMTP_PORT

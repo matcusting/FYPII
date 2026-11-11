@@ -18,6 +18,11 @@ pages, assets, and API calls until the password is supplied; Render's exact
 private address lookup, and launch checks are ready, remove the preview gate
 before inviting the public. A preview password does not make real identity
 documents safe to collect without those controls.
+For the fictional-address preview, `GEOCODER_URL` points to public Nominatim;
+the server limits requests to one per second. This service receives the entered
+address. Replace it with a suitable private-address provider before using real
+properties, and do not use the preview to submit real addresses or identity
+documents.
 
 ## Why the website and API share one service
 
@@ -48,7 +53,7 @@ never in Git:
 | --- | --- |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | Brevo SMTP for account verification, invitations, and password reset. The Blueprint sets the public relay host and port; enter the Brevo SMTP login, SMTP key, and verified sender in both web and worker services. |
 | `PUBLIC_BASE_URL` on the email worker | Exact HTTPS origin of the web service, such as the assigned `*.onrender.com` URL or a custom domain. Verification links must point there. |
-| `GEOCODER_URL` on the web service | Dedicated HTTPS address-lookup endpoint that permits this use and can handle private property addresses. |
+| `GEOCODER_URL` on the web service | The Blueprint sets public Nominatim for fictional-address preview. Replace it with a dedicated HTTPS provider before accepting real property addresses. |
 | `MFA_ENCRYPTION_KEY` on the web service | A stable, random 32-byte key encoded as exactly 64 hexadecimal characters. Generate it in a trusted local terminal with `openssl rand -hex 32`; never commit or rotate casually because it encrypts privileged authenticator secrets. |
 | `PREVIEW_ACCESS_PASSWORD` on the web service | At least 16 characters, unique to this fictional-data preview; the browser prompt uses the username `preview`. |
 
