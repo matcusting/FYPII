@@ -3,10 +3,21 @@
 The repository contains a Render Blueprint in [`render.yaml`](../render.yaml). It
 defines a paid PostgreSQL database, a Docker web service with a persistent
 private-media disk, a private ClamAV scanner, and a background email worker.
-`autoDeploy: false` prevents Git pushes from deploying subsequent changes. **Do
-not create/import the Blueprint yet**: creating it is itself a deployment and
-incurs provider charges. No Render service or external account is created by
-committing these files.
+`autoDeploy: false` prevents Git pushes from deploying subsequent changes.
+Approving the Blueprint creates paid resources; committing these files does not.
+The initial Render deployment is a password-protected preview for fictional
+data only.
+
+The Blueprint sets `PREVIEW_REQUIRED=1` on the web service. Enter a
+unique `PREVIEW_ACCESS_PASSWORD` of at least 16 characters when Render asks for
+manual environment values. Visitors enter the username `preview` and that
+password in their browser's HTTP Basic Auth prompt. Share it only with intended
+testers through a private channel, never in Git or chat. The gateway blocks
+pages, assets, and API calls until the password is supplied; Render's exact
+`/health/ready` probe remains accessible. Once independent encrypted backups,
+private address lookup, and launch checks are ready, remove the preview gate
+before inviting the public. A preview password does not make real identity
+documents safe to collect without those controls.
 
 ## Why the website and API share one service
 
@@ -39,6 +50,7 @@ never in Git:
 | `PUBLIC_BASE_URL` on the email worker | Exact HTTPS origin of the web service, such as the assigned `*.onrender.com` URL or a custom domain. Verification links must point there. |
 | `GEOCODER_URL` on the web service | Dedicated HTTPS address-lookup endpoint that permits this use and can handle private property addresses. |
 | `MFA_ENCRYPTION_KEY` on the web service | A stable, random 32-byte key encoded as exactly 64 hexadecimal characters. Generate it in a trusted local terminal with `openssl rand -hex 32`; never commit or rotate casually because it encrypts privileged authenticator secrets. |
+| `PREVIEW_ACCESS_PASSWORD` on the web service | At least 16 characters, unique to this fictional-data preview; the browser prompt uses the username `preview`. |
 
 The web startup script uses Render's `RENDER_EXTERNAL_URL` for
 `FRONTEND_ORIGIN` and `PUBLIC_BASE_URL`. If a custom domain becomes canonical,

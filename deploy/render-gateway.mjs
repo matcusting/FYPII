@@ -1,5 +1,6 @@
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { createServer, request as proxyRequest } from 'node:http'
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,16 +40,22 @@ function send(response, code, message) {
   response.end(message)
 }
 
-function proxy(incoming, response, upstreamPort) {
+function proxy(incoming, response, upstreamPort, previewProtected) {
   const headers = { ...incoming.headers, host: `127.0.0.1:${upstreamPort}`, 'x-forwarded-proto': 'https' }
   delete headers.connection
   delete headers['proxy-connection']
+  if (previewProtected) {
+    // The preview password belongs to the gateway, not to the application API.
+    delete headers.authorization
+    delete headers['proxy-authorization']
+  }
   const upstream = proxyRequest({
     hostname: '127.0.0.1', port: upstreamPort, method: incoming.method,
     path: incoming.url, headers,
   }, reply => {
     const replyHeaders = { ...reply.headers }
     delete replyHeaders.connection
+    if (previewProtected) replyHeaders['cache-control'] = 'private, no-store'
     secureHeaders(response)
     response.writeHead(reply.statusCode || 502, replyHeaders)
     reply.pipe(response)
@@ -58,14 +65,36 @@ function proxy(incoming, response, upstreamPort) {
   incoming.pipe(upstream)
 }
 
-export function createGateway({ site = defaultSite, upstreamPort = 3001 } = {}) {
+function authorizedForPreview(header, expectedHash) {
+  if (typeof header !== 'string' || header.length > 2048 || !/^Basic [A-Za-z0-9+/]+={0,2}$/.test(header)) return false
+  const supplied = Buffer.from(header.slice(6), 'base64').toString('utf8')
+  const suppliedHash = createHash('sha256').update(supplied).digest()
+  return timingSafeEqual(suppliedHash, expectedHash)
+}
+
+export function createGateway({
+  site = defaultSite,
+  upstreamPort = 3001,
+  previewRequired = process.env.PREVIEW_REQUIRED === '1',
+  previewPassword = process.env.PREVIEW_ACCESS_PASSWORD || '',
+} = {}) {
+  const previewProtected = previewRequired || Boolean(previewPassword)
+  if (previewProtected && previewPassword.length < 16) {
+    throw new Error('Set PREVIEW_ACCESS_PASSWORD to at least 16 characters before starting the preview site.')
+  }
+  const expectedHash = previewProtected ? createHash('sha256').update(`preview:${previewPassword}`).digest() : null
   const siteRoot = resolve(site)
   return createServer(async (incoming, response) => {
     secureHeaders(response)
     let pathname
     try { pathname = decodeURIComponent(new URL(incoming.url || '/', 'http://localhost').pathname) }
     catch { return send(response, 400, 'Invalid URL.') }
-    if (pathname.startsWith('/api/') || pathname.startsWith('/health/')) return proxy(incoming, response, upstreamPort)
+    const healthProbe = pathname === '/health/ready' && (incoming.method === 'GET' || incoming.method === 'HEAD')
+    if (previewProtected && !healthProbe && !authorizedForPreview(incoming.headers.authorization, expectedHash)) {
+      response.setHeader('WWW-Authenticate', 'Basic realm="UTS Housing preview", charset="UTF-8"')
+      return send(response, 401, 'Preview access required.')
+    }
+    if (pathname.startsWith('/api/') || pathname.startsWith('/health/')) return proxy(incoming, response, upstreamPort, previewProtected)
     if (incoming.method !== 'GET' && incoming.method !== 'HEAD') return send(response, 405, 'Method not allowed.')
     const requested = resolve(siteRoot, `.${pathname}`)
     if (!inside(siteRoot, requested)) return send(response, 404, 'Not found.')
@@ -81,7 +110,7 @@ export function createGateway({ site = defaultSite, upstreamPort = 3001 } = {}) 
     response.writeHead(200, {
       'Content-Type': types[extname(path).toLowerCase()] || 'application/octet-stream',
       'Content-Length': detail.size,
-      'Cache-Control': pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store',
+      'Cache-Control': previewProtected ? 'private, no-store' : pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-store',
     })
     if (incoming.method === 'HEAD') return response.end()
     createReadStream(path).on('error', () => response.destroy()).pipe(response)

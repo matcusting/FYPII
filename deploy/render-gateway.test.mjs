@@ -17,7 +17,10 @@ const upstream = createServer(async (request, response) => {
     'Content-Type': 'application/json',
     'Set-Cookie': 'housing_session=abc; HttpOnly; SameSite=Lax; Secure',
   })
-  response.end(JSON.stringify({ path: request.url, method: request.method, body: Buffer.concat(chunks).toString(), origin: request.headers.origin }))
+  response.end(JSON.stringify({
+    path: request.url, method: request.method, body: Buffer.concat(chunks).toString(),
+    origin: request.headers.origin, authorization: request.headers.authorization || null,
+  }))
 })
 await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve))
 const gateway = createGateway({ site, upstreamPort: upstream.address().port })
@@ -50,7 +53,7 @@ test('proxies credential and upload requests without changing the browser origin
   assert.equal(response.status, 200)
   assert.match(response.headers.get('set-cookie'), /SameSite=Lax/)
   assert.deepEqual(await response.json(), {
-    path: '/api/v1/auth/login?check=1', method: 'POST', body: '{"hello":"world"}', origin: base,
+    path: '/api/v1/auth/login?check=1', method: 'POST', body: '{"hello":"world"}', origin: base, authorization: null,
   })
   assert.equal((await fetch(`${base}/health/ready`)).status, 200)
 })
@@ -59,4 +62,42 @@ test('rejects write methods on static paths and paths outside the site root', as
   assert.equal((await fetch(`${base}/`, { method: 'POST' })).status, 405)
   assert.equal((await fetch(`${base}/%2f..%2fetc/passwd`)).status, 404)
   assert.equal((await fetch(`${base}/%2f..%2fetc/passwd.js`)).status, 404)
+})
+
+test('requires a strong preview password before opening a protected gateway', () => {
+  assert.throws(() => createGateway({ site, previewRequired: true }), /PREVIEW_ACCESS_PASSWORD/)
+  assert.throws(() => createGateway({ site, previewRequired: true, previewPassword: 'short' }), /at least 16 characters/)
+})
+
+test('protects preview pages and API, while leaving the exact readiness probe available', async () => {
+  const password = 'preview-test-password-12345'
+  const preview = createGateway({ site, upstreamPort: upstream.address().port, previewRequired: true, previewPassword: password })
+  await new Promise(resolve => preview.listen(0, '127.0.0.1', resolve))
+  const previewBase = `http://127.0.0.1:${preview.address().port}`
+  const authorization = `Basic ${Buffer.from(`preview:${password}`).toString('base64')}`
+  try {
+    const unauthenticatedPage = await fetch(`${previewBase}/`)
+    assert.equal(unauthenticatedPage.status, 401)
+    assert.match(unauthenticatedPage.headers.get('www-authenticate'), /Basic realm="UTS Housing preview"/)
+    assert.equal(unauthenticatedPage.headers.get('cache-control'), 'no-store')
+    assert.equal((await fetch(`${previewBase}/api/v1/auth/me`)).status, 401)
+    assert.equal((await fetch(`${previewBase}/health/live`)).status, 401)
+    assert.equal((await fetch(`${previewBase}/`, {
+      headers: { authorization: `Basic ${Buffer.from('preview:wrong-password').toString('base64')}` },
+    })).status, 401)
+
+    const page = await fetch(`${previewBase}/`, { headers: { authorization } })
+    assert.equal(page.status, 200)
+    assert.equal(page.headers.get('cache-control'), 'private, no-store')
+    const asset = await fetch(`${previewBase}/assets/app.js`, { headers: { authorization } })
+    assert.equal(asset.status, 200)
+    assert.equal(asset.headers.get('cache-control'), 'private, no-store')
+    const api = await fetch(`${previewBase}/api/v1/auth/me`, { headers: { authorization } })
+    assert.equal(api.status, 200)
+    assert.equal(api.headers.get('cache-control'), 'private, no-store')
+    assert.equal((await api.json()).authorization, null)
+    assert.equal((await fetch(`${previewBase}/health/ready`)).status, 200)
+  } finally {
+    await new Promise(resolve => preview.close(resolve))
+  }
 })
