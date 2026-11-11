@@ -40,7 +40,7 @@ services:
       - key: GEOCODER_URL
         sync: false
       - key: SMTP_HOST
-        sync: false
+        value: smtp-relay.brevo.com
       - key: SMTP_PORT
         value: "587"
       - key: SMTP_USER
@@ -78,7 +78,7 @@ services:
       - key: PUBLIC_BASE_URL
         sync: false
       - key: SMTP_HOST
-        sync: false
+        value: smtp-relay.brevo.com
       - key: SMTP_PORT
         value: "587"
       - key: SMTP_USER

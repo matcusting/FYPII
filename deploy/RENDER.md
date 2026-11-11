@@ -29,12 +29,13 @@ The operator's public name and support email are compiled into the frontend as
 privacy/contact pages. Change the build values in `Dockerfile.render` if the
 formal notice changes. Do not place credentials in `VITE_` variables.
 
-The Blueprint prompts for these private settings in Render; enter them in
-Render's environment UI, never in Git:
+The Blueprint sets Brevo's public SMTP host and port and prompts for the
+remaining private settings. Enter credentials in Render's environment UI,
+never in Git:
 
 | Setting | Purpose |
 | --- | --- |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | Real outbound email delivery for account verification, invitations, and password reset. Use a verified sender domain. Put identical settings on the web and worker. |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `EMAIL_FROM` | Brevo SMTP for account verification, invitations, and password reset. The Blueprint sets the public relay host and port; enter the Brevo SMTP login, SMTP key, and verified sender in both web and worker services. |
 | `PUBLIC_BASE_URL` on the email worker | Exact HTTPS origin of the web service, such as the assigned `*.onrender.com` URL or a custom domain. Verification links must point there. |
 | `GEOCODER_URL` on the web service | Dedicated HTTPS address-lookup endpoint that permits this use and can handle private property addresses. |
 | `MFA_ENCRYPTION_KEY` on the web service | A stable, random 32-byte key encoded as exactly 64 hexadecimal characters. Generate it in a trusted local terminal with `openssl rand -hex 32`; never commit or rotate casually because it encrypts privileged authenticator secrets. |
@@ -53,9 +54,12 @@ value if Render assigns a different hostname. It listens on port 3310. The API
 rejects uploads when scanning is unavailable, and production refuses to start
 with the development scanner bypass. Do not expose ClamAV to the public web.
 
-There is no SMTP account yet. Production startup intentionally fails without
-one, and the email worker cannot deliver account codes until it exists. Do not
-replace it with the local outbox for a public site.
+Brevo is the selected mail provider, but its SMTP credentials and verified
+sender are not configured or tested yet. Follow the [Brevo setup guide](BREVO.md)
+to activate transactional sending and test receipt before deployment. Production
+startup intentionally fails without SMTP; the local outbox is only for development.
+Brevo does not provide the separate property-address lookup required by
+`GEOCODER_URL`.
 
 The API's `body-parser`, `multer`, and `nodemailer` packages have been updated
 past the advisories found in the prior lockfile. Three high-severity advisories
