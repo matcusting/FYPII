@@ -29,9 +29,11 @@ function message(template: string, payload: Record<string, unknown>) {
   throw new Error('Unsupported email template.')
 }
 
-async function deliver(to: string, subject: string, text: string) {
+/** Synthetic .local recipients stay on this machine, even when real SMTP is configured. */
+export async function deliver(to: string, subject: string, text: string) {
   const from = process.env.EMAIL_FROM || 'UTS Housing <no-reply@example.local>'
-  const transport = configuredSmtpTransport()
+  const localRecipient = process.env.NODE_ENV !== 'production' && /@[^@\s]+\.local$/i.test(to.trim())
+  const transport = localRecipient ? null : configuredSmtpTransport()
   if (transport) {
     try { await transport.sendMail({ from, to, subject, text }) }
     finally { transport.close() }
