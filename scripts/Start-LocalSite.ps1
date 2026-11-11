@@ -42,11 +42,70 @@ function Wait-ForHttp([string] $Uri, [string] $Label) {
   for ($attempt = 0; $attempt -lt 45; $attempt++) {
     try {
       $result = Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 3
-      if ($result.StatusCode -eq 200) { return }
+      if ($result.StatusCode -eq 200 -and $result.Headers['Content-Type'] -match 'application/json') { return }
     } catch { }
     Start-Sleep -Seconds 2
   }
   throw "$Label did not become ready at $Uri. Check its service window for the error."
+}
+
+function Test-LocalClamAvReady {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $client.Connect('127.0.0.1', 3310)
+    $stream = $client.GetStream()
+    $stream.ReadTimeout = 2500
+    $stream.WriteTimeout = 2500
+    $command = [System.Text.Encoding]::ASCII.GetBytes("zPING`0")
+    $stream.Write($command, 0, $command.Length)
+    $reply = New-Object System.Text.StringBuilder
+    for ($byteIndex = 0; $byteIndex -lt 16; $byteIndex++) {
+      $value = $stream.ReadByte()
+      if ($value -le 0 -or $value -eq 10) { break }
+      [void] $reply.Append([char] $value)
+    }
+    return $reply.ToString() -eq 'PONG'
+  } catch {
+    return $false
+  } finally {
+    $client.Dispose()
+  }
+}
+
+function Start-LocalClamAv {
+  # Older local installs may already have the standalone scanner used during
+  # migration. Reuse it instead of binding a second container to port 3310.
+  $standalone = [string] (& docker.exe ps -a --filter 'name=^/uts-housing-clamav$' --format '{{.Names}}')
+  Require-ExitCode 'Checking the standalone ClamAV container'
+  if ($standalone.Trim() -eq 'uts-housing-clamav') {
+    $binding = [string] (& docker.exe port uts-housing-clamav 3310/tcp)
+    Require-ExitCode 'Checking the standalone ClamAV port'
+    if ($binding.Trim() -ne '127.0.0.1:3310') {
+      throw 'The existing uts-housing-clamav container must publish only 127.0.0.1:3310. Check its Docker port mapping.'
+    }
+    $running = [string] (& docker.exe ps --filter 'name=^/uts-housing-clamav$' --format '{{.Names}}')
+    Require-ExitCode 'Checking the standalone ClamAV state'
+    if ($running.Trim() -ne 'uts-housing-clamav') {
+      & docker.exe start uts-housing-clamav | Out-Null
+      Require-ExitCode 'Starting the standalone ClamAV container'
+    }
+    Write-Host 'Using the existing loopback-only uts-housing-clamav container.'
+  } else {
+    Write-Host 'Starting the loopback-only ClamAV container...'
+    In-Directory $repoRoot {
+      & docker.exe compose up -d clamav
+      Require-ExitCode 'Starting ClamAV'
+    }
+  }
+  for ($attempt = 0; $attempt -lt 150; $attempt++) {
+    if (Test-LocalClamAvReady) {
+      Write-Host 'ClamAV is ready to scan local document uploads.'
+      return
+    }
+    if ($attempt % 6 -eq 0) { Write-Host 'Waiting for ClamAV and its virus signatures to become ready...' }
+    Start-Sleep -Seconds 4
+  }
+  throw 'ClamAV did not become ready on 127.0.0.1:3310. Check the scanner container logs in Docker Desktop.'
 }
 
 function New-LocalSessionSecret {
@@ -109,6 +168,7 @@ try {
     }
   }
   if (-not $databaseReady) { throw 'PostgreSQL did not become ready. Check Docker Desktop and port 5432.' }
+  Start-LocalClamAv
 
   $envPath = Join-Path $apiDirectory '.env'
   $sampleSecret = 'replace-with-a-random-secret-at-least-32-characters'
@@ -162,6 +222,13 @@ try {
   $env:FRONTEND_ORIGIN = 'http://localhost:5173'
   $env:PUBLIC_BASE_URL = 'http://localhost:5173'
   $env:VITE_API_PROXY_TARGET = 'http://127.0.0.1:3001'
+  # Node's --env-file leaves inherited variables unchanged. This forces real
+  # local scanning even when an older preserved .env lacks these settings or
+  # still contains the old synthetic-file test-bypass value.
+  $env:MALWARE_SCAN_MODE = 'clamav'
+  $env:CLAMAV_HOST = '127.0.0.1'
+  $env:CLAMAV_PORT = '3310'
+  $env:CLAMAV_SOCKET = ''
   foreach ($service in @('api', 'email', 'frontend')) {
     $childArguments = '-NoExit -NoProfile -ExecutionPolicy Bypass -File "{0}" -Service {1}' -f $runner, $service
     Start-Process -FilePath 'powershell.exe' -WorkingDirectory $repoRoot -ArgumentList $childArguments | Out-Null

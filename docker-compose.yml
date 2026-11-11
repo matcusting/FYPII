@@ -15,5 +15,14 @@ services:
       timeout: 3s
       retries: 12
 
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - housing_clamav_signatures:/var/lib/clamav
+
 volumes:
   housing_postgres_data:
+  housing_clamav_signatures:
