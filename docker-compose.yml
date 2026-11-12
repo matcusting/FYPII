@@ -1,0 +1,17 @@
+# Local PostgreSQL for development only (not for production).
+# Start: docker compose up -d
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: uts
+      POSTGRES_PASSWORD: uts_dev_password
+      POSTGRES_DB: uts_housing
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./uts-housing-backend/scripts/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+volumes:
+  pgdata:
