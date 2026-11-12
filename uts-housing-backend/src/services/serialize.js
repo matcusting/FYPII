@@ -1,5 +1,4 @@
 import { config } from '../config.js';
-import { approximate, mapsLinks } from './geo.js';
 
 const num = (d) => (d == null ? null : Number(d));
 const dateOnly = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
@@ -55,10 +54,10 @@ export function isStale(listing) {
 
 /**
  * @param listing  Listing including owner, photos, amenities(amenity) and optionally campus
- * @param opts     { viewer, savedIds:Set, ratings: Map(listingId -> {avg,count}), includePrivate }
+ * @param opts     { savedIds:Set, ratings: Map(listingId -> {avg,count}), includePrivate, showAddress }
  */
 export function serializeListing(listing, opts = {}) {
-  const { savedIds, ratings, includePrivate } = opts;
+  const { savedIds, ratings, includePrivate, showAddress } = opts;
   const rating = ratings?.get(listing.id) || { average: null, count: 0 };
   const out = {
     id: listing.id,
@@ -84,7 +83,12 @@ export function serializeListing(listing, opts = {}) {
     rating,
     isSaved: savedIds ? savedIds.has(listing.id) : false,
   };
-  out.location = locationFor(listing, includePrivate);
+  // Address is shown to logged-in users only (not to anonymous visitors of the public API).
+  if (showAddress || includePrivate) {
+    out.address = listing.address;
+    out.googleMapsUrl = googleMapsUrl(listing);
+    if (includePrivate) out.mapUrl = listing.mapUrl;
+  }
   if (includePrivate) {
     out.rejectionReason = listing.rejectionReason;
     out.viewCount = listing.viewCount;
@@ -94,21 +98,11 @@ export function serializeListing(listing, opts = {}) {
   return out;
 }
 
-/**
- * Map location of a listing. The public sees coordinates rounded to ~110 m
- * (neighbourhood level); the owner and admins see the exact pin and original link.
- */
-export function locationFor(listing, exact = false) {
-  if (listing.latitude == null || listing.longitude == null) return null;
-  const lat = exact ? Number(listing.latitude) : approximate(listing.latitude);
-  const lng = exact ? Number(listing.longitude) : approximate(listing.longitude);
-  return {
-    latitude: lat,
-    longitude: lng,
-    approximate: !exact,
-    mapUrl: exact ? listing.mapUrl : undefined,
-    links: mapsLinks(lat, lng, listing.campus),
-  };
+/** Link that opens the property in Google Maps: the landlord's own pin, else a search for the address. */
+export function googleMapsUrl(listing) {
+  if (listing.mapUrl) return listing.mapUrl;
+  if (!listing.address) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(listing.address)}`;
 }
 
 export const listingInclude = {

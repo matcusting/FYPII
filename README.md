@@ -15,7 +15,7 @@ A web-based housing rental and roommate matching system for students of the Univ
 
 - **Accounts and verification:** student and landlord registration, Argon2id password hashing, HTTP-only session cookies, e-mail verification, password reset, account deletion requests. Students log in with **Student ID + UTS e-mail + password**, and a mismatch shows an error so they can retry (report Fig 4.1). E-mails on a configured UTS domain are verified automatically. Other students and all landlords go to an admin review queue.
 - **Structured listings:** rent, deposit, distance to campus, room type, facilities, area, availability date, house rules, furnished flag and up to 6 photos. Listing status workflow: Draft → Pending Review → Active / Rejected → Paused / Rented. Students only see listings an admin has approved. Listings not reconfirmed for 30 days are flagged as stale.
-- **Google Maps location:** landlords paste a Google Maps share link (or coordinates). The server reads the pin and calculates the straight-line distance to the campus, so distance is not typed by hand. Students see an embedded map with **Open in Google Maps** and **Directions to UTS** buttons. The public map is rounded to about 100 m so the exact address stays private. Admins can set the campus location from a Google Maps link, which recalculates all listing distances.
+- **Address → Google Maps:** landlords enter the property address (and can optionally paste a Google Maps share link for an exact pin). In the listing details students tap the address to open it in Google Maps. Addresses are only returned to logged-in users. Distance to campus is entered by the landlord.
 - **Search:** keyword search; filters for max rent, distance, deposit, room type, facilities, furnished and available-by date; sorting; pagination; saved listings (wishlist).
 - **Habit-based roommate matching:** uses the report's formula `C = (M_study + M_smoke + M_clean) / 3 × 100%`, extended with optional habits (noise, guests, pets), per-habit importance weights, smoke-free deal-breakers, budget and move-in overlap, opt-in discovery, connection requests, blocking and reporting.
 - **Verified reviews:** only verified students can post a review (1–5 stars, written feedback, stay dates and a private proof-of-stay note). Each student can review a listing once. Reviews are moderated, edits go back to moderation, and the landlord can reply publicly but cannot edit the review.
@@ -82,7 +82,7 @@ npm run lint
 npm run build
 ```
 
-The backend suite (Vitest + Supertest, 36 tests) covers the matching formula, Google Maps link parsing and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
+The backend suite (Vitest + Supertest, 23 tests) covers the matching formula, the address / Google Maps link rules and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
 
 ## Deployment notes
 

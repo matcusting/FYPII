@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api, assetUrl, statusLabel } from '../../lib/api';
+import { api, assetUrl, mapsSearchUrl, statusLabel } from '../../lib/api';
 import { pickPhotos } from '../../lib/photos';
 import { ErrorBanner, LoadingBlock } from '../../components/ui';
-import MapLinkField from '../../components/MapLinkField';
 
 const STATUS_BADGE = {
     PUBLISHED: 'bg-[#dcfce7] text-[#15803d]',
@@ -50,7 +49,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
     };
 
     const handleEditClick = (prop) => {
-        setEditingProperty({ ...prop, newPhotos: [], mapLink: prop.location?.mapUrl || '', mapResult: prop.location, mapChanged: false, description: prop.description || '', approximateArea: prop.approximateArea || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
+        setEditingProperty({ ...prop, newPhotos: [], description: prop.description || '', approximateArea: prop.approximateArea || '', address: prop.address || '', mapUrl: prop.mapUrl || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
         setEditError(null);
         setIsEditModalOpen(true);
     };
@@ -97,11 +96,11 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                     description: p.description,
                     rent: Number(p.rent),
                     deposit: Number(p.deposit) || 0,
-                    // 新的地图链接会在服务器重新计算距离；没有地图时才手动填距离
-                    ...(p.mapChanged ? { mapLink: p.mapResult ? p.mapLink.trim() : null } : {}),
-                    ...(!p.mapResult ? { distanceKm: Number(p.distanceKm) } : {}),
+                    distanceKm: Number(p.distanceKm),
                     roomType: p.roomType,
                     approximateArea: p.approximateArea || null,
+                    address: p.address.trim() || null,
+                    mapUrl: p.mapUrl.trim() || null,
                     availableFrom: p.availableFrom || null,
                     houseRules: p.houseRules || null,
                     furnished: p.furnished,
@@ -186,6 +185,9 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                     {prop.rating.count > 0 && <> • <span className="text-[#eab308] font-bold">★ {prop.rating.average}</span></>}
                                 </p>
 
+                                {prop.address && (
+                                    <a href={prop.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="text-[12px] text-[#1d4ed8] font-bold hover:underline mb-2 break-words">📍 {prop.address}</a>
+                                )}
                                 {prop.status === 'REJECTED' && prop.rejectionReason && (
                                     <p className="text-[12px] text-[#b91c1c] font-bold mb-2">Admin feedback: {prop.rejectionReason}</p>
                                 )}
@@ -255,14 +257,6 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                 </div>
                             </div>
 
-                            <MapLinkField
-                                compact
-                                value={editingProperty.mapLink}
-                                initial={editingProperty.location}
-                                onChange={(v) => setEditingProperty((cur) => ({ ...cur, mapLink: v, mapChanged: true }))}
-                                onResolved={(r) => setEditingProperty((cur) => ({ ...cur, mapResult: r, mapChanged: true }))}
-                            />
-
                             <div>
                                 <label htmlFor="e-title" className="block text-[13px] font-bold text-[#374151] mb-1">Listing Title</label>
                                 <input id="e-title" type="text" required minLength={5} value={editingProperty.title} onChange={(e) => setEditingProperty({...editingProperty, title: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
@@ -280,11 +274,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label htmlFor="e-dist" className="block text-[13px] font-bold text-[#374151] mb-1">Distance (km)</label>
-                                    {editingProperty.mapResult ? (
-                                        <input id="e-dist" readOnly value={`${editingProperty.mapResult.distanceKm ?? editingProperty.distanceKm} km (from map)`} className="w-full p-2.5 border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed" />
-                                    ) : (
-                                        <input id="e-dist" type="number" step="0.1" min="0" required value={editingProperty.distanceKm} onChange={(e) => setEditingProperty({...editingProperty, distanceKm: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
-                                    )}
+                                    <input id="e-dist" type="number" step="0.1" min="0" required value={editingProperty.distanceKm} onChange={(e) => setEditingProperty({...editingProperty, distanceKm: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
                                 </div>
                                 <div>
                                     <label htmlFor="e-type" className="block text-[13px] font-bold text-[#374151] mb-1">Room Type</label>
@@ -292,6 +282,17 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                         {roomTypes.map((t) => <option key={t}>{t}</option>)}
                                     </select>
                                 </div>
+                            </div>
+                            <div>
+                                <label htmlFor="e-address" className="block text-[13px] font-bold text-[#374151] mb-1">📍 Property Address</label>
+                                <input id="e-address" type="text" required minLength={5} maxLength={200} value={editingProperty.address} onChange={(e) => setEditingProperty({...editingProperty, address: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
+                                {editingProperty.address.trim().length >= 5 && (
+                                    <a href={mapsSearchUrl(editingProperty.address)} target="_blank" rel="noopener noreferrer" className="text-[12px] font-bold text-[#1d4ed8] hover:underline">Check it on Google Maps ↗</a>
+                                )}
+                            </div>
+                            <div>
+                                <label htmlFor="e-mapurl" className="block text-[13px] font-bold text-[#374151] mb-1">Google Maps Link <span className="text-gray-400 font-medium">(optional)</span></label>
+                                <input id="e-mapurl" type="url" maxLength={2000} placeholder="https://maps.app.goo.gl/..." value={editingProperty.mapUrl} onChange={(e) => setEditingProperty({...editingProperty, mapUrl: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div>

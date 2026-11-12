@@ -4,7 +4,7 @@ import { prisma } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { messageLimiter, writeLimiter } from '../middleware/security.js';
 import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.js';
-import { locationFor, photoUrl, serializePublicUser } from '../services/serialize.js';
+import { googleMapsUrl, photoUrl, serializePublicUser } from '../services/serialize.js';
 import { notify } from '../services/notify.js';
 
 /* ----------------------------------------------------------------- helpers */
@@ -58,7 +58,7 @@ router.get('/', async (req, res) => {
     include: {
       conversation: {
         include: {
-          listing: { include: { photos: true, owner: true, campus: true, amenities: { include: { amenity: true } } } },
+          listing: { include: { photos: true, owner: true, amenities: { include: { amenity: true } } } },
           participants: { include: { user: true } },
           messages: { orderBy: { createdAt: 'desc' }, take: 1 },
         },
@@ -95,7 +95,8 @@ router.get('/', async (req, res) => {
             facilities: c.listing.amenities.map((a) => a.amenity.name),
             photos: c.listing.photos.sort((a, b) => a.sortOrder - b.sortOrder).map((ph) => ({ id: ph.id, url: photoUrl(ph.objectKey) })),
             landlord: serializePublicUser(c.listing.owner),
-            location: locationFor(c.listing, c.listing.ownerId === req.user.id),
+            address: c.listing.address,
+            googleMapsUrl: googleMapsUrl(c.listing),
           }
         : null,
     });

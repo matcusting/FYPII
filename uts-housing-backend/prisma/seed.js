@@ -1,5 +1,5 @@
 /**
- * DEMO SEED DATA — every person, listing and review below is FICTITIOUS and only
+ * DEMO SEED DATA — every person, listing, address and review below is FICTITIOUS and only
  * exists so the prototype can be demonstrated. Do not run this in production.
  *
  * All demo accounts use the password:  Demo@2026
@@ -12,7 +12,6 @@ import crypto from 'node:crypto';
 import { prisma } from '../src/db.js';
 import { config } from '../src/config.js';
 import { hashPassword } from '../src/utils/crypto.js';
-import { haversineKm } from '../src/services/geo.js';
 
 const DEMO_PASSWORD = 'Demo@2026';
 const ADMIN_PASSWORD = 'Admin@2026!';
@@ -74,17 +73,6 @@ function demoPhoto(i) {
   const [a, b] = PALETTES[i % PALETTES.length];
   fs.writeFileSync(path.join(config.uploadDir, key), gradientPng(320, 200, a, b));
   return key;
-}
-
-/** Point `km` away from (lat,lng) in compass direction `bearing` — used to place demo pins. */
-function offset(lat, lng, km, bearing) {
-  const R = 6371;
-  const b = (bearing * Math.PI) / 180;
-  const p1 = (lat * Math.PI) / 180;
-  const l1 = (lng * Math.PI) / 180;
-  const p2 = Math.asin(Math.sin(p1) * Math.cos(km / R) + Math.cos(p1) * Math.sin(km / R) * Math.cos(b));
-  const l2 = l1 + Math.atan2(Math.sin(b) * Math.sin(km / R) * Math.cos(p1), Math.cos(km / R) - Math.sin(p1) * Math.sin(p2));
-  return { latitude: Math.round(((p2 * 180) / Math.PI) * 1e6) / 1e6, longitude: Math.round(((l2 * 180) / Math.PI) * 1e6) / 1e6 };
 }
 
 const daysAgo = (n) => new Date(Date.now() - n * 86400000);
@@ -186,16 +174,11 @@ async function main() {
 
   let photoIndex = 0;
   const mkListing = async (owner, d, status = 'PUBLISHED') => {
-    // Demo pin placed at the listed distance from campus; real listings use the landlord's Google Maps link.
-    const pin = offset(Number(campus.latitude), Number(campus.longitude), d.distance, d.bearing ?? 45);
-    const distance = Math.round(haversineKm(pin.latitude, pin.longitude, Number(campus.latitude), Number(campus.longitude)) * 10) / 10;
     const l = await prisma.listing.create({
       data: {
         ownerId: owner.id, campusId: campus.id, title: d.title, description: d.description, roomType: d.roomType,
-        rent: d.rent, deposit: d.deposit, distanceKm: distance, ...pin,
-        mapUrl: `https://www.google.com/maps/search/?api=1&query=${pin.latitude},${pin.longitude}`,
-        approximateArea: d.area, furnished: d.furnished ?? true,
-        houseRules: d.rules, availableFrom: d.availableFrom ? day(d.availableFrom) : null, status,
+        rent: d.rent, deposit: d.deposit, distanceKm: d.distance, approximateArea: d.area, furnished: d.furnished ?? true,
+        address: d.address, houseRules: d.rules, availableFrom: d.availableFrom ? day(d.availableFrom) : null, status,
         publishedAt: status === 'PUBLISHED' || status === 'RENTED' ? daysAgo(d.age ?? 5) : null,
         lastConfirmedAt: daysAgo(d.confirmed ?? 2), viewCount: d.views ?? 0, createdAt: daysAgo((d.age ?? 5) + 1),
         amenities: { create: d.facilities.map((n) => ({ amenityId: amenities[n] })) },
@@ -206,37 +189,37 @@ async function main() {
   };
 
   const tamanUni = await mkListing(wong, {
-    title: 'Taman Universiti Room', bearing: 20, rent: 450, deposit: 900, distance: 1.2, roomType: 'Single Room', area: 'Taman Universiti',
+    title: 'Taman Universiti Room', address: 'No. 12, Lorong Universiti 3, Taman Universiti, 96000 Sibu, Sarawak', rent: 450, deposit: 900, distance: 1.2, roomType: 'Single Room', area: 'Taman Universiti',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Washing Machine', 'Water Heater', 'Study Desk'],
     description: 'Spacious and quiet single room located right next to UTS campus. Walking distance to local eateries and supermarkets. Ideal for students looking for a conducive study environment.',
     rules: 'No smoking indoors. Quiet hours after 11pm.', availableFrom: '2026-12-01', views: 64, age: 20,
   });
   const sibuJaya = await mkListing(wong, {
-    title: 'Sibu Jaya Shared Apt', bearing: 300, rent: 300, deposit: 300, distance: 3.5, roomType: 'Shared Room', area: 'Sibu Jaya',
+    title: 'Sibu Jaya Shared Apt', address: 'Block B-3-5, Jalan Sibu Jaya, 96000 Sibu, Sarawak', rent: 300, deposit: 300, distance: 3.5, roomType: 'Shared Room', area: 'Sibu Jaya',
     facilities: ['High-Speed Wi-Fi', 'Washing Machine', 'Water Heater', 'Cooking Allowed', 'Utilities Included', '24h Security'],
     description: 'Affordable shared apartment with utility bills included in the monthly rent. Friendly housemates and 24-hour security guard patrol.',
     views: 41, age: 12,
   });
   await mkListing(ling, {
-    title: 'Wong King Huo Studio', bearing: 200, rent: 850, deposit: 1700, distance: 4.0, roomType: 'Whole Studio', area: 'Wong King Huo',
+    title: 'Wong King Huo Studio', address: 'Lot 88, Jalan Wong King Huo, 96000 Sibu, Sarawak', rent: 850, deposit: 1700, distance: 4.0, roomType: 'Whole Studio', area: 'Wong King Huo',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Private Bathroom', 'Gym Access', 'Microwave', 'Parking Lot'],
     description: 'Modern studio unit with full privacy. Comes with an attached bathroom, kitchenette, and free access to the apartment gym and swimming pool.',
     availableFrom: '2027-01-01', views: 22, age: 8,
   });
   await mkListing(tan, {
-    title: 'Campus Walk Single', bearing: 110, rent: 550, deposit: 0, distance: 0.8, roomType: 'Single Room', area: 'Jalan Universiti',
+    title: 'Campus Walk Single', address: 'No. 5, Jalan Universiti, 96000 Sibu, Sarawak', rent: 550, deposit: 0, distance: 0.8, roomType: 'Single Room', area: 'Jalan Universiti',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Study Desk', 'Water Dispenser'],
     description: 'Superb location just 800m from UTS main gate! Zero deposit promotion for verified UTS students. Newly renovated with brand new furniture.',
     views: 87, age: 3,
   });
   await mkListing(rachel, {
-    title: 'Pahlawan Master Room', bearing: 250, rent: 650, deposit: 650, distance: 2.5, roomType: 'Master Room', area: 'Pahlawan',
+    title: 'Pahlawan Master Room', address: 'No. 21, Jalan Pahlawan, 96000 Sibu, Sarawak', rent: 650, deposit: 650, distance: 2.5, roomType: 'Master Room', area: 'Pahlawan',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Attached Bathroom', 'Washing Machine', 'Balcony'],
     description: 'Large master bedroom with a private attached bathroom and balcony. Located near Pahlawan bus terminal and commercial center.',
     views: 15, age: 40, confirmed: 45, // stale: not reconfirmed for 45 days
   });
   await mkListing(wong, {
-    title: 'Master Room near Lanang Road', bearing: 160, rent: 520, deposit: 520, distance: 2.0, roomType: 'Master Room', area: 'Lanang Road',
+    title: 'Master Room near Lanang Road', address: 'No. 7, Jalan Lanang, 96000 Sibu, Sarawak', rent: 520, deposit: 520, distance: 2.0, roomType: 'Master Room', area: 'Lanang Road',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Attached Bathroom'],
     description: 'Newly painted master room, waiting for admin approval.',
   }, 'PENDING_REVIEW');

@@ -31,7 +31,7 @@ This document maps the FYP report (Chapters 1 and 4) and `PROJECT_REQUIREMENTS.m
 | FR-01 Accounts | Done | Register, login, logout, logout from all devices, e-mail verification, reset, change password, deletion request, rate limiting, generic login errors, admin creation script only |
 | FR-02 Student profile and lifestyle | Done | Profile, 6 habits, weights, budget, move-in date, discoverable opt-in, block |
 | FR-03 Listings | Done | All 7 statuses, soft delete, at least 1 photo to publish, image type, size and count limits checked by file signature, stale flag, student sublets (verified students only) |
-| FR-04 Search | Done | Keyword, rent, deposit, distance, room type, facilities, furnished, available-by, 4 sort orders, pagination, saved listings. Distance is calculated (Haversine) from the landlord's Google Maps pin to the admin-configured campus coordinates, and labelled straight-line. Manual distance is only a fallback |
+| FR-04 Search | Done | Keyword, rent, deposit, distance, room type, facilities, furnished, available-by, 4 sort orders, pagination, saved listings. Distance is entered by the landlord. The listing address opens in Google Maps (search link, or the landlord's own Google Maps pin if provided) |
 | FR-05 Matching | Done | Eligibility filters, explainable breakdown, insufficient data shown instead of 0%, consent-based requests |
 | FR-06 Reviews | Done | Verified students only, proof of stay checked by admin, one per listing, edit history, moderation, landlord reply, reporting |
 | FR-07 Contact | Done | In-app inquiries, contact details never exposed, block and report, message rate limit, no payments |
@@ -46,7 +46,7 @@ Done: Argon2id, opaque session tokens stored as SHA-256 hashes, HttpOnly + SameS
 
 - **Public deployment:** no hosting account or domain has been provisioned (README → Deployment notes).
 - **Object storage:** photos are on local disk. S3-compatible storage is needed before production.
-- **Maps:** done with Google Maps links (no API key needed). Not done: address search/autocomplete, and driving distance, which would need a paid Google Maps API key. The seeded campus coordinates are approximate, so confirm them in Admin → Campus & Domains.
+- **Maps:** students open the listing address in Google Maps (no API key needed). Not done: automatic distance calculation, embedded map and address autocomplete, which would need a paid Google Maps API key.
 - **Multilingual UI:** not required by the TRF.
 - **Frontend unit tests and Playwright E2E in CI:** only the backend has automated tests. The UI flows were checked manually with Playwright during development.
 - **Open questions for the supervisor:** see `PROJECT_REQUIREMENTS.md` §18 (verification policy, sublet rules, landlord identity checks, data retention).

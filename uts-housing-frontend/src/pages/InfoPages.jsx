@@ -26,7 +26,7 @@ export function Privacy() {
             </Section>
             <Section title="How it is used">
                 <p>Only to run the housing search, roommate matching, messaging and moderation features. Habit profiles are private until you choose “Show my profile to other students”, and you can hide them again at any time.</p>
-                <p>Exact addresses and contact details are never shown publicly — students and landlords talk through in-app messages.</p>
+                <p>Property addresses are only shown to logged-in users. Personal phone numbers and e-mails are never shown — students and landlords talk through in-app messages.</p>
             </Section>
             <Section title="Your choices">
                 <p>You can edit your profile, pause roommate discovery, block other users and request deletion of your account from your profile page.</p>

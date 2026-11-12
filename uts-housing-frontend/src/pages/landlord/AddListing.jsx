@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api } from '../../lib/api';
+import { api, mapsSearchUrl } from '../../lib/api';
 import { ErrorBanner, FieldError } from '../../components/ui';
 import { MAX_PHOTOS, pickPhotos } from '../../lib/photos';
-import MapLinkField from '../../components/MapLinkField';
 
 
 const AddListing = ({ onCreated }) => {
@@ -12,10 +11,9 @@ const AddListing = ({ onCreated }) => {
     const [newRent, setNewRent] = useState('');
     const [newDeposit, setNewDeposit] = useState('');
     const [newDistance, setNewDistance] = useState('');
-    const [mapLink, setMapLink] = useState('');
-    const [mapResult, setMapResult] = useState(null);
-    const [manualDistance, setManualDistance] = useState(false);
     const [newArea, setNewArea] = useState('');
+    const [address, setAddress] = useState('');
+    const [mapUrl, setMapUrl] = useState('');
     const [newRoomType, setNewRoomType] = useState('Whole Apartment');
     const [availableFrom, setAvailableFrom] = useState('');
     const [furnished, setFurnished] = useState(true);
@@ -52,10 +50,6 @@ const AddListing = ({ onCreated }) => {
     const handlePublish = async (e) => {
         e.preventDefault();
         setError(null);
-        if (!mapResult && !manualDistance) {
-            setError({ message: 'Paste the Google Maps link of the property and click “Check Location” (or enter the distance manually).', fields: { mapLink: 'Required.' } });
-            return;
-        }
         if (photos.length === 0) {
             setError({ message: 'Add at least one photo — listings without photos cannot be published.' });
             return;
@@ -71,8 +65,10 @@ const AddListing = ({ onCreated }) => {
                     description: newDescription,
                     rent: Number(newRent),
                     deposit: Number(newDeposit) || 0,
-                    ...(mapResult ? { mapLink: mapLink.trim() } : { distanceKm: Number(newDistance) }),
+                    distanceKm: Number(newDistance),
                     approximateArea: newArea || null,
+                    address,
+                    mapUrl: mapUrl.trim() || null,
                     roomType: newRoomType,
                     availableFrom: availableFrom || null,
                     furnished,
@@ -186,41 +182,20 @@ const AddListing = ({ onCreated }) => {
                     </div>
                 </div>
 
-                {/* Google Maps 位置：自动计算到 UTS 的距离 */}
-                <MapLinkField value={mapLink} onChange={setMapLink} onResolved={setMapResult} />
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                         <label htmlFor="distance" className="block text-[13px] font-bold text-[#374151] mb-2">Distance to UTS (km)</label>
-                        {mapResult || !manualDistance ? (
-                            <>
-                                <input
-                                    id="distance"
-                                    type="text"
-                                    readOnly
-                                    value={mapResult ? `${mapResult.distanceKm} km (from map)` : ''}
-                                    placeholder="Calculated from the map link"
-                                    className="w-full p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
-                                />
-                                {!mapResult && (
-                                    <button type="button" onClick={() => setManualDistance(true)} className="text-[12px] font-bold text-gray-500 hover:text-[#203569] mt-1.5 cursor-pointer">
-                                        No Google Maps link? Enter distance manually
-                                    </button>
-                                )}
-                            </>
-                        ) : (
-                            <input
-                                id="distance"
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                required
-                                value={newDistance}
-                                onChange={(e) => setNewDistance(e.target.value)}
-                                placeholder="e.g., 1.5"
-                                className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569]"
-                            />
-                        )}
+                        <input
+                            id="distance"
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            required
+                            value={newDistance}
+                            onChange={(e) => setNewDistance(e.target.value)}
+                            placeholder="e.g., 1.5"
+                            className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569]"
+                        />
                     </div>
                     <div>
                         <label htmlFor="roomType" className="block text-[13px] font-bold text-[#374151] mb-2">Room Type</label>
@@ -235,10 +210,48 @@ const AddListing = ({ onCreated }) => {
                     </div>
                 </div>
 
+                {/* 房屋地址：学生可以点击跳转到 Google Maps */}
+                <div>
+                    <label htmlFor="address" className="block text-[13px] font-bold text-[#374151] mb-2">📍 Property Address</label>
+                    <input
+                        id="address"
+                        type="text"
+                        required
+                        minLength={5}
+                        maxLength={200}
+                        value={address}
+                        onChange={(e) => setAddress(e.target.value)}
+                        placeholder="e.g., No. 12, Lorong Universiti 3, Taman Universiti, 96000 Sibu, Sarawak"
+                        className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"
+                    />
+                    <FieldError error={error} name="address" />
+                    <p className="text-[12px] text-gray-500 mt-1.5">
+                        Students can tap this address to open it in Google Maps.{' '}
+                        {address.trim().length >= 5 && (
+                            <a href={mapsSearchUrl(address)} target="_blank" rel="noopener noreferrer" className="font-bold text-[#1d4ed8] hover:underline">Check it on Google Maps ↗</a>
+                        )}
+                    </p>
+                </div>
+
+                <div>
+                    <label htmlFor="mapUrl" className="block text-[13px] font-bold text-[#374151] mb-2">Google Maps Link <span className="text-gray-400 font-medium">(optional, for an exact pin)</span></label>
+                    <input
+                        id="mapUrl"
+                        type="url"
+                        maxLength={2000}
+                        value={mapUrl}
+                        onChange={(e) => setMapUrl(e.target.value)}
+                        placeholder="https://maps.app.goo.gl/..."
+                        className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"
+                    />
+                    <FieldError error={error} name="mapUrl" />
+                    <p className="text-[12px] text-gray-500 mt-1.5">If Google Maps can't find your address exactly, open the house in Google Maps, tap Share → Copy link and paste it here. Students will be taken to this pin instead.</p>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                         <label htmlFor="area" className="block text-[13px] font-bold text-[#374151] mb-2">Area / Neighbourhood</label>
-                        <input id="area" type="text" maxLength={120} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder="e.g., Taman Universiti (no exact address)" className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800" />
+                        <input id="area" type="text" maxLength={120} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder="e.g., Taman Universiti" className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800" />
                     </div>
                     <div>
                         <label htmlFor="availableFrom" className="block text-[13px] font-bold text-[#374151] mb-2">Available From</label>

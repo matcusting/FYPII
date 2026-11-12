@@ -212,10 +212,9 @@ model Listing {
   rent            Decimal       @db.Decimal(12, 2)
   deposit         Decimal       @default(0) @db.Decimal(12, 2)
   currency        String        @default("MYR") @db.Char(3)
-  distanceKm      Decimal       @db.Decimal(6, 2) // straight-line distance to campus (computed from the map pin when available)
-  latitude        Decimal?      @db.Decimal(9, 6) // from the landlord's Google Maps link
-  longitude       Decimal?      @db.Decimal(9, 6)
-  mapUrl          String? // original Google Maps link (owner/admin only)
+  distanceKm      Decimal       @db.Decimal(6, 2) // distance to campus, entered by the landlord
+  address         String? // property address — students can open it in Google Maps
+  mapUrl          String? // optional Google Maps link pasted by the landlord (more precise than the address)
   approximateArea String?
   furnished       Boolean       @default(false)
   houseRules      String?

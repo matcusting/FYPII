@@ -127,6 +127,7 @@ describe('listings, moderation and search', () => {
 
     const created = await owner.post('/api/v1/listings').send({
       title: 'Moderated Room', roomType: 'Single Room', rent: 500, deposit: 500, distanceKm: 2, facilities: ['High-Speed Wi-Fi'],
+      address: 'No. 1, Jalan Test, 96000 Sibu',
     });
     expect(created.status).toBe(201);
     const id = created.body.data.id;
@@ -152,31 +153,36 @@ describe('listings, moderation and search', () => {
     expect(log).toBeTruthy();
   });
 
-  it('computes distance from a Google Maps link and hides the exact pin from the public', async () => {
+  it('stores the address and gives students a Google Maps link to it', async () => {
     const owner = await agentFor('owner@example.com');
-    const link = 'https://www.google.com/maps/place/Room/@2.32,111.84,17z/data=!3d2.322241!4d111.844294';
-    const preview = await owner.post('/api/v1/listings/resolve-location').send({ mapLink: link });
-    expect(preview.status).toBe(200);
-    expect(preview.body.data.distanceKm).toBeCloseTo(1.3, 0);
-    expect(preview.body.data.links.embed).toContain('output=embed');
+    const base = { title: 'Address Room', roomType: 'Single Room', rent: 450, distanceKm: 1.5 };
+    expect((await owner.post('/api/v1/listings').send(base)).status).toBe(400); // address required
 
-    const created = await owner.post('/api/v1/listings').send({ title: 'Mapped Room', roomType: 'Single Room', rent: 450, mapLink: link, distanceKm: 99 });
+    const created = await owner.post('/api/v1/listings').send({ ...base, address: 'No. 12, Lorong Universiti 3, 96000 Sibu' });
     expect(created.status).toBe(201);
     const l = created.body.data;
-    expect(l.distanceKm).toBe(preview.body.data.distanceKm); // typed distance ignored
-    expect(l.location).toMatchObject({ latitude: 2.322241, longitude: 111.844294, approximate: false, mapUrl: link });
+    expect(l.distanceKm).toBe(1.5); // landlord-entered distance kept as is
+    expect(l.googleMapsUrl).toBe('https://www.google.com/maps/search/?api=1&query=No.%2012%2C%20Lorong%20Universiti%203%2C%2096000%20Sibu');
 
     await prisma.listing.update({ where: { id: l.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } });
-    const pub = await request(app).get(`/api/v1/listings/${l.id}`);
-    expect(pub.body.data.location).toMatchObject({ latitude: 2.322, longitude: 111.844, approximate: true });
-    expect(pub.body.data.location.mapUrl).toBeUndefined();
-    expect(pub.body.data.location.links.directions).toContain('destination=2.31');
+    await makeUser('STUDENT', 'addr@uts.edu.my', { studentId: 'ADR00001', studentVerifiedAt: new Date() });
+    const student = await agentFor('addr@uts.edu.my', 'STUDENT', 'ADR00001');
+    const seen = await student.get(`/api/v1/listings/${l.id}`);
+    expect(seen.body.data.address).toBe('No. 12, Lorong Universiti 3, 96000 Sibu');
+    expect(seen.body.data.googleMapsUrl).toContain('google.com/maps/search');
+    expect(seen.body.data.mapUrl).toBeUndefined(); // raw field is owner-only
+    // Anonymous visitors of the public API do not get the address
+    const anon = await request(app).get(`/api/v1/listings/${l.id}`);
+    expect(anon.body.data.address).toBeUndefined();
 
-    const bad = await owner.post('/api/v1/listings').send({ title: 'Bad Link Room', roomType: 'Single Room', rent: 450, mapLink: 'https://evil.example/x' });
-    expect(bad.status).toBe(400);
-    expect(bad.body.error.fields.mapLink).toBeTruthy();
-    const missing = await owner.post('/api/v1/listings').send({ title: 'No Location Room', roomType: 'Single Room', rent: 450 });
-    expect(missing.status).toBe(400);
+    // A pasted Google Maps link takes priority; other links are refused
+    const pin = 'https://maps.app.goo.gl/AbCdEf123';
+    const patched = await owner.patch(`/api/v1/listings/${l.id}`).send({ mapUrl: pin });
+    expect(patched.body.data.googleMapsUrl).toBe(pin);
+    for (const bad of ['javascript:alert(1)', 'https://evil.example/maps', 'http://maps.app.goo.gl/x']) {
+      const r = await owner.patch(`/api/v1/listings/${l.id}`).send({ mapUrl: bad });
+      expect(r.status).toBe(400);
+    }
   });
 
   it('another user cannot edit or delete a listing (404, no leakage)', async () => {

@@ -46,6 +46,9 @@ export async function api(path, { method = 'GET', body, form, query } = {}) {
 /** Turn an API photo path (/uploads/...) into a URL the browser can load. */
 export const assetUrl = (url) => (url && url.startsWith('/uploads') ? `${API_ORIGIN}${url}` : url);
 
+/** Google Maps link for an address typed by the landlord (opens a search for it). */
+export const mapsSearchUrl = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
+
 export const homeFor = (role) => ({ STUDENT: '/student', LANDLORD: '/landlord', ADMIN: '/admin' }[role] || '/');
 
 export const timeAgo = (iso) => {

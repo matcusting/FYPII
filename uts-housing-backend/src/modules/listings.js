@@ -12,7 +12,6 @@ import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.
 import { listingInclude, serializeListing } from '../services/serialize.js';
 import { notifyAdmins } from '../services/notify.js';
 import { ROOM_TYPES } from './constants.js';
-import { haversineKm, mapsLinks, resolveLocation } from '../services/geo.js';
 
 const router = Router();
 
@@ -137,7 +136,7 @@ router.get('/', async (req, res) => {
   ]);
   const ids = rows.map((r) => r.id);
   const [ratings, savedIds] = await Promise.all([ratingsFor(ids), savedSet(req.user?.id, ids)]);
-  ok(res, rows.map((l) => serializeListing(l, { ratings, savedIds })), {
+  ok(res, rows.map((l) => serializeListing(l, { ratings, savedIds, showAddress: Boolean(req.user) })), {
     page: f.page,
     limit: f.limit,
     total,
@@ -164,17 +163,7 @@ router.get('/:id', async (req, res) => {
   if (!listing || (listing.status !== 'PUBLISHED' && !isOwner)) throw notFound('Listing not found.');
   if (!isOwner) await prisma.listing.update({ where: { id }, data: { viewCount: { increment: 1 } } });
   const [ratings, savedIds] = await Promise.all([ratingsFor([id]), savedSet(req.user?.id, [id])]);
-  ok(res, serializeListing(listing, { ratings, savedIds, includePrivate: isOwner }));
-});
-
-/* ------------------------------------------------- Google Maps link check */
-
-// Lets the listing form preview the pin and distance before saving.
-router.post('/resolve-location', requireAuth, writeLimiter, async (req, res) => {
-  const { mapLink, campusId } = parse(z.object({ mapLink: z.string().trim().min(1, 'Paste a Google Maps link.').max(2000), campusId: uuid.optional() }), req.body);
-  const campus = await campusById(campusId || (await defaultCampusId()));
-  const loc = await locationData(mapLink, campus);
-  ok(res, { ...loc, campus: { id: campus.id, name: campus.name }, links: mapsLinks(loc.latitude, loc.longitude, campus) });
+  ok(res, serializeListing(listing, { ratings, savedIds, includePrivate: isOwner, showAddress: Boolean(req.user) }));
 });
 
 /* --------------------------------------------------------------- mutations */
@@ -186,9 +175,16 @@ const listingSchema = z.object({
   roomType: z.enum(ROOM_TYPES, { message: 'Choose a room type.' }),
   rent: money.refine((v) => v > 0, 'Monthly rent must be more than 0.'),
   deposit: money.default(0),
-  distanceKm: z.coerce.number().min(0).max(100, 'Distance looks too large.').optional(),
-  // Google Maps share link or "lat, lng" — when given, distance is calculated automatically
-  mapLink: z.string().trim().max(2000).nullable().optional(),
+  distanceKm: z.coerce.number().min(0).max(100, 'Distance looks too large.'),
+  address: z.string().trim().min(5, 'Enter the property address.').max(200).nullable().optional(),
+  // Optional exact pin from Google Maps (Share → Copy link). Only Google Maps https links are accepted.
+  mapUrl: z
+    .string()
+    .trim()
+    .max(2000)
+    .refine((v) => v === '' || isGoogleMapsUrl(v), 'Paste a Google Maps link (https://maps.app.goo.gl/… or https://www.google.com/maps/…).')
+    .nullable()
+    .optional(),
   approximateArea: z.string().trim().max(120).nullable().optional(),
   furnished: z.boolean().default(false),
   houseRules: z.string().trim().max(1000).nullable().optional(),
@@ -197,31 +193,20 @@ const listingSchema = z.object({
   campusId: uuid.optional(),
 });
 
-async function campusById(id) {
-  const campus = await prisma.campus.findUnique({ where: { id } });
-  if (!campus) throw badRequest('Unknown campus.');
-  return campus;
-}
-
-/** Turn the landlord's map link into stored coordinates + computed distance. */
-async function locationData(mapLink, campus) {
-  let loc;
+/** True for https links on Google Maps hosts (blocks javascript: and other sites). */
+export function isGoogleMapsUrl(value) {
   try {
-    loc = await resolveLocation(mapLink);
-  } catch (err) {
-    throw badRequest(err.message, { mapLink: err.message });
+    const u = new URL(value);
+    if (u.protocol !== 'https:') return false;
+    const h = u.hostname;
+    if (h === 'maps.app.goo.gl') return true;
+    if (h === 'goo.gl') return u.pathname.startsWith('/maps');
+    const google = /^(www\.|maps\.)?google\.[a-z]{2,3}(\.[a-z]{2})?$/.test(h);
+    return google && (h.startsWith('maps.') || u.pathname.startsWith('/maps'));
+  } catch {
+    return false;
   }
-  const km = haversineKm(loc.latitude, loc.longitude, Number(campus.latitude), Number(campus.longitude));
-  if (km > 100) throw badRequest('This location is more than 100 km from campus. Check the Google Maps link.', { mapLink: 'Too far from campus.' });
-  return {
-    latitude: loc.latitude,
-    longitude: loc.longitude,
-    mapUrl: loc.mapUrl || `https://www.google.com/maps/search/?api=1&query=${loc.latitude},${loc.longitude}`,
-    distanceKm: Math.round(km * 10) / 10,
-  };
 }
-
-const noLocation = { latitude: null, longitude: null, mapUrl: null };
 
 const toData = (d) => ({
   title: d.title,
@@ -229,7 +214,9 @@ const toData = (d) => ({
   roomType: d.roomType,
   rent: d.rent,
   deposit: d.deposit,
-  ...(d.distanceKm != null ? { distanceKm: d.distanceKm } : {}),
+  distanceKm: d.distanceKm,
+  address: d.address || null,
+  mapUrl: d.mapUrl || null,
   approximateArea: d.approximateArea ?? null,
   furnished: d.furnished,
   houseRules: d.houseRules ?? null,
@@ -239,12 +226,10 @@ const toData = (d) => ({
 router.post('/', requireAuth, writeLimiter, async (req, res) => {
   if (!canPost(req.user)) throw forbidden();
   const d = parse(listingSchema, req.body);
+  if (!d.address) throw badRequest('address: Enter the property address.', { address: 'Enter the property address.' });
   const campusId = d.campusId || (await defaultCampusId());
-  const loc = d.mapLink ? await locationData(d.mapLink, await campusById(campusId)) : noLocation;
-  if (!d.mapLink && d.distanceKm == null)
-    throw badRequest('Paste a Google Maps link (or enter the distance to campus).', { mapLink: 'Required.' });
   const listing = await prisma.$transaction(async (tx) => {
-    const l = await tx.listing.create({ data: { ...toData(d), ...loc, ownerId: req.user.id, campusId, status: 'DRAFT' } });
+    const l = await tx.listing.create({ data: { ...toData(d), ownerId: req.user.id, campusId, status: 'DRAFT' } });
     await setAmenities(tx, l.id, d.facilities);
     return tx.listing.findUnique({ where: { id: l.id }, include: listingInclude });
   });
@@ -261,6 +246,8 @@ router.patch('/:id', requireAuth, writeLimiter, async (req, res) => {
     rent: Number(existing.rent),
     deposit: Number(existing.deposit),
     distanceKm: Number(existing.distanceKm),
+    address: existing.address,
+    mapUrl: existing.mapUrl,
     approximateArea: existing.approximateArea,
     furnished: existing.furnished,
     houseRules: existing.houseRules,
@@ -268,19 +255,12 @@ router.patch('/:id', requireAuth, writeLimiter, async (req, res) => {
     facilities: existing.amenities.map((a) => a.amenity.name),
     ...d,
   });
-  // Location: a new link recomputes distance; an empty link removes the map pin.
-  let loc = {};
-  if (d.mapLink) loc = await locationData(d.mapLink, existing.campus);
-  else if (d.mapLink !== undefined) loc = noLocation;
-  // While a map pin exists, the distance always comes from the pin, not from manual input.
-  else if (existing.latitude != null) delete merged.distanceKm;
-
   // Changing a live listing sends it back to moderation (admins edit freely).
   const needsReview = req.user.role !== 'ADMIN' && ['PUBLISHED', 'REJECTED'].includes(existing.status);
   const listing = await prisma.$transaction(async (tx) => {
     await tx.listing.update({
       where: { id: existing.id },
-      data: { ...toData(merged), ...loc, ...(needsReview ? { status: 'PENDING_REVIEW', rejectionReason: null } : {}), lastConfirmedAt: new Date() },
+      data: { ...toData(merged), ...(needsReview ? { status: 'PENDING_REVIEW', rejectionReason: null } : {}), lastConfirmedAt: new Date() },
     });
     if (d.facilities) await setAmenities(tx, existing.id, merged.facilities);
     return tx.listing.findUnique({ where: { id: existing.id }, include: listingInclude });
@@ -414,7 +394,7 @@ favoritesRouter.get('/', async (req, res) => {
   });
   const ratings = await ratingsFor(favs.map((f) => f.listingId));
   const savedIds = new Set(favs.map((f) => f.listingId));
-  ok(res, favs.map((f) => serializeListing(f.listing, { ratings, savedIds })));
+  ok(res, favs.map((f) => serializeListing(f.listing, { ratings, savedIds, showAddress: true })));
 });
 
 favoritesRouter.post('/:listingId', async (req, res) => {

@@ -10,7 +10,6 @@ import { listingInclude, serializeListing, serializeMe, serializeReview } from '
 import { notify } from '../services/notify.js';
 import { audit } from '../services/audit.js';
 import { sendMail } from '../services/mailer.js';
-import { haversineKm, resolveLocation } from '../services/geo.js';
 
 const router = Router();
 router.use(requireRole('ADMIN'));
@@ -318,38 +317,12 @@ router.patch('/universities/:id', async (req, res) => {
 const campusSchema = z.object({
   universityId: uuid,
   name: z.string().trim().min(2).max(150),
-  latitude: z.coerce.number().min(-90).max(90).optional(),
-  longitude: z.coerce.number().min(-180).max(180).optional(),
-  mapLink: z.string().trim().max(2000).optional(), // alternative to typing coordinates
+  latitude: z.coerce.number().min(-90).max(90),
+  longitude: z.coerce.number().min(-180).max(180),
 });
 
-/** Accept either coordinates or a Google Maps link for a campus. */
-async function campusCoords(d) {
-  const { mapLink, ...rest } = d;
-  if (mapLink) {
-    try {
-      const loc = await resolveLocation(mapLink);
-      return { ...rest, latitude: loc.latitude, longitude: loc.longitude };
-    } catch (err) {
-      throw badRequest(err.message);
-    }
-  }
-  return rest;
-}
-
-/** Recompute the distance of every pinned listing after a campus moves. */
-async function recomputeDistances(campus) {
-  const listings = await prisma.listing.findMany({ where: { campusId: campus.id, latitude: { not: null } } });
-  for (const l of listings) {
-    const km = haversineKm(Number(l.latitude), Number(l.longitude), Number(campus.latitude), Number(campus.longitude));
-    await prisma.listing.update({ where: { id: l.id }, data: { distanceKm: Math.round(km * 10) / 10 } });
-  }
-  return listings.length;
-}
-
 router.post('/campuses', async (req, res) => {
-  const d = await campusCoords(parse(campusSchema, req.body));
-  if (d.latitude == null || d.longitude == null) throw badRequest('Give the campus coordinates or a Google Maps link.');
+  const d = parse(campusSchema, req.body);
   const c = await prisma.campus.create({ data: d });
   await audit(req.user.id, 'CAMPUS_CREATED', 'Campus', c.id, d);
   ok(res, c, undefined, 201);
@@ -357,11 +330,10 @@ router.post('/campuses', async (req, res) => {
 
 router.patch('/campuses/:id', async (req, res) => {
   const id = parse(uuid, req.params.id);
-  const d = await campusCoords(parse(campusSchema.partial(), req.body));
+  const d = parse(campusSchema.partial(), req.body);
   const c = await prisma.campus.update({ where: { id }, data: d });
-  const updatedListings = d.latitude != null || d.longitude != null ? await recomputeDistances(c) : 0;
-  await audit(req.user.id, 'CAMPUS_UPDATED', 'Campus', id, { ...d, updatedListings });
-  ok(res, { ...c, updatedListings });
+  await audit(req.user.id, 'CAMPUS_UPDATED', 'Campus', id, d);
+  ok(res, c);
 });
 
 router.post('/amenities', async (req, res) => {

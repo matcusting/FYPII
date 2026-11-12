@@ -356,7 +356,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                         <div>
                                             <h3 className="text-[1.1rem] font-bold text-[#203569] group-hover:text-blue-700 transition-colors">{prop.title}</h3>
                                             <p className="text-[13px] text-gray-500 mt-1">
-                                                {prop.landlord.verified ? 'Verified Landlord' : 'Landlord'} <span className="mx-1">•</span> {prop.location ? '📍 ' : ''}{prop.distanceKm} km to UTS
+                                                {prop.landlord.verified ? 'Verified Landlord' : 'Landlord'} <span className="mx-1">•</span> {prop.distanceKm} km to UTS
                                                 {prop.rating.count > 0 && <> <span className="mx-1">•</span> <span className="text-[#eab308] font-bold">★ {prop.rating.average}</span> ({prop.rating.count})</>}
                                             </p>
                                             {prop.isStale && <p className="text-[11px] text-[#a16207] font-bold mt-1">⚠ Availability not confirmed recently</p>}
@@ -451,6 +451,23 @@ const HousingSearch = ({ savedOnly = false }) => {
                                 </div>
                             </div>
 
+                            {/* 房屋地址：点击跳转到 Google Maps */}
+                            {selectedProperty.address && (
+                                <a
+                                    href={selectedProperty.googleMapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="mb-6 flex items-start gap-3 border border-gray-200 rounded-xl px-4 py-3 hover:border-[#203569] hover:bg-[#f4f7fb] transition group"
+                                >
+                                    <span className="text-xl leading-none mt-0.5">📍</span>
+                                    <span className="flex-1 min-w-0">
+                                        <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Address</span>
+                                        <span className="block text-sm font-bold text-[#203569] group-hover:underline break-words">{selectedProperty.address}</span>
+                                    </span>
+                                    <span className="text-[12px] font-bold text-[#1d4ed8] whitespace-nowrap self-center">Open in Google Maps ↗</span>
+                                </a>
+                            )}
+
                             {/* 可入住时间 / 状态 */}
                             <div className="mb-6 flex flex-wrap gap-2">
                                 <span className="bg-[#eff6ff] text-[#1d4ed8] text-xs font-bold px-3 py-1.5 rounded-md">
@@ -489,33 +506,6 @@ const HousingSearch = ({ savedOnly = false }) => {
                                     ))}
                                 </div>
                             </div>
-
-                            {/* 地图位置 (Google Maps) */}
-                            {selectedProperty.location && (
-                                <div className="mb-8">
-                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Location</h4>
-                                    <div className="border border-gray-200 rounded-xl overflow-hidden">
-                                        <iframe
-                                            title={`Map of ${selectedProperty.title}`}
-                                            src={selectedProperty.location.links.embed}
-                                            className="w-full h-[220px] border-0"
-                                            loading="lazy"
-                                            referrerPolicy="no-referrer-when-downgrade"
-                                        ></iframe>
-                                        <div className="px-4 py-3 bg-[#fcfcfd] flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
-                                            <span className="text-[12px] text-gray-500">
-                                                ≈ {selectedProperty.distanceKm} km straight-line to UTS. Approximate area shown — ask the landlord for the exact address.
-                                            </span>
-                                            <div className="flex gap-2 flex-shrink-0">
-                                                <a href={selectedProperty.location.links.view} target="_blank" rel="noopener noreferrer" className="text-[12px] font-bold text-[#203569] border border-[#203569] px-3 py-1.5 rounded-md hover:bg-blue-50 transition">📍 Open in Google Maps</a>
-                                                {selectedProperty.location.links.directions && (
-                                                    <a href={selectedProperty.location.links.directions} target="_blank" rel="noopener noreferrer" className="text-[12px] font-bold text-white bg-[#203569] px-3 py-1.5 rounded-md hover:bg-[#1a2b56] transition">🧭 Directions to UTS</a>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
 
                             {/* 学生评价 */}
                             <div className="mb-8">

@@ -191,12 +191,11 @@ export function ListingQueue({ onChange }) {
                                     <p className="whitespace-pre-line">{l.description || 'No description.'}</p>
                                     {l.houseRules && <p><strong>House rules:</strong> {l.houseRules}</p>}
                                     <p>
-                                        <strong>Map:</strong>{' '}
-                                        {l.location ? (
-                                            <a href={l.location.links.view} target="_blank" rel="noopener noreferrer" className="text-[#1d4ed8] font-bold hover:underline">
-                                                📍 {l.location.latitude}, {l.location.longitude} ↗
-                                            </a>
-                                        ) : 'No map pin (distance entered manually)'}
+                                        <strong>Address:</strong>{' '}
+                                        {l.address ? (
+                                            <a href={l.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="text-[#1d4ed8] font-bold hover:underline">📍 {l.address} ↗</a>
+                                        ) : '—'}
+                                        {l.mapUrl && <span className="text-[12px] text-gray-500"> (landlord pasted a Google Maps pin)</span>}
                                     </p>
                                     <p><strong>Area:</strong> {l.approximateArea || '—'} • <strong>Available:</strong> {l.availableFrom || 'now'} • <strong>Furnished:</strong> {l.furnished ? 'Yes' : 'No'}</p>
                                     <div className="flex flex-wrap gap-1.5">{l.facilities.map((f) => <span key={f} className="bg-gray-100 text-gray-600 text-[11px] font-bold px-2 py-0.5 rounded">{f}</span>)}</div>
@@ -410,7 +409,6 @@ export function Campuses() {
     const [campusEdits, setCampusEdits] = useState({});
     const [newCampus, setNewCampus] = useState({ name: '', latitude: '', longitude: '' });
     const [newAmenity, setNewAmenity] = useState('');
-    const [campusLinks, setCampusLinks] = useState({});
 
     const load = useCallback(() => api('/admin/universities').then((list) => {
         setUnis(list);
@@ -443,32 +441,17 @@ export function Campuses() {
                         </div>
                     </form>
 
-                    <p className="text-[13px] font-bold text-[#374151] mb-2">Campuses — listing distances are measured to these coordinates. Please confirm the pin is on the campus.</p>
+                    <p className="text-[13px] font-bold text-[#374151] mb-2">Campuses (coordinates used for distance reference)</p>
                     <div className="space-y-2 mb-4">
                         {u.campuses.map((c) => {
                             const ed = campusEdits[c.id] || c;
                             return (
-                                <div key={c.id} className="border border-gray-100 rounded-lg p-3 space-y-2">
-                                <form onSubmit={wrap(async () => {
-                                    const r = await api(`/admin/campuses/${c.id}`, { method: 'PATCH', body: { name: ed.name, latitude: ed.latitude, longitude: ed.longitude } });
-                                    if (r.updatedListings) setTimeout(() => setNotice(`Campus saved. Distances of ${r.updatedListings} listing(s) were recalculated.`), 0);
-                                }, 'Campus saved.')} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_120px_auto] gap-2">
+                                <form key={c.id} onSubmit={wrap(() => api(`/admin/campuses/${c.id}`, { method: 'PATCH', body: { name: ed.name, latitude: ed.latitude, longitude: ed.longitude } }), 'Campus saved.')} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_120px_auto] gap-2">
                                     <input aria-label="Campus name" value={ed.name} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, name: e.target.value } })} className={input} />
                                     <input aria-label="Latitude" type="number" step="0.000001" value={ed.latitude} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, latitude: e.target.value } })} className={input} />
                                     <input aria-label="Longitude" type="number" step="0.000001" value={ed.longitude} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, longitude: e.target.value } })} className={input} />
                                     <button className="border border-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-gray-50 cursor-pointer">Save</button>
                                 </form>
-                                {/* 用 Google Maps 链接设置校区位置 */}
-                                <form onSubmit={wrap(async () => {
-                                    const r = await api(`/admin/campuses/${c.id}`, { method: 'PATCH', body: { mapLink: campusLinks[c.id] } });
-                                    setCampusLinks({ ...campusLinks, [c.id]: '' });
-                                    setTimeout(() => setNotice(`Campus location updated from Google Maps. Distances of ${r.updatedListings} listing(s) were recalculated.`), 0);
-                                }, 'Campus location updated.')} className="flex flex-col sm:flex-row gap-2">
-                                    <input aria-label="Campus Google Maps link" required value={campusLinks[c.id] || ''} onChange={(e) => setCampusLinks({ ...campusLinks, [c.id]: e.target.value })} placeholder="…or paste the campus Google Maps link" className={`flex-1 ${input}`} />
-                                    <button className="border border-[#203569] text-[#203569] text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-blue-50 cursor-pointer whitespace-nowrap">Set from Map Link</button>
-                                    <a href={`https://www.google.com/maps/search/?api=1&query=${c.latitude},${c.longitude}`} target="_blank" rel="noopener noreferrer" className="text-xs font-bold text-[#1d4ed8] hover:underline self-center whitespace-nowrap">📍 Check on Google Maps ↗</a>
-                                </form>
-                                </div>
                             );
                         })}
                     </div>
