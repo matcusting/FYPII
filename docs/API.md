@@ -17,6 +17,7 @@ Authentication uses the HTTP-only `uts_sid` session cookie. Health checks: `GET 
 | POST | `/listings` · `/listings/:id/submit` · `/listings/:id/status` · `/listings/:id/availability` | Owner |
 | PATCH, DELETE | `/listings/:id` | Owner, Admin |
 | POST, DELETE | `/listings/:id/photos` (multipart `photos`) · `/listings/:id/photos/:photoId` | Owner |
+| POST | `/listings/resolve-location` (`mapLink` → coordinates, distance, map links) | Auth |
 | POST | `/listings/:id/inquiries` | Auth |
 | GET, POST | `/listings/:id/reviews` | Public / Verified student |
 | GET | `/favorites` · POST/DELETE `/favorites/:listingId` | Auth |
