@@ -152,6 +152,33 @@ describe('listings, moderation and search', () => {
     expect(log).toBeTruthy();
   });
 
+  it('computes distance from a Google Maps link and hides the exact pin from the public', async () => {
+    const owner = await agentFor('owner@example.com');
+    const link = 'https://www.google.com/maps/place/Room/@2.32,111.84,17z/data=!3d2.322241!4d111.844294';
+    const preview = await owner.post('/api/v1/listings/resolve-location').send({ mapLink: link });
+    expect(preview.status).toBe(200);
+    expect(preview.body.data.distanceKm).toBeCloseTo(1.3, 0);
+    expect(preview.body.data.links.embed).toContain('output=embed');
+
+    const created = await owner.post('/api/v1/listings').send({ title: 'Mapped Room', roomType: 'Single Room', rent: 450, mapLink: link, distanceKm: 99 });
+    expect(created.status).toBe(201);
+    const l = created.body.data;
+    expect(l.distanceKm).toBe(preview.body.data.distanceKm); // typed distance ignored
+    expect(l.location).toMatchObject({ latitude: 2.322241, longitude: 111.844294, approximate: false, mapUrl: link });
+
+    await prisma.listing.update({ where: { id: l.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } });
+    const pub = await request(app).get(`/api/v1/listings/${l.id}`);
+    expect(pub.body.data.location).toMatchObject({ latitude: 2.322, longitude: 111.844, approximate: true });
+    expect(pub.body.data.location.mapUrl).toBeUndefined();
+    expect(pub.body.data.location.links.directions).toContain('destination=2.31');
+
+    const bad = await owner.post('/api/v1/listings').send({ title: 'Bad Link Room', roomType: 'Single Room', rent: 450, mapLink: 'https://evil.example/x' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.fields.mapLink).toBeTruthy();
+    const missing = await owner.post('/api/v1/listings').send({ title: 'No Location Room', roomType: 'Single Room', rent: 450 });
+    expect(missing.status).toBe(400);
+  });
+
   it('another user cannot edit or delete a listing (404, no leakage)', async () => {
     const owner = await prisma.user.findUnique({ where: { email: 'owner@example.com' } });
     const l = await publishedListing(owner);

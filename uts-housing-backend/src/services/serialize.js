@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { approximate, mapsLinks } from './geo.js';
 
 const num = (d) => (d == null ? null : Number(d));
 const dateOnly = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
@@ -83,6 +84,7 @@ export function serializeListing(listing, opts = {}) {
     rating,
     isSaved: savedIds ? savedIds.has(listing.id) : false,
   };
+  out.location = locationFor(listing, includePrivate);
   if (includePrivate) {
     out.rejectionReason = listing.rejectionReason;
     out.viewCount = listing.viewCount;
@@ -90,6 +92,23 @@ export function serializeListing(listing, opts = {}) {
     out.updatedAt = listing.updatedAt;
   }
   return out;
+}
+
+/**
+ * Map location of a listing. The public sees coordinates rounded to ~110 m
+ * (neighbourhood level); the owner and admins see the exact pin and original link.
+ */
+export function locationFor(listing, exact = false) {
+  if (listing.latitude == null || listing.longitude == null) return null;
+  const lat = exact ? Number(listing.latitude) : approximate(listing.latitude);
+  const lng = exact ? Number(listing.longitude) : approximate(listing.longitude);
+  return {
+    latitude: lat,
+    longitude: lng,
+    approximate: !exact,
+    mapUrl: exact ? listing.mapUrl : undefined,
+    links: mapsLinks(lat, lng, listing.campus),
+  };
 }
 
 export const listingInclude = {

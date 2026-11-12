@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, assetUrl, statusLabel } from '../../lib/api';
 import { pickPhotos } from '../../lib/photos';
 import { ErrorBanner, LoadingBlock } from '../../components/ui';
+import MapLinkField from '../../components/MapLinkField';
 
 const STATUS_BADGE = {
     PUBLISHED: 'bg-[#dcfce7] text-[#15803d]',
@@ -49,7 +50,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
     };
 
     const handleEditClick = (prop) => {
-        setEditingProperty({ ...prop, newPhotos: [], description: prop.description || '', approximateArea: prop.approximateArea || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
+        setEditingProperty({ ...prop, newPhotos: [], mapLink: prop.location?.mapUrl || '', mapResult: prop.location, mapChanged: false, description: prop.description || '', approximateArea: prop.approximateArea || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
         setEditError(null);
         setIsEditModalOpen(true);
     };
@@ -96,7 +97,9 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                     description: p.description,
                     rent: Number(p.rent),
                     deposit: Number(p.deposit) || 0,
-                    distanceKm: Number(p.distanceKm),
+                    // 新的地图链接会在服务器重新计算距离；没有地图时才手动填距离
+                    ...(p.mapChanged ? { mapLink: p.mapResult ? p.mapLink.trim() : null } : {}),
+                    ...(!p.mapResult ? { distanceKm: Number(p.distanceKm) } : {}),
                     roomType: p.roomType,
                     approximateArea: p.approximateArea || null,
                     availableFrom: p.availableFrom || null,
@@ -252,6 +255,14 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                 </div>
                             </div>
 
+                            <MapLinkField
+                                compact
+                                value={editingProperty.mapLink}
+                                initial={editingProperty.location}
+                                onChange={(v) => setEditingProperty((cur) => ({ ...cur, mapLink: v, mapChanged: true }))}
+                                onResolved={(r) => setEditingProperty((cur) => ({ ...cur, mapResult: r, mapChanged: true }))}
+                            />
+
                             <div>
                                 <label htmlFor="e-title" className="block text-[13px] font-bold text-[#374151] mb-1">Listing Title</label>
                                 <input id="e-title" type="text" required minLength={5} value={editingProperty.title} onChange={(e) => setEditingProperty({...editingProperty, title: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
@@ -269,7 +280,11 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label htmlFor="e-dist" className="block text-[13px] font-bold text-[#374151] mb-1">Distance (km)</label>
-                                    <input id="e-dist" type="number" step="0.1" min="0" required value={editingProperty.distanceKm} onChange={(e) => setEditingProperty({...editingProperty, distanceKm: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
+                                    {editingProperty.mapResult ? (
+                                        <input id="e-dist" readOnly value={`${editingProperty.mapResult.distanceKm ?? editingProperty.distanceKm} km (from map)`} className="w-full p-2.5 border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed" />
+                                    ) : (
+                                        <input id="e-dist" type="number" step="0.1" min="0" required value={editingProperty.distanceKm} onChange={(e) => setEditingProperty({...editingProperty, distanceKm: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800" />
+                                    )}
                                 </div>
                                 <div>
                                     <label htmlFor="e-type" className="block text-[13px] font-bold text-[#374151] mb-1">Room Type</label>

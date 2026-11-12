@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
 import { ErrorBanner, FieldError } from '../../components/ui';
 import { MAX_PHOTOS, pickPhotos } from '../../lib/photos';
+import MapLinkField from '../../components/MapLinkField';
 
 
 const AddListing = ({ onCreated }) => {
@@ -11,6 +12,9 @@ const AddListing = ({ onCreated }) => {
     const [newRent, setNewRent] = useState('');
     const [newDeposit, setNewDeposit] = useState('');
     const [newDistance, setNewDistance] = useState('');
+    const [mapLink, setMapLink] = useState('');
+    const [mapResult, setMapResult] = useState(null);
+    const [manualDistance, setManualDistance] = useState(false);
     const [newArea, setNewArea] = useState('');
     const [newRoomType, setNewRoomType] = useState('Whole Apartment');
     const [availableFrom, setAvailableFrom] = useState('');
@@ -48,6 +52,10 @@ const AddListing = ({ onCreated }) => {
     const handlePublish = async (e) => {
         e.preventDefault();
         setError(null);
+        if (!mapResult && !manualDistance) {
+            setError({ message: 'Paste the Google Maps link of the property and click “Check Location” (or enter the distance manually).', fields: { mapLink: 'Required.' } });
+            return;
+        }
         if (photos.length === 0) {
             setError({ message: 'Add at least one photo — listings without photos cannot be published.' });
             return;
@@ -63,7 +71,7 @@ const AddListing = ({ onCreated }) => {
                     description: newDescription,
                     rent: Number(newRent),
                     deposit: Number(newDeposit) || 0,
-                    distanceKm: Number(newDistance),
+                    ...(mapResult ? { mapLink: mapLink.trim() } : { distanceKm: Number(newDistance) }),
                     approximateArea: newArea || null,
                     roomType: newRoomType,
                     availableFrom: availableFrom || null,
@@ -178,20 +186,41 @@ const AddListing = ({ onCreated }) => {
                     </div>
                 </div>
 
+                {/* Google Maps 位置：自动计算到 UTS 的距离 */}
+                <MapLinkField value={mapLink} onChange={setMapLink} onResolved={setMapResult} />
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
                         <label htmlFor="distance" className="block text-[13px] font-bold text-[#374151] mb-2">Distance to UTS (km)</label>
-                        <input
-                            id="distance"
-                            type="number"
-                            step="0.1"
-                            min="0"
-                            required
-                            value={newDistance}
-                            onChange={(e) => setNewDistance(e.target.value)}
-                            placeholder="e.g., 1.5"
-                            className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569]"
-                        />
+                        {mapResult || !manualDistance ? (
+                            <>
+                                <input
+                                    id="distance"
+                                    type="text"
+                                    readOnly
+                                    value={mapResult ? `${mapResult.distanceKm} km (from map)` : ''}
+                                    placeholder="Calculated from the map link"
+                                    className="w-full p-3 border border-gray-200 rounded-md bg-gray-50 text-gray-600 cursor-not-allowed"
+                                />
+                                {!mapResult && (
+                                    <button type="button" onClick={() => setManualDistance(true)} className="text-[12px] font-bold text-gray-500 hover:text-[#203569] mt-1.5 cursor-pointer">
+                                        No Google Maps link? Enter distance manually
+                                    </button>
+                                )}
+                            </>
+                        ) : (
+                            <input
+                                id="distance"
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                required
+                                value={newDistance}
+                                onChange={(e) => setNewDistance(e.target.value)}
+                                placeholder="e.g., 1.5"
+                                className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569]"
+                            />
+                        )}
                     </div>
                     <div>
                         <label htmlFor="roomType" className="block text-[13px] font-bold text-[#374151] mb-2">Room Type</label>
