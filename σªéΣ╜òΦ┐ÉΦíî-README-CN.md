@@ -54,9 +54,10 @@ npm install
 
 | 身份 | 登录方式 | 密码 |
 |---|---|---|
-| 学生 | 学号 `BCS24020031` + 邮箱 `student@uts.edu.my` | `Demo@2026` |
+| 学生 | 学号 `BCS24020031` + 邮箱 `bcs24020031@student.uts.edu.my` | `Demo@2026` |
 | 房东 | `wong@example.com` | `Demo@2026` |
-| 管理员 | 点登录页的 "Administrator login"，邮箱 `admin@uts-housing.local` | `Admin@2026!` |
+| 管理员 | 点登录页的 "Staff login"，邮箱 `admin@uts-housing.local` | `Admin@2026!` |
+| 律师审核员（虚构） | 点登录页的 "Staff login"，邮箱 `reviewer@uts-housing.local` | `Review@2026!` |
 
 演示数据（人名、房源、地址、评价）都是虚构的。执行 `npm run db:seed` 会把演示数据恢复到初始状态。
 

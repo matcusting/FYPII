@@ -11,6 +11,8 @@ import { listingInclude, serializeListing, serializeMe, serializeReview } from '
 import { notify } from '../services/notify.js';
 import { audit } from '../services/audit.js';
 import { sendMail } from '../services/mailer.js';
+import { serializeDocument } from '../services/documents.js';
+import { hashPassword, randomToken, sha256 } from '../utils/crypto.js';
 
 const router = Router();
 router.use(requireRole('ADMIN'));
@@ -23,8 +25,9 @@ const statusQuery = (values, fallback) =>
 router.get('/overview', async (_req, res) => {
   const [pendingVerifications, pendingListings, pendingReviews, openReports, usersByRole, listingsByStatus, deletionRequests] =
     await Promise.all([
-      prisma.verification.count({ where: { status: 'PENDING', method: 'MANUAL' } }),
-      prisma.listing.count({ where: { status: 'PENDING_REVIEW', deletedAt: null } }),
+      prisma.verification.count({ where: { status: 'PENDING', type: 'STUDENT' } }),
+      // Ready for the admin = waiting for review AND documents accepted by the legal reviewer.
+      prisma.listing.count({ where: { status: 'PENDING_REVIEW', legalStatus: 'APPROVED', deletedAt: null } }),
       prisma.review.count({ where: { moderationStatus: 'PENDING' } }),
       prisma.report.count({ where: { status: 'OPEN' } }),
       prisma.user.groupBy({ by: ['role'], _count: { _all: true } }),
@@ -32,7 +35,13 @@ router.get('/overview', async (_req, res) => {
       prisma.user.count({ where: { status: 'DELETION_REQUESTED' } }),
     ]);
   const recent = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 8, include: { actor: true } });
+  const [awaitingLegalListings, awaitingLegalLandlords] = await Promise.all([
+    prisma.listing.count({ where: { legalStatus: 'PENDING', deletedAt: null } }),
+    prisma.verification.count({ where: { status: 'PENDING', type: 'LANDLORD' } }),
+  ]);
   ok(res, {
+    awaitingLegalListings,
+    awaitingLegalLandlords,
     pendingVerifications,
     pendingListings,
     pendingReviews,
@@ -48,9 +57,10 @@ router.get('/overview', async (_req, res) => {
 
 router.get('/verifications', async (req, res) => {
   const { status } = parse(statusQuery(['PENDING', 'APPROVED', 'REJECTED'], 'PENDING'), req.query);
+  // Students only — landlord identity is checked by the legal reviewer.
   const rows = await prisma.verification.findMany({
-    where: status === 'ALL' ? {} : { status },
-    include: { user: true, reviewedBy: true },
+    where: { type: 'STUDENT', ...(status === 'ALL' ? {} : { status }) },
+    include: { user: true, reviewedBy: true, documents: { orderBy: { createdAt: 'asc' } } },
     orderBy: { createdAt: status === 'PENDING' ? 'asc' : 'desc' },
     take: 100,
   });
@@ -65,6 +75,7 @@ router.get('/verifications', async (req, res) => {
     reviewedAt: v.reviewedAt,
     reviewedBy: v.reviewedBy?.name,
     user: serializeMe(v.user),
+    documents: v.documents.map(serializeDocument),
   })));
 });
 
@@ -73,6 +84,7 @@ router.patch('/verifications/:id', async (req, res) => {
   const { decision, note } = parse(z.object({ decision: z.enum(['APPROVED', 'REJECTED']), note: z.string().trim().max(500).optional() }), req.body);
   const v = await prisma.verification.findUnique({ where: { id }, include: { user: true } });
   if (!v) throw notFound();
+  if (v.type !== 'STUDENT') throw badRequest('Landlord identity is checked by the legal reviewer.');
   if (v.status !== 'PENDING') throw badRequest('This request was already decided.');
   if (decision === 'REJECTED' && !note) throw badRequest('Give a reason so the user knows what to fix.');
   const now = new Date();
@@ -85,7 +97,7 @@ router.patch('/verifications/:id', async (req, res) => {
   const title = decision === 'APPROVED' ? 'Your account has been verified' : 'Verification was not approved';
   const body = decision === 'APPROVED'
     ? v.type === 'STUDENT' ? 'You can now use roommate matching and write reviews.' : 'Your listings now show the Verified Landlord badge.'
-    : `Reason: ${note}. You can submit a new request from your profile.`;
+    : `Reason: ${note}. Upload corrected documents in My Profile.`;
   await notify(v.userId, { type: 'VERIFICATION', title, body, link: v.type === 'STUDENT' ? '/student/profile' : '/landlord' });
   await sendMail({ to: v.user.email, subject: title, text: `Hi ${v.user.name},\n\n${body}` });
   ok(res, { id, status: decision });
@@ -115,6 +127,7 @@ router.patch('/listings/:id', async (req, res) => {
   if (action !== 'approve' && !reason) throw badRequest('Give a reason for the landlord.');
   let data;
   if (action === 'approve') {
+    if (listing.legalStatus !== 'APPROVED') throw badRequest('This property is still waiting for the legal document check.');
     if (!listing.photos.length) throw badRequest('A listing needs at least one photo to be published.');
     data = { status: 'PUBLISHED', rejectionReason: null, publishedAt: listing.publishedAt || new Date(), lastConfirmedAt: new Date() };
   } else if (action === 'reject') {
@@ -237,7 +250,7 @@ router.patch('/reports/:id', async (req, res) => {
 router.get('/users', async (req, res) => {
   const q = parse(
     z.object({
-      role: z.enum(['STUDENT', 'LANDLORD', 'ADMIN']).optional(),
+      role: z.enum(['STUDENT', 'LANDLORD', 'ADMIN', 'LEGAL_REVIEWER']).optional(),
       status: z.enum(['ACTIVE', 'SUSPENDED', 'DELETION_REQUESTED']).optional(),
       q: z.string().trim().max(100).optional(),
     }),
@@ -297,6 +310,7 @@ router.get('/universities', async (_req, res) => {
     id: u.id,
     name: u.name,
     emailDomains: u.emailDomains,
+    requireStudentIdEmail: u.requireStudentIdEmail,
     campuses: u.campuses.map((c) => ({ id: c.id, name: c.name, latitude: Number(c.latitude), longitude: Number(c.longitude) })),
   })));
 });
@@ -310,7 +324,7 @@ router.post('/universities', async (req, res) => {
 
 router.patch('/universities/:id', async (req, res) => {
   const id = parse(uuid, req.params.id);
-  const d = parse(z.object({ name: z.string().trim().min(3).max(150).optional(), emailDomains: z.array(domain).max(10).optional() }), req.body);
+  const d = parse(z.object({ name: z.string().trim().min(3).max(150).optional(), emailDomains: z.array(domain).max(10).optional(), requireStudentIdEmail: z.boolean().optional() }), req.body);
   const u = await prisma.university.update({ where: { id }, data: d });
   await audit(req.user.id, 'UNIVERSITY_UPDATED', 'University', id, d);
   ok(res, u);
@@ -350,6 +364,35 @@ router.post('/amenities', async (req, res) => {
 router.get('/audit-logs', async (_req, res) => {
   const rows = await prisma.auditLog.findMany({ orderBy: { createdAt: 'desc' }, take: 200, include: { actor: true } });
   ok(res, rows.map((a) => ({ id: a.id, action: a.action, targetType: a.targetType, targetId: a.targetId, details: a.details, actor: a.actor?.name || 'System', createdAt: a.createdAt })));
+});
+
+/* --------------------------------------------------------- legal reviewers */
+
+// Legal reviewers are created by an administrator (never self-registered).
+// They receive an e-mail link to choose their own password.
+router.get('/reviewers', async (_req, res) => {
+  const rows = await prisma.user.findMany({ where: { role: 'LEGAL_REVIEWER' }, orderBy: { createdAt: 'asc' } });
+  ok(res, rows.map((u) => ({ id: u.id, name: u.name, email: u.email, status: u.status, createdAt: u.createdAt, passwordSet: Boolean(u.emailVerifiedAt) })));
+});
+
+router.post('/reviewers', async (req, res) => {
+  const d = parse(z.object({
+    name: z.string().trim().min(2, 'Enter the reviewer\'s name.').max(100),
+    email: z.string().trim().toLowerCase().email('Enter a valid e-mail address.').max(200),
+  }), req.body);
+  if (await prisma.user.findUnique({ where: { email: d.email } })) throw badRequest('An account with this e-mail already exists.');
+  const user = await prisma.user.create({
+    data: { name: d.name, email: d.email, role: 'LEGAL_REVIEWER', passwordHash: await hashPassword(randomToken()) },
+  });
+  const token = randomToken();
+  await prisma.passwordResetToken.create({ data: { userId: user.id, tokenHash: sha256(token), expiresAt: new Date(Date.now() + 72 * 3600 * 1000) } });
+  await sendMail({
+    to: user.email,
+    subject: 'Your UTS Housing legal reviewer account',
+    text: `Hi ${user.name},\n\nAn administrator created a legal reviewer account for you on UTS Housing & Roommate Finder. You will review landlord identity documents and property ownership documents.\n\nChoose your password here (valid for 72 hours):\n${config.frontendOrigin}/reset-password?token=${token}\n\nThen sign in with "Staff login" on the login page.`,
+  });
+  await audit(req.user.id, 'REVIEWER_CREATED', 'User', user.id, { email: user.email });
+  ok(res, { id: user.id, name: user.name, email: user.email, status: user.status }, undefined, 201);
 });
 
 export default router;

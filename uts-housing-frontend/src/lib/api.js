@@ -49,7 +49,7 @@ export const assetUrl = (url) => (url && url.startsWith('/uploads') ? `${API_ORI
 /** Google Maps link for an address typed by the landlord (opens a search for it). */
 export const mapsSearchUrl = (address) => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
 
-export const homeFor = (role) => ({ STUDENT: '/student', LANDLORD: '/landlord', ADMIN: '/admin' }[role] || '/');
+export const homeFor = (role) => ({ STUDENT: '/student', LANDLORD: '/landlord', ADMIN: '/admin', LEGAL_REVIEWER: '/reviewer' }[role] || '/');
 
 export const timeAgo = (iso) => {
     const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -96,3 +96,38 @@ export const genderBadge = (restriction) => ({ MALE_ONLY: '♂ Male only', FEMAL
 /** True when a student of `gender` may rent a listing with this restriction. */
 export const genderAllowed = (restriction, gender) =>
     !restriction || restriction === 'ANY' || (restriction === 'MALE_ONLY' && gender === 'MALE') || (restriction === 'FEMALE_ONLY' && gender === 'FEMALE');
+
+/** Link that opens a private verification document (session cookie is sent automatically). */
+export const documentUrl = (url) => `${API_ORIGIN}${url}`;
+
+export const PROPERTY_DOCUMENT_KINDS = [
+    { value: 'PROPERTY_TITLE', label: 'Title deed / proof of ownership' },
+    { value: 'TENANCY_AGREEMENT', label: 'Tenancy agreement (if you are subletting)' },
+    { value: 'OWNER_AUTHORISATION', label: "Owner's authorisation letter" },
+    { value: 'OTHER_PROPERTY', label: 'Other supporting document' },
+];
+
+export const LEGAL_STATUS = {
+    NOT_SUBMITTED: { label: 'Documents not submitted', className: 'bg-gray-100 text-gray-600' },
+    PENDING: { label: 'Legal check in progress', className: 'bg-[#fefce8] text-[#a16207]' },
+    APPROVED: { label: '✓ Ownership documents verified', className: 'bg-[#dcfce7] text-[#15803d]' },
+    REJECTED: { label: 'Documents not accepted', className: 'bg-[#fee2e2] text-[#b91c1c]' },
+};
+
+export const MAX_DOCUMENT_MB = 10;
+
+/** Client-side size check (the server checks type and size again). */
+export const tooLarge = (files) => files.find((f) => f.size > MAX_DOCUMENT_MB * 1024 * 1024);
+
+/** Upload picked property documents ([{ kind, file }]) for a listing, one request per document type. */
+export async function uploadPropertyDocuments(listingId, picked) {
+    const byKind = picked.reduce((m, d) => ({ ...m, [d.kind]: [...(m[d.kind] || []), d.file] }), {});
+    let last = null;
+    for (const [kind, files] of Object.entries(byKind)) {
+        const form = new FormData();
+        form.append('kind', kind);
+        files.forEach((f) => form.append('documents', f));
+        last = await api(`/listings/${listingId}/documents`, { method: 'POST', form });
+    }
+    return last;
+}

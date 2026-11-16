@@ -4,6 +4,8 @@
  *
  * All demo accounts use the password:  Demo@2026
  * Admin account:                       admin@uts-housing.local / Admin@2026!
+ * Legal reviewer (fictitious):         reviewer@uts-housing.local / Review@2026!
+ * Demo students use <studentId>@student.uts.edu.my, e.g. bcs24020031@student.uts.edu.my
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,6 +17,7 @@ import { hashPassword } from '../src/utils/crypto.js';
 
 const DEMO_PASSWORD = 'Demo@2026';
 const ADMIN_PASSWORD = 'Admin@2026!';
+const REVIEWER_PASSWORD = 'Review@2026!';
 
 /* ---- tiny PNG generator so demo listings have real (placeholder) photos ---- */
 function crc32(buf) {
@@ -75,13 +78,41 @@ function demoPhoto(i) {
   return key;
 }
 
+/* ---- placeholder verification documents (clearly marked as demo) ---- */
+function demoPdf(title) {
+  // Minimal one-page PDF with a line of text.
+  const text = `DEMO DOCUMENT - FICTITIOUS - ${title}`.replace(/[()\\]/g, '');
+  const stream = `BT /F1 14 Tf 40 760 Td (${text}) Tj ET`;
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let out = '%PDF-1.4\n';
+  const offsets = [];
+  objs.forEach((o, i) => { offsets.push(out.length); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = out.length;
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  out += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, 'latin1');
+}
+function demoDocument(ownerId, kind, name, type = 'pdf') {
+  fs.mkdirSync(config.privateUploadDir, { recursive: true });
+  const key = `demo-${crypto.randomUUID()}.${type}`;
+  const data = type === 'pdf' ? demoPdf(name) : gradientPng(320, 200, [30, 41, 59], [148, 163, 184]);
+  fs.writeFileSync(path.join(config.privateUploadDir, key), data);
+  return { ownerId, kind, objectKey: key, originalName: `${name}.${type}`, mimeType: type === 'pdf' ? 'application/pdf' : 'image/png', sizeBytes: data.length };
+}
+
 const daysAgo = (n) => new Date(Date.now() - n * 86400000);
 const day = (s) => new Date(`${s}T00:00:00Z`);
 
 async function main() {
   console.log('Clearing existing data…');
   await prisma.$transaction([
-    prisma.auditLog.deleteMany(), prisma.notification.deleteMany(), prisma.report.deleteMany(),
+    prisma.auditLog.deleteMany(), prisma.notification.deleteMany(), prisma.report.deleteMany(), prisma.document.deleteMany(),
     prisma.message.deleteMany(), prisma.conversationParticipant.deleteMany(), prisma.conversation.deleteMany(),
     prisma.review.deleteMany(), prisma.favorite.deleteMany(), prisma.listingPhoto.deleteMany(),
     prisma.listingAmenity.deleteMany(), prisma.listing.deleteMany(), prisma.amenity.deleteMany(),
@@ -90,12 +121,12 @@ async function main() {
     prisma.emailVerificationToken.deleteMany(), prisma.user.deleteMany(), prisma.campus.deleteMany(),
     prisma.university.deleteMany(),
   ]);
-  if (fs.existsSync(config.uploadDir)) {
-    for (const f of fs.readdirSync(config.uploadDir)) if (f.startsWith('demo-')) fs.rmSync(path.join(config.uploadDir, f));
+  for (const dir of [config.uploadDir, config.privateUploadDir]) {
+    if (fs.existsSync(dir)) for (const f of fs.readdirSync(dir)) if (f.startsWith('demo-')) fs.rmSync(path.join(dir, f));
   }
 
   const uts = await prisma.university.create({
-    data: { name: 'University of Technology Sarawak', emailDomains: ['uts.edu.my', 'student.uts.edu.my'] },
+    data: { name: 'University of Technology Sarawak', emailDomains: ['student.uts.edu.my'], requireStudentIdEmail: true },
   });
   // Approximate coordinates — administrators should confirm them in the admin portal.
   const campus = await prisma.campus.create({
@@ -116,6 +147,10 @@ async function main() {
   await prisma.user.create({
     data: { name: 'System Administrator', email: 'admin@uts-housing.local', role: 'ADMIN', passwordHash: await hashPassword(ADMIN_PASSWORD), emailVerifiedAt: now },
   });
+  // Fictitious legal reviewer. Real reviewers are created by an admin (Legal Reviewers tab).
+  const reviewer = await prisma.user.create({
+    data: { name: 'Demo Legal Reviewer', email: 'reviewer@uts-housing.local', role: 'LEGAL_REVIEWER', passwordHash: await hashPassword(REVIEWER_PASSWORD), emailVerifiedAt: now },
+  });
 
   const mkStudent = async (name, email, studentId, major, academicYear, habits, extra = {}) => {
     const verified = extra.verified !== false;
@@ -126,7 +161,7 @@ async function main() {
         verifications: {
           create: {
             type: 'STUDENT',
-            method: verified ? 'EMAIL_DOMAIN' : 'MANUAL',
+            method: 'DOCUMENTS',
             status: verified ? 'APPROVED' : 'PENDING',
             note: extra.note,
             reviewedAt: verified ? now : null,
@@ -134,47 +169,58 @@ async function main() {
         },
         lifestyle: { create: { discoverable: verified, ...habits } },
       },
+      include: { verifications: true },
     });
+    // The pending student has demo documents waiting in the admin queue.
+    if (!verified) {
+      await prisma.document.createMany({ data: [
+        { ...demoDocument(u.id, 'OFFER_LETTER', 'Offer letter (demo)', 'pdf'), verificationId: u.verifications[0].id },
+        { ...demoDocument(u.id, 'STUDENT_CARD', 'Student card (demo)', 'png'), verificationId: u.verifications[0].id },
+      ] });
+    }
     return u;
   };
 
-  const marcus = await mkStudent('Marcus Ting', 'student@uts.edu.my', 'BCS24020031', 'Computer Science', 'Year 2',
+  const marcus = await mkStudent('Marcus Ting', 'bcs24020031@student.uts.edu.my', 'BCS24020031', 'Computer Science', 'Year 2',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', noise: 'Quiet', budgetMin: 300, budgetMax: 600 },
     { gender: 'MALE', bio: 'Looking for a quiet roommate near UTS campus who respects study hours.' });
-  const alex = await mkStudent('Alex Lee', 'alex.lee@uts.edu.my', 'BCS23010012', 'Computer Science', 'Year 3',
+  const alex = await mkStudent('Alex Lee', 'bcs23010012@student.uts.edu.my', 'BCS23010012', 'Computer Science', 'Year 3',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', noise: 'Quiet', budgetMin: 350, budgetMax: 650 },
     { gender: 'MALE', bio: 'Gamer and coder, usually up late but quiet.' });
-  const jonathan = await mkStudent('Jonathan Tan', 'jonathan.tan@uts.edu.my', 'BEE24030045', 'Engineering', 'Year 2',
+  const jonathan = await mkStudent('Jonathan Tan', 'bee24030045@student.uts.edu.my', 'BEE24030045', 'Engineering', 'Year 2',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Strict (Daily)', smoking: 'Non-Smoker', noise: 'Moderate', budgetMin: 300, budgetMax: 500 },
     { gender: 'MALE', bio: 'Neat freak, happy to share chores.' });
-  const sarah = await mkStudent('Sarah Tan', 'sarah.tan@uts.edu.my', 'BBA24050078', 'Business', 'Year 1',
+  const sarah = await mkStudent('Sarah Tan', 'bba24050078@student.uts.edu.my', 'BBA24050078', 'Business', 'Year 1',
     { studySchedule: 'Early Bird (Morning)', cleanliness: 'Strict (Daily)', smoking: 'Non-Smoker', pets: 'No Pets', budgetMin: 250, budgetMax: 450 },
     { gender: 'FEMALE' });
-  const daniel = await mkStudent('Daniel Wong', 'daniel.wong@uts.edu.my', 'BCE23020033', 'Civil Engineering', 'Year 3',
+  const daniel = await mkStudent('Daniel Wong', 'bce23020033@student.uts.edu.my', 'BCE23020033', 'Civil Engineering', 'Year 3',
     { studySchedule: 'Early Bird (Morning)', cleanliness: 'Relaxed', smoking: 'Smoker', guests: 'Often' },
     { gender: 'MALE' });
-  const amanda = await mkStudent('Amanda Kho', 'amanda.kho@uts.edu.my', 'BAC22040021', 'Accounting', 'Year 2',
+  const amanda = await mkStudent('Amanda Kho', 'bac22040021@student.uts.edu.my', 'BAC22040021', 'Accounting', 'Year 2',
     { studySchedule: 'Early Bird (Morning)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', roommateGender: 'ANY' },
     { verified: true, gender: 'FEMALE' });
-  const jason = await mkStudent('Jason Lau', 'jason.lau@uts.edu.my', 'BCS21010099', 'Computer Science', 'Year 4',
+  const jason = await mkStudent('Jason Lau', 'bcs21010099@student.uts.edu.my', 'BCS21010099', 'Computer Science', 'Year 4',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Relaxed', smoking: 'Smoker Ok' },
     { gender: 'MALE' });
-  await mkStudent('Priya Nair', 'priya.nair@gmail.com', 'BFT24060011', 'Food Technology', 'Year 1', {},
-    { verified: false, gender: 'FEMALE', note: 'I use my personal Gmail; my student card number is BFT24060011, intake Sept 2026.' });
+  await mkStudent('Priya Nair', 'bft24060011@student.uts.edu.my', 'BFT24060011', 'Food Technology', 'Year 1', {},
+    { verified: false, gender: 'FEMALE', note: 'New intake, September 2026.' });
 
   const mkLandlord = (name, email, phone, verified = true) =>
     prisma.user.create({
       data: {
         name, email, phone, role: 'LANDLORD', passwordHash: demoHash, emailVerifiedAt: now,
         landlordVerifiedAt: verified ? now : null,
-        verifications: { create: { type: 'LANDLORD', method: 'MANUAL', status: verified ? 'APPROVED' : 'PENDING', reviewedAt: verified ? now : null, note: verified ? undefined : 'I own two units in Sibu Jaya, title deed available on request.' } },
+        verifications: { create: { type: 'LANDLORD', method: 'DOCUMENTS', status: verified ? 'APPROVED' : 'PENDING', reviewedAt: verified ? now : null, reviewedById: verified ? reviewer.id : null, note: verified ? undefined : 'I own two units in Sibu Jaya.' } },
       },
+      include: { verifications: true },
     });
   const wong = await mkLandlord('Mr. Wong', 'wong@example.com', '+60 12-345 6789');
   const ling = await mkLandlord('Madam Ling', 'ling@example.com', '+60 13-222 3344');
   const tan = await mkLandlord('Mr. Tan', 'tan@example.com', '+60 16-555 0101');
   const rachel = await mkLandlord('Ms. Rachel', 'rachel@example.com', '+60 19-888 1212');
-  await mkLandlord('Mr. Lim', 'lim@example.com', '+60 11-777 4545', false);
+  const lim = await mkLandlord('Mr. Lim', 'lim@example.com', '+60 11-777 4545', false);
+  // Mr. Lim's identity card (demo) waits in the legal reviewer's queue.
+  await prisma.document.create({ data: { ...demoDocument(lim.id, 'IDENTITY_CARD', 'Identity card (demo)', 'png'), verificationId: lim.verifications[0].id } });
 
   let photoIndex = 0;
   const mkListing = async (owner, d, status = 'PUBLISHED') => {
@@ -182,7 +228,11 @@ async function main() {
       data: {
         ownerId: owner.id, campusId: campus.id, title: d.title, description: d.description, roomType: d.roomType,
         rent: d.rent, deposit: d.deposit, distanceKm: d.distance, approximateArea: d.area, furnished: d.furnished ?? true,
-        address: d.address, houseRules: d.rules, genderRestriction: d.gender ?? 'ANY', availableFrom: d.availableFrom ? day(d.availableFrom) : null, status,
+        address: d.address, houseRules: d.rules, genderRestriction: d.gender ?? 'ANY',
+        // Published demo listings already passed the legal check; the pending one is waiting for it.
+        legalStatus: status === 'PENDING_REVIEW' ? 'PENDING' : status === 'DRAFT' ? 'NOT_SUBMITTED' : 'APPROVED',
+        legalReviewedAt: status === 'PENDING_REVIEW' || status === 'DRAFT' ? null : daysAgo((d.age ?? 5) + 0.5),
+        legalReviewedById: status === 'PENDING_REVIEW' || status === 'DRAFT' ? null : reviewer.id, availableFrom: d.availableFrom ? day(d.availableFrom) : null, status,
         publishedAt: status === 'PUBLISHED' || status === 'RENTED' ? daysAgo(d.age ?? 5) : null,
         lastConfirmedAt: daysAgo(d.confirmed ?? 2), viewCount: d.views ?? 0, createdAt: daysAgo((d.age ?? 5) + 1),
         amenities: { create: d.facilities.map((n) => ({ amenityId: amenities[n] })) },
@@ -225,8 +275,11 @@ async function main() {
   await mkListing(wong, {
     title: 'Master Room near Lanang Road', address: 'No. 7, Jalan Lanang, 96000 Sibu, Sarawak', rent: 520, deposit: 520, distance: 2.0, roomType: 'Master Room', area: 'Lanang Road',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Attached Bathroom'],
-    description: 'Newly painted master room, waiting for admin approval.',
-  }, 'PENDING_REVIEW');
+    description: 'Newly painted master room, waiting for approval.',
+  }, 'PENDING_REVIEW').then(async (l) => {
+    await prisma.document.create({ data: { ...demoDocument(wong.id, 'PROPERTY_TITLE', 'Title deed Jalan Lanang (demo)'), listingId: l.id } });
+    return l;
+  });
 
   // Approved + pending reviews
   await prisma.review.create({
@@ -297,9 +350,10 @@ async function main() {
   });
 
   console.log('\nDemo data ready (all records are fictitious).');
-  console.log(`  Student : BCS24020031 / student@uts.edu.my / ${DEMO_PASSWORD}`);
+  console.log(`  Student : BCS24020031 / bcs24020031@student.uts.edu.my / ${DEMO_PASSWORD}`);
   console.log(`  Landlord: wong@example.com / ${DEMO_PASSWORD}`);
   console.log(`  Admin   : admin@uts-housing.local / ${ADMIN_PASSWORD}`);
+  console.log(`  Reviewer: reviewer@uts-housing.local / ${REVIEWER_PASSWORD} (staff login)`);
 }
 
 main()

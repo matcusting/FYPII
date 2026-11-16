@@ -10,12 +10,21 @@ const Register = () => {
     const { register } = useAuth();
     const [role, setRole] = useState(params.get('role') === 'landlord' ? 'landlord' : 'student');
     const [form, setForm] = useState({
-        name: '', email: '', password: '', confirm: '', studentId: '', gender: '', major: '', academicYear: 'Year 1', phone: '', verificationNote: '', acceptTerms: false,
+        name: '', email: '', password: '', confirm: '', studentId: '', gender: '', major: '', academicYear: 'Year 1', phone: '', acceptTerms: false,
     });
     const [error, setError] = useState(null);
     const [submitting, setSubmitting] = useState(false);
 
     const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+
+    // Student e-mails look like bcs24020031@student.uts.edu.my — fill the Student ID from it.
+    const setStudentEmail = (e) => {
+        const email = e.target.value;
+        const local = email.split('@')[0];
+        const autoId = /^[A-Za-z0-9]{6,20}$/.test(local) ? local.toUpperCase() : '';
+        const followEmail = !form.studentId || form.studentId === form.email.split('@')[0].toUpperCase();
+        setForm({ ...form, email, studentId: followEmail ? autoId : form.studentId });
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -32,13 +41,13 @@ const Register = () => {
                 email: form.email,
                 password: form.password,
                 acceptTerms: form.acceptTerms,
-                verificationNote: form.verificationNote || undefined,
                 ...(role === 'student'
                     ? { studentId: form.studentId, gender: form.gender || undefined, major: form.major || undefined, academicYear: form.academicYear }
                     : { phone: form.phone || undefined }),
             };
             const user = await register(payload);
-            navigate(homeFor(user.role), { replace: true });
+            // Next step: upload the verification documents.
+            navigate(user.role === 'STUDENT' ? '/student/profile' : homeFor(user.role), { replace: true, state: { justRegistered: true } });
         } catch (err) {
             setError(err);
         } finally {
@@ -74,10 +83,16 @@ const Register = () => {
 
                 {role === 'student' ? (
                     <>
+                        <div>
+                            <label htmlFor="email" className={labelClass}>UTS Student Email</label>
+                            <input id="email" type="email" required autoComplete="email" value={form.email} onChange={setStudentEmail} className={inputClass} placeholder="bcs24020031@student.uts.edu.my" />
+                            <p className="text-[12px] text-gray-500 mt-1">Only your university student e-mail can be used. Personal e-mails (Gmail etc.) are not accepted.</p>
+                            <FieldError error={error} name="email" />
+                        </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                             <div>
                                 <label htmlFor="studentId" className={labelClass}>Student ID</label>
-                                <input id="studentId" required placeholder="e.g. BCS24020031" value={form.studentId} onChange={set('studentId')} className={inputClass} />
+                                <input id="studentId" required placeholder="Filled in from your e-mail" value={form.studentId} onChange={(e) => setForm({ ...form, studentId: e.target.value.toUpperCase() })} className={inputClass} />
                                 <FieldError error={error} name="studentId" />
                             </div>
                             <div>
@@ -104,12 +119,9 @@ const Register = () => {
                             <label htmlFor="major" className={labelClass}>Major / Course</label>
                             <input id="major" value={form.major} onChange={set('major')} className={inputClass} placeholder="e.g. Computer Science" />
                         </div>
-                        <div>
-                            <label htmlFor="email" className={labelClass}>UTS Email</label>
-                            <input id="email" type="email" required autoComplete="email" value={form.email} onChange={set('email')} className={inputClass} placeholder="you@uts.edu.my" />
-                            <p className="text-[12px] text-gray-500 mt-1">A UTS e-mail is verified automatically. Other e-mails need manual approval by an admin.</p>
-                            <FieldError error={error} name="email" />
-                        </div>
+                        <p className="text-[12px] text-[#1e3a8a] bg-[#eff6ff] border border-[#bfdbfe] rounded-lg px-3 py-2">
+                            After registering, confirm your e-mail and upload your <strong>offer letter (PDF)</strong> and a <strong>photo of your student card</strong>. An administrator checks them before roommate matching and reviews unlock.
+                        </p>
                     </>
                 ) : (
                     <>
@@ -122,6 +134,9 @@ const Register = () => {
                             <label htmlFor="phone" className={labelClass}>Phone (optional, never shown publicly)</label>
                             <input id="phone" type="tel" value={form.phone} onChange={set('phone')} className={inputClass} />
                         </div>
+                        <p className="text-[12px] text-[#1e3a8a] bg-[#eff6ff] border border-[#bfdbfe] rounded-lg px-3 py-2">
+                            After registering, upload your <strong>identity card</strong> (or company registration) in Account Settings — a legal reviewer verifies it once. Every property you list also needs its <strong>ownership or right-to-rent documents</strong> checked before it goes live.
+                        </p>
                     </>
                 )}
 
@@ -138,14 +153,6 @@ const Register = () => {
                     </div>
                 </div>
                 <p className="text-[12px] text-gray-500 -mt-2">At least 8 characters. Avoid common passwords.</p>
-
-                <div>
-                    <label htmlFor="verificationNote" className={labelClass}>
-                        {role === 'student' ? 'Verification note (only if you are not using a UTS e-mail)' : 'How can we verify you own or manage the property?'}
-                    </label>
-                    <textarea id="verificationNote" rows="2" value={form.verificationNote} onChange={set('verificationNote')} maxLength={1000} className={inputClass}
-                        placeholder={role === 'student' ? 'e.g. intake, programme, student card number' : 'e.g. property address area, assessment bill name'}></textarea>
-                </div>
 
                 <label className="flex items-start gap-3 text-[13px] text-gray-600 cursor-pointer">
                     <input type="checkbox" checked={form.acceptTerms} onChange={set('acceptTerms')} className="mt-0.5 accent-[#203569] w-4 h-4" />

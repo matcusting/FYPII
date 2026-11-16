@@ -1,10 +1,14 @@
 import { useEffect, useState } from 'react';
-import { GENDER_RESTRICTION_OPTIONS, api, mapsSearchUrl } from '../../lib/api';
+import { GENDER_RESTRICTION_OPTIONS, api, mapsSearchUrl, uploadPropertyDocuments } from '../../lib/api';
 import { ErrorBanner, FieldError } from '../../components/ui';
 import { MAX_PHOTOS, pickPhotos } from '../../lib/photos';
+import PropertyDocumentPicker from '../../components/PropertyDocuments';
+import { useAuth } from '../../context/AuthContext';
 
 
 const AddListing = ({ onCreated }) => {
+    const { user } = useAuth();
+    const [propertyDocs, setPropertyDocs] = useState([]); // [{ kind, file }]
     const [meta, setMeta] = useState({ amenities: [], roomTypes: [] });
     const [newTitle, setNewTitle] = useState('');
     const [newDescription, setNewDescription] = useState('');
@@ -51,6 +55,10 @@ const AddListing = ({ onCreated }) => {
     const handlePublish = async (e) => {
         e.preventDefault();
         setError(null);
+        if (propertyDocs.length === 0) {
+            setError({ message: 'Add at least one ownership or right-to-rent document (title deed, tenancy agreement or owner\'s authorisation).' });
+            return;
+        }
         if (photos.length === 0) {
             setError({ message: 'Add at least one photo — listings without photos cannot be published.' });
             return;
@@ -81,6 +89,7 @@ const AddListing = ({ onCreated }) => {
             const form = new FormData();
             photos.forEach((p) => form.append('photos', p.file));
             await api(`/listings/${created.id}/photos`, { method: 'POST', form });
+            await uploadPropertyDocuments(created.id, propertyDocs);
             await api(`/listings/${created.id}/submit`, { method: 'POST' });
             photos.forEach((p) => URL.revokeObjectURL(p.preview));
             onCreated();
@@ -307,8 +316,23 @@ const AddListing = ({ onCreated }) => {
                     </div>
                 </div>
 
+                {/* 房屋产权 / 出租权文件：由律师审核 */}
+                <div className="border border-[#c7d2fe] bg-[#f5f7ff] rounded-xl p-5">
+                    <p className="block text-[13px] font-bold text-[#374151] mb-1">Ownership / Right-to-Rent Documents <span className="text-[#e11d48]">*</span></p>
+                    <p className="text-[12px] text-gray-600 mb-3">
+                        Show that you own this property or are allowed to rent it out: a <strong>title deed</strong>, or your <strong>tenancy agreement</strong> plus the <strong>owner's authorisation letter</strong> if you are subletting. A legal reviewer checks them privately — students never see these files. PDF, JPG or PNG, up to 10 MB each.
+                    </p>
+                    <PropertyDocumentPicker value={propertyDocs} onChange={setPropertyDocs} disabled={isPublishing} />
+                </div>
+
+                {user?.role === 'LANDLORD' && !user.landlordVerified && (
+                    <p className="text-[12px] font-bold text-[#a16207] bg-[#fefce8] border border-[#fef08a] rounded-lg px-4 py-3">
+                        Your landlord identity is not verified yet, so this listing will be saved as a draft. Upload your identity card in Account Settings; once verified, submit it from Manage Listings.
+                    </p>
+                )}
+
                 <div className="border-t border-gray-100 mt-8 pt-6 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
-                    <p className="text-[12px] text-gray-500 max-w-sm">An administrator checks every listing before students can see it. You'll get a notification once it's approved.</p>
+                    <p className="text-[12px] text-gray-500 max-w-sm">A legal reviewer first checks your property documents, then an administrator checks the listing details. You'll get a notification at each step.</p>
                     <button
                         type="submit"
                         disabled={isPublishing}

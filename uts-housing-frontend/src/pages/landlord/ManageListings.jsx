@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { GENDER_RESTRICTION_OPTIONS, api, assetUrl, genderBadge, mapsSearchUrl, statusLabel } from '../../lib/api';
+import { GENDER_RESTRICTION_OPTIONS, LEGAL_STATUS, api, assetUrl, genderBadge, mapsSearchUrl, statusLabel, uploadPropertyDocuments } from '../../lib/api';
+import { DocumentLinks } from '../../components/Documents';
+import PropertyDocumentPicker from '../../components/PropertyDocuments';
 import { pickPhotos } from '../../lib/photos';
 import { ErrorBanner, LoadingBlock } from '../../components/ui';
 
@@ -54,6 +56,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
     const handleEditClick = (prop) => {
         setEditingProperty({
             ...prop,
+            newDocs: [],
             newPhotos: [], description: prop.description || '', approximateArea: prop.approximateArea || '', address: prop.address || '', mapUrl: prop.mapUrl || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
         setEditError(null);
         setIsEditModalOpen(true);
@@ -77,6 +80,17 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
         try {
             const updated = await api(`/listings/${editingProperty.id}/photos/${photo.id}`, { method: 'DELETE' });
             setEditingProperty({ ...editingProperty, photos: updated.photos });
+            reload();
+        } catch (err) {
+            setEditError(err);
+        }
+    };
+
+    const removeDocument = async (doc) => {
+        setEditError(null);
+        try {
+            const updated = await api(`/listings/${editingProperty.id}/documents/${doc.id}`, { method: 'DELETE' });
+            setEditingProperty({ ...editingProperty, documents: updated.documents });
             reload();
         } catch (err) {
             setEditError(err);
@@ -118,6 +132,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                 p.newPhotos.forEach((ph) => form.append('photos', ph.file));
                 await api(`/listings/${p.id}/photos`, { method: 'POST', form });
             }
+            if (p.newDocs.length) await uploadPropertyDocuments(p.id, p.newDocs);
             await reload();
             closeEdit();
         } catch (err) {
@@ -205,8 +220,16 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                         {prop.rejectionReason}{isAutoPaused(prop) && ' Click “Confirm Still Available” to put it back online.'}
                                     </p>
                                 )}
+                                {prop.legalStatus && (
+                                    <span className={`self-start text-[11px] font-bold px-2 py-0.5 rounded mb-2 ${LEGAL_STATUS[prop.legalStatus].className}`}>{LEGAL_STATUS[prop.legalStatus].label}</span>
+                                )}
                                 {prop.status === 'PENDING_REVIEW' && (
-                                    <p className="text-[12px] text-[#a16207] font-bold mb-2">Waiting for an administrator to approve this listing.</p>
+                                    <p className="text-[12px] text-[#a16207] font-bold mb-2">
+                                        {prop.legalStatus === 'PENDING' ? 'Step 1 of 2: a legal reviewer is checking your property documents.' : 'Step 2 of 2: waiting for an administrator to approve the listing details.'}
+                                    </p>
+                                )}
+                                {prop.legalStatus === 'NOT_SUBMITTED' && ['DRAFT', 'REJECTED'].includes(prop.status) && (
+                                    <p className="text-[12px] text-[#1d4ed8] font-bold mb-2">Add ownership documents in “Edit Details”, then submit for review.</p>
                                 )}
                                 {active && prop.isStale && (
                                     <p className="text-[12px] text-[#1d4ed8] font-bold mb-2">Students see a warning until you confirm this room is still available.</p>
@@ -242,11 +265,26 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                         </div>
                         <form onSubmit={handleEditSave} className="p-6 space-y-4 overflow-y-auto">
                             <ErrorBanner error={editError} />
-                            {['PUBLISHED', 'REJECTED'].includes(editingProperty.status) && (
+                            {['PUBLISHED', 'REJECTED'].includes(editingProperty.status) && editingProperty.legalStatus === 'APPROVED' && (
                                 <p className="text-[12px] text-[#a16207] bg-[#fefce8] border border-[#fef08a] rounded-md px-3 py-2 font-bold">
-                                    Saving changes sends this listing back to the admin for a quick re-check.
+                                    Saving changes sends this listing back to the admin for a quick re-check. Changing the address also needs new ownership documents.
                                 </p>
                             )}
+                            <div className="border border-[#c7d2fe] bg-[#f5f7ff] rounded-lg p-4">
+                                <p className="text-[13px] font-bold text-[#374151] mb-1">Ownership / Right-to-Rent Documents</p>
+                                <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded mb-2 ${LEGAL_STATUS[editingProperty.legalStatus || 'NOT_SUBMITTED'].className}`}>{LEGAL_STATUS[editingProperty.legalStatus || 'NOT_SUBMITTED'].label}</span>
+                                {editingProperty.legalNote && editingProperty.legalStatus === 'REJECTED' && <p className="text-[12px] text-[#b91c1c] font-bold mb-2">Reviewer: {editingProperty.legalNote}</p>}
+                                <DocumentLinks
+                                    documents={editingProperty.documents}
+                                    empty="No documents yet."
+                                    onRemove={['NOT_SUBMITTED', 'REJECTED'].includes(editingProperty.legalStatus) ? removeDocument : undefined}
+                                />
+                                {['NOT_SUBMITTED', 'REJECTED'].includes(editingProperty.legalStatus) ? (
+                                    <div className="mt-3"><PropertyDocumentPicker value={editingProperty.newDocs} onChange={(newDocs) => setEditingProperty({ ...editingProperty, newDocs })} /></div>
+                                ) : (
+                                    <p className="text-[11px] text-gray-500 mt-2">{editingProperty.legalStatus === 'PENDING' ? 'Under review — documents cannot be changed right now.' : 'Accepted. Changing the address will require new documents and a new check.'}</p>
+                                )}
+                            </div>
                             <div>
                                 <label className="block text-[13px] font-bold text-[#374151] mb-1.5">Property Photos</label>
                                 <div className="flex flex-wrap items-center gap-3">

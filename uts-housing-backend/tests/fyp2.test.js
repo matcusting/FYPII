@@ -219,12 +219,12 @@ describe('real-time messaging (WebSocket)', () => {
 describe('gender options', () => {
   it('students must choose a gender when registering; landlords do not', async () => {
     const base = { role: 'STUDENT', name: 'No Gender', password: PW, acceptTerms: true };
-    const missing = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'nog@fyp2.edu.my', studentId: 'BCS77770001' });
+    const missing = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs77770001@fyp2.edu.my', studentId: 'BCS77770001' });
     expect(missing.status).toBe(400);
     expect(missing.body.error.fields.gender).toBe('Choose your gender.');
-    const bad = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'nog@fyp2.edu.my', studentId: 'BCS77770001', gender: 'OTHER' });
+    const bad = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs77770001@fyp2.edu.my', studentId: 'BCS77770001', gender: 'OTHER' });
     expect(bad.status).toBe(400);
-    const okRes = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'nog@fyp2.edu.my', studentId: 'BCS77770001', gender: 'FEMALE' });
+    const okRes = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs77770001@fyp2.edu.my', studentId: 'BCS77770001', gender: 'FEMALE' });
     expect(okRes.status).toBe(201);
     expect(okRes.body.data.user.gender).toBe('FEMALE');
     const landlord = await request(app).post('/api/v1/auth/register').send({ role: 'LANDLORD', name: 'Some Landlord', email: 'gl@example.com', password: PW, acceptTerms: true });

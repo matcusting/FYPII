@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { MAX_DOCUMENT_MB, api, tooLarge } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { ErrorBanner, FieldError, Stars, SuccessBanner } from './ui';
+import { DocumentLinks, FileField } from './Documents';
 
 const sectionTitle = 'text-[1.1rem] font-bold text-[#1f2937] border-b border-gray-100 pb-3 mb-5';
 const input = 'w-full p-2.5 border border-gray-300 rounded-lg outline-none focus:border-[#203569] text-gray-800';
@@ -18,54 +19,94 @@ const STATUS_STYLE = {
 export function VerificationSection() {
     const { user, refresh } = useAuth();
     const [items, setItems] = useState(null);
+    const [files, setFiles] = useState({});
     const [note, setNote] = useState('');
     const [error, setError] = useState(null);
     const [done, setDone] = useState(false);
-    const verified = user.role === 'STUDENT' ? user.studentVerified : user.landlordVerified;
+    const [sending, setSending] = useState(false);
+    const isStudent = user.role === 'STUDENT';
+    const verified = isStudent ? user.studentVerified : user.landlordVerified;
 
     const load = () => api('/profile/verification').then(setItems).catch(setError);
     useEffect(() => { load(); }, []);
 
+    const pick = (name) => (list) => setFiles({ ...files, [name]: list });
+
     const submit = async (e) => {
         e.preventDefault();
         setError(null);
+        const all = Object.values(files).flat();
+        const big = tooLarge(all);
+        if (big) { setError({ message: `"${big.name}" is larger than ${MAX_DOCUMENT_MB} MB.` }); return; }
+        const form = new FormData();
+        Object.entries(files).forEach(([name, list]) => list.forEach((f) => form.append(name, f)));
+        if (note.trim()) form.append('note', note.trim());
+        setSending(true);
         try {
-            await api('/profile/verification', { method: 'POST', body: { note } });
+            await api('/profile/verification', { method: 'POST', form });
             setDone(true);
+            setFiles({});
             setNote('');
             load();
             refresh();
         } catch (err) {
             setError(err);
+        } finally {
+            setSending(false);
         }
     };
 
     const latest = items?.[0];
-    const canResubmit = !verified && latest && latest.status !== 'PENDING';
-    const pendingManual = latest?.status === 'PENDING' && latest.method === 'MANUAL';
+    const pending = latest?.status === 'PENDING';
+    const canSubmit = !verified && !pending && user.emailVerified;
+    const reviewer = isStudent ? 'an administrator' : 'the legal reviewer';
+    const ready = isStudent ? files.offerLetter?.length && files.studentCard?.length : files.identityCard?.length || files.companyRegistration?.length;
 
     return (
-        <div>
-            <h3 className={sectionTitle}>{user.role === 'STUDENT' ? 'UTS Student Verification' : 'Landlord Verification'}</h3>
+        <div id="verification">
+            <h3 className={sectionTitle}>{isStudent ? 'UTS Student Verification' : 'Landlord Verification'}</h3>
             <div className="flex flex-wrap items-center gap-3 mb-3">
                 <span className={`text-[12px] font-bold px-3 py-1.5 rounded ${verified ? STATUS_STYLE.APPROVED : STATUS_STYLE[latest?.status] || STATUS_STYLE.PENDING}`}>
-                    {verified ? '✓ Verified' : latest?.status === 'REJECTED' ? 'Not approved' : 'Pending'}
+                    {verified ? '✓ Verified' : pending ? 'Under review' : latest?.status === 'REJECTED' ? 'Not approved' : 'Documents needed'}
                 </span>
                 {!user.emailVerified && <span className="text-[12px] text-[#a16207] font-bold">Confirm your e-mail first — check your inbox for the link.</span>}
-                {!verified && latest?.method === 'EMAIL_DOMAIN' && user.emailVerified === false && (
-                    <span className="text-[12px] text-gray-500">Your UTS e-mail will be approved automatically after confirmation.</span>
-                )}
-                {pendingManual && <span className="text-[12px] text-gray-500">An administrator is reviewing your request.</span>}
+                {pending && <span className="text-[12px] text-gray-500">Your documents are with {reviewer}. You will be notified of the decision.</span>}
             </div>
-            {latest?.decisionNote && !verified && <p className="text-[13px] text-gray-600 mb-3">Admin note: {latest.decisionNote}</p>}
-            <SuccessBanner message={done && 'Request sent. An administrator will review it soon.'} className="mb-3" />
+            {latest?.decisionNote && !verified && latest.status === 'REJECTED' && (
+                <p className="text-[13px] text-[#b91c1c] font-bold mb-3">Reason: {latest.decisionNote}</p>
+            )}
+            {latest?.documents?.length > 0 && (
+                <div className="mb-4">
+                    <p className="text-[12px] font-bold text-gray-500 mb-1.5">Your uploaded documents ({latest.status.toLowerCase()})</p>
+                    <DocumentLinks documents={latest.documents} />
+                </div>
+            )}
+            <SuccessBanner message={done && `Documents sent. ${isStudent ? 'An administrator' : 'The legal reviewer'} will review them soon.`} className="mb-3" />
             <ErrorBanner error={error} className="mb-3" />
-            {canResubmit && (
-                <form onSubmit={submit} className="space-y-3">
-                    <label htmlFor="vnote" className={label}>Tell the admin how to confirm your identity</label>
-                    <textarea id="vnote" rows="2" required minLength={10} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} className={input}
-                        placeholder={user.role === 'STUDENT' ? 'e.g. programme, intake, student card number' : 'e.g. property area, name on assessment bill'}></textarea>
-                    <button type="submit" className={primary}>Submit Verification Request</button>
+            {canSubmit && (
+                <form onSubmit={submit} className="space-y-4 border border-gray-200 rounded-xl p-5 bg-[#fafafa]">
+                    <p className="text-[13px] text-gray-600">
+                        {isStudent
+                            ? 'Upload your university offer letter and a clear photo of your student card. Only administrators can see these files.'
+                            : 'Upload your identity card (MyKad or passport). If you rent as a company, upload the company registration (SSM) instead. Only the legal reviewer and administrators can see these files.'}
+                    </p>
+                    {isStudent ? (
+                        <>
+                            <FileField id="offerLetter" label="Offer letter" hint="PDF only, up to 10 MB." accept="application/pdf" required files={files.offerLetter} onChange={pick('offerLetter')} error={error?.fields?.offerLetter} />
+                            <FileField id="studentCard" label="Student card photo" hint="JPG, PNG or PDF, up to 10 MB. Front side (and back if needed)." accept="image/jpeg,image/png,application/pdf" multiple required files={files.studentCard} onChange={pick('studentCard')} error={error?.fields?.studentCard} />
+                        </>
+                    ) : (
+                        <>
+                            <FileField id="identityCard" label="Identity card (MyKad / passport)" hint="JPG, PNG or PDF, up to 10 MB. Front and back." accept="image/jpeg,image/png,application/pdf" multiple files={files.identityCard} onChange={pick('identityCard')} error={error?.fields?.identityCard} />
+                            <FileField id="companyRegistration" label="Company registration (SSM) — only if you rent as a company" accept="image/jpeg,image/png,application/pdf" multiple files={files.companyRegistration} onChange={pick('companyRegistration')} />
+                        </>
+                    )}
+                    <div>
+                        <label htmlFor="vnote" className={label}>Note for the reviewer (optional)</label>
+                        <textarea id="vnote" rows="2" maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} className={input}
+                            placeholder={isStudent ? 'e.g. intake, programme' : 'e.g. how many properties you manage'}></textarea>
+                    </div>
+                    <button type="submit" disabled={sending || !ready} className={primary}>{sending ? 'Uploading...' : 'Submit Documents'}</button>
                 </form>
             )}
         </div>

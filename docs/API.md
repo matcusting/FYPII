@@ -5,12 +5,14 @@ Authentication uses the HTTP-only `uts_sid` session cookie. Health checks: `GET 
 
 | Method | Path | Who |
 |---|---|---|
-| POST | `/auth/register` · `/auth/login` · `/auth/logout` · `/auth/logout-all` | Public / Auth |
+| POST | `/auth/register` (students: university student e-mail only, Student ID must match) · `/auth/login` (`role`: `STUDENT`, `LANDLORD` or `STAFF` for admins and legal reviewers) · `/auth/logout` · `/auth/logout-all` | Public / Auth |
 | GET | `/auth/me` | Auth |
 | POST | `/auth/verify-email` · `/auth/resend-verification` | Public / Auth |
 | POST | `/auth/forgot-password` · `/auth/reset-password` · `/auth/change-password` · `/auth/delete-account` | Public / Auth |
 | GET, PATCH | `/profile` (includes `emailNotifications: boolean`; students also `gender: MALE \| FEMALE`) | Auth |
-| GET, POST | `/profile/verification` | Student, Landlord |
+| GET, POST | `/profile/verification` (multipart: students `offerLetter` (PDF) + `studentCard`; landlords `identityCard` and/or `companyRegistration`; optional `note`) | Student, Landlord |
+| GET | `/documents/:id` (private file; uploader, admins, and legal reviewers for landlord/property documents; others get 404; views are audited) | Auth |
+| POST, DELETE | `/listings/:id/documents` (multipart `kind` + `documents`) · `/listings/:id/documents/:docId` | Owner |
 | GET | `/meta` (facilities, room types, campuses, habit options, report reasons) | Public |
 | GET | `/listings` (`q, minRent, maxRent, maxDeposit, maxDistance, roomType, amenities, furnished, availableBy, suitableFor, genderRestriction, saved, sort, page, limit`) | Public |
 | GET | `/listings/mine` · `/listings/:id` | Owner / Public (published only) |
@@ -33,6 +35,10 @@ Authentication uses the HTTP-only `uts_sid` session cookie. Health checks: `GET 
 | GET | `/admin/overview` · `/admin/audit-logs` | Admin |
 | GET, PATCH | `/admin/verifications[/:id]` · `/admin/listings[/:id]` · `/admin/reviews[/:id]` · `/admin/reports[/:id]` | Admin |
 | GET, PATCH, DELETE | `/admin/users[/:id]` | Admin |
+| GET, POST | `/admin/reviewers` (create a legal reviewer; they get a password-setup link) | Admin |
+| GET | `/reviewer/overview` | Legal reviewer |
+| GET, PATCH | `/reviewer/landlords[/:id]` (landlord identity, `decision: APPROVED \| REJECTED`, `note`) | Legal reviewer |
+| GET, PATCH | `/reviewer/properties[/:id]` (property ownership documents) | Legal reviewer |
 | GET, POST, PATCH | `/admin/universities[/:id]` · `/admin/campuses[/:id]` · POST `/admin/amenities` | Admin |
 
 ## Gender fields
@@ -46,6 +52,13 @@ Authentication uses the HTTP-only `uts_sid` session cookie. Health checks: `GET 
 | `GET /listings` | `suitableFor` | `MALE`, `FEMALE` | Only listings that gender may rent (`ANY` + matching restriction). |
 | `GET /listings` | `genderRestriction` | comma list | Filter by restriction. |
 | `POST /listings/:id/inquiries` | — | — | 403 when a student's gender does not fit the listing's restriction. |
+
+## Verification and listing flow
+
+1. **Student:** register with `<studentId>@<student domain>` → confirm e-mail → `POST /profile/verification` (offer letter + student card) → admin `PATCH /admin/verifications/:id`.
+2. **Landlord (once):** register → confirm e-mail → `POST /profile/verification` (identity card) → legal reviewer `PATCH /reviewer/landlords/:id`.
+3. **Every listing:** `POST /listings` → photos → `POST /listings/:id/documents` → `POST /listings/:id/submit` (needs a verified landlord; sets `legalStatus: PENDING`) → legal reviewer `PATCH /reviewer/properties/:id` → admin `PATCH /admin/listings/:id` (`approve` only after `legalStatus: APPROVED`).
+   Changing the address resets `legalStatus` to `NOT_SUBMITTED`, hides the listing (`DRAFT`) and supersedes the old documents.
 
 ## Real-time events (Socket.IO, same origin as the API)
 

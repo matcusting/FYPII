@@ -15,6 +15,7 @@ enum Role {
   STUDENT
   LANDLORD
   ADMIN
+  LEGAL_REVIEWER // checks landlord identity and property ownership documents
 }
 
 enum AccountStatus {
@@ -29,8 +30,29 @@ enum VerificationType {
 }
 
 enum VerificationMethod {
-  EMAIL_DOMAIN
-  MANUAL
+  EMAIL_DOMAIN // legacy: approved automatically from the university e-mail
+  MANUAL // legacy: written note only
+  DOCUMENTS // uploaded documents reviewed by a person
+}
+
+// Private documents uploaded for verification or property checks (never public).
+enum DocumentKind {
+  OFFER_LETTER // student: university offer letter (PDF)
+  STUDENT_CARD // student: photo of the student card
+  IDENTITY_CARD // landlord: MyKad / passport
+  COMPANY_REGISTRATION // landlord company: SSM registration
+  PROPERTY_TITLE // property: title deed / ownership proof
+  TENANCY_AGREEMENT // property: head tenancy agreement (when subletting)
+  OWNER_AUTHORISATION // property: owner's letter allowing the landlord to rent it out
+  OTHER_PROPERTY // property: any other supporting document
+}
+
+// Legal check of a listing's ownership / right-to-rent documents.
+enum LegalStatus {
+  NOT_SUBMITTED
+  PENDING
+  APPROVED
+  REJECTED
 }
 
 enum VerificationStatus {
@@ -103,6 +125,8 @@ model University {
   id           String    @id @default(uuid()) @db.Uuid
   name         String    @unique
   emailDomains String[]
+  // Student e-mails must look like <studentId>@domain (e.g. bcs24020031@student.uts.edu.my)
+  requireStudentIdEmail Boolean @default(true)
   campuses     Campus[]
   createdAt    DateTime  @default(now()) @db.Timestamptz
 }
@@ -163,6 +187,8 @@ model User {
   resolvedReports       Report[]             @relation("Resolver")
   notifications         Notification[]
   auditLogs             AuditLog[]
+  documents             Document[]
+  legalReviews          Listing[]            @relation("LegalReviewer")
 }
 
 model Session {
@@ -212,8 +238,29 @@ model Verification {
   reviewedBy   User?              @relation("VerificationReviewer", fields: [reviewedById], references: [id])
   reviewedAt   DateTime?          @db.Timestamptz
   createdAt    DateTime           @default(now()) @db.Timestamptz
+  documents    Document[]
 
   @@index([status, type])
+}
+
+model Document {
+  id             String        @id @default(uuid()) @db.Uuid
+  ownerId        String        @db.Uuid
+  owner          User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  verificationId String?       @db.Uuid
+  verification   Verification? @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+  listingId      String?       @db.Uuid
+  listing        Listing?      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  kind           DocumentKind
+  objectKey      String        @unique // random file name in PRIVATE_UPLOAD_DIR
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  supersededAt   DateTime?     @db.Timestamptz // e.g. replaced after the listing address changed
+  createdAt      DateTime      @default(now()) @db.Timestamptz
+
+  @@index([verificationId])
+  @@index([listingId])
 }
 
 model Amenity {
@@ -244,6 +291,12 @@ model Listing {
   availableFrom   DateTime?     @db.Date
   status          ListingStatus @default(DRAFT)
   rejectionReason String?
+  // Legal check of ownership / right-to-rent documents (by the legal reviewer)
+  legalStatus       LegalStatus @default(NOT_SUBMITTED)
+  legalNote         String?
+  legalReviewedAt   DateTime?   @db.Timestamptz
+  legalReviewedById String?     @db.Uuid
+  legalReviewedBy   User?       @relation("LegalReviewer", fields: [legalReviewedById], references: [id], onDelete: SetNull)
   lastConfirmedAt DateTime      @default(now()) @db.Timestamptz
   staleReminderAt DateTime?     @db.Timestamptz // when the "please reconfirm" reminder was last sent
   viewCount       Int           @default(0)
@@ -257,6 +310,7 @@ model Listing {
   favorites     Favorite[]
   reviews       Review[]
   conversations Conversation[]
+  documents     Document[]
 
   @@index([status, campusId, rent])
   @@index([availableFrom])

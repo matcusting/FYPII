@@ -13,5 +13,8 @@ export default async function setup() {
   const tables = await prisma.$queryRaw`SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
   await prisma.$executeRawUnsafe(`TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} CASCADE`);
   await prisma.$disconnect();
-  return () => fs.rmSync('uploads-test', { recursive: true, force: true });
+  return () => {
+    fs.rmSync('uploads-test', { recursive: true, force: true });
+    fs.rmSync('private-uploads-test', { recursive: true, force: true });
+  };
 }

@@ -48,3 +48,8 @@ export async function notifyAdmins(payload) {
   const admins = await prisma.user.findMany({ where: { role: 'ADMIN', status: 'ACTIVE' }, select: { id: true } });
   await Promise.all(admins.map((a) => notify(a.id, payload)));
 }
+
+export async function notifyReviewers(payload) {
+  const reviewers = await prisma.user.findMany({ where: { role: 'LEGAL_REVIEWER', status: 'ACTIVE' }, select: { id: true } });
+  await Promise.all(reviewers.map((r) => notify(r.id, payload)));
+}

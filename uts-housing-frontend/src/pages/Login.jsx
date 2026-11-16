@@ -17,7 +17,7 @@ const Login = () => {
 
     // 学生表单数据
     const [studentId, setStudentId] = useState(DEV ? 'BCS24020031' : '');
-    const [studentEmail, setStudentEmail] = useState(DEV ? 'student@uts.edu.my' : '');
+    const [studentEmail, setStudentEmail] = useState(DEV ? 'bcs24020031@student.uts.edu.my' : '');
     const [studentPassword, setStudentPassword] = useState(DEV ? 'Demo@2026' : '');
 
     // 房东 / 管理员表单数据
@@ -39,7 +39,7 @@ const Login = () => {
         try {
             const payload = role === 'student'
                 ? { role: 'STUDENT', studentId, email: studentEmail, password: studentPassword }
-                : { role: role === 'admin' ? 'ADMIN' : 'LANDLORD', email: landlordEmail, password: landlordPassword };
+                : { role: role === 'admin' ? 'STAFF' : 'LANDLORD', email: landlordEmail, password: landlordPassword };
             const u = await login(payload);
             // 根据身份，跳转到不同的路由
             navigate(location.state?.from || homeFor(u.role), { replace: true });
@@ -60,7 +60,7 @@ const Login = () => {
                     <div className="w-16 h-16 bg-[#203569] text-white rounded-full flex items-center justify-center text-2xl font-bold mb-4 tracking-wide">
                         UTS
                     </div>
-                    <h2 className="text-[1.6rem] font-bold text-[#1f2937] mb-1">{role === 'admin' ? 'Admin Login' : 'System Login'}</h2>
+                    <h2 className="text-[1.6rem] font-bold text-[#1f2937] mb-1">{role === 'admin' ? 'Staff Login' : 'System Login'}</h2>
                     <p className="text-gray-500 text-[14px]">Housing & Roommate Finder</p>
                 </div>
 
@@ -107,13 +107,14 @@ const Login = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="studentEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">UTS Email</label>
+                                <label htmlFor="studentEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">UTS Student Email</label>
                                 <input
                                     id="studentEmail"
                                     type="email"
                                     required
                                     autoComplete="email"
                                     value={studentEmail}
+                                    placeholder="bcs24020031@student.uts.edu.my"
                                     onChange={(e) => setStudentEmail(e.target.value)}
                                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:border-[#203569] outline-none text-gray-800 transition-colors"
                                 />
@@ -134,7 +135,7 @@ const Login = () => {
                     ) : (
                         <>
                             <div>
-                                <label htmlFor="landlordEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">{role === 'admin' ? 'Admin Email' : 'Landlord Email'}</label>
+                                <label htmlFor="landlordEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">{role === 'admin' ? 'Staff Email (administrator or legal reviewer)' : 'Landlord Email'}</label>
                                 <input
                                     id="landlordEmail"
                                     type="email"
@@ -165,7 +166,7 @@ const Login = () => {
                         disabled={submitting}
                         className="w-full bg-[#203569] text-white font-bold py-3 px-4 rounded-lg hover:bg-[#1a2b56] transition mt-4 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
                     >
-                        {submitting ? 'Signing in...' : role === 'student' ? 'Verify & Login' : role === 'admin' ? 'Login as Administrator' : 'Login as Landlord'}
+                        {submitting ? 'Signing in...' : role === 'student' ? 'Verify & Login' : role === 'admin' ? 'Staff Login' : 'Login as Landlord'}
                     </button>
                 </form>
 
@@ -186,7 +187,7 @@ const Login = () => {
                         }}
                         className="text-[12px] font-bold text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                     >
-                        {role === 'admin' ? '← Back to student / landlord login' : 'Administrator login'}
+                        {role === 'admin' ? '← Back to student / landlord login' : 'Staff login (administrator / legal reviewer)'}
                     </button>
                 </div>
             </div>

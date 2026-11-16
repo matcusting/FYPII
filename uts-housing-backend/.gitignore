@@ -1,6 +1,8 @@
 node_modules/
 .env
 uploads/
+private-uploads/
+private-uploads-test/
 logs/
 coverage/
 uploads-test/

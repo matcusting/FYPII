@@ -42,6 +42,27 @@ const registerSchema = z
   .refine((d) => d.role !== 'STUDENT' || d.studentId, { path: ['studentId'], message: 'Student ID is required.' })
   .refine((d) => d.role !== 'STUDENT' || d.gender, { path: ['gender'], message: 'Choose your gender.' });
 
+/**
+ * Students may only register with their university student e-mail (domains set
+ * by admins in Campus & Domains, e.g. student.uts.edu.my). When the university
+ * requires it, the part before @ must be the Student ID (bcs24020031@…).
+ */
+async function checkStudentEmail(addr, sid) {
+  const uni = await universityForEmail(addr);
+  if (!uni) {
+    const domains = (await prisma.university.findMany()).flatMap((u) => u.emailDomains);
+    const hint = domains.length ? ` (${domains.map((d) => `@${d}`).join(', ')})` : '';
+    throw badRequest(`email: Please register with your university student e-mail${hint}.`, {
+      email: `Use your university student e-mail${hint}.`,
+    });
+  }
+  if (uni.requireStudentIdEmail && addr.split('@')[0].toUpperCase() !== sid)
+    throw badRequest('studentId: The Student ID does not match your student e-mail.', {
+      studentId: 'The Student ID must match your student e-mail (e.g. BCS24020031 for bcs24020031@…).',
+    });
+  return uni;
+}
+
 // Used to keep login timing similar whether or not the account exists.
 const DUMMY_HASH = await hashPassword('timing-equaliser-not-a-real-password');
 
@@ -68,12 +89,12 @@ router.post('/register', authLimiter, async (req, res) => {
   const existing = await prisma.user.findUnique({ where: { email: data.email } });
   if (existing) throw conflict('An account with this e-mail already exists. Try logging in instead.');
   if (data.role === 'STUDENT') {
+    await checkStudentEmail(data.email, data.studentId);
     const sid = await prisma.user.findUnique({ where: { studentId: data.studentId } });
     if (sid) throw conflict('This Student ID is already registered.');
   }
 
   const passwordHash = await hashPassword(data.password);
-  const uni = data.role === 'STUDENT' ? await universityForEmail(data.email) : null;
 
   const user = await prisma.$transaction(async (tx) => {
     const u = await tx.user.create({
@@ -89,34 +110,19 @@ router.post('/register', authLimiter, async (req, res) => {
         phone: data.role === 'LANDLORD' ? data.phone : null,
       },
     });
-    await tx.verification.create({
-      data: {
-        userId: u.id,
-        type: data.role === 'STUDENT' ? 'STUDENT' : 'LANDLORD',
-        // University e-mail domains are approved automatically once the inbox is confirmed.
-        method: uni ? 'EMAIL_DOMAIN' : 'MANUAL',
-        note: data.verificationNote,
-      },
-    });
+    // Verification starts when the user uploads documents (Profile / Account Settings).
     if (data.role === 'STUDENT') await tx.lifestyleProfile.create({ data: { userId: u.id } });
     return u;
   });
 
   await sendVerificationEmail(user);
-  if (!uni) {
-    await notifyAdmins({
-      type: 'VERIFICATION_PENDING',
-      title: data.role === 'STUDENT' ? 'Student verification pending' : 'Landlord verification pending',
-      body: `${user.name} (${user.email}) is waiting for manual verification.`,
-      link: '/admin/verifications',
-    });
-  }
   await startSession(res, user.id);
   ok(res, { user: serializeMe(user) }, undefined, 201);
 });
 
 const loginSchema = z.object({
-  role: z.enum(['STUDENT', 'LANDLORD', 'ADMIN']).optional(),
+  // STAFF = the staff login page (administrators and legal reviewers)
+  role: z.enum(['STUDENT', 'LANDLORD', 'ADMIN', 'STAFF']).optional(),
   email,
   password: z.string().min(1, 'Enter your password.').max(128),
   studentId: studentId.optional(),
@@ -137,6 +143,8 @@ router.post('/login', authLimiter, async (req, res) => {
     throw unauthorized('This account is not a landlord account. Please use the correct tab.');
   } else if (data.role === 'ADMIN' && user.role !== 'ADMIN') {
     throw unauthorized('This account is not an administrator account.');
+  } else if (data.role === 'STAFF' && !['ADMIN', 'LEGAL_REVIEWER'].includes(user.role)) {
+    throw unauthorized('This account is not a staff account. Please use the student / landlord login.');
   }
   if (user.status === 'SUSPENDED') throw new AppError(403, 'SUSPENDED', 'This account has been suspended. Contact support.');
 
@@ -187,13 +195,8 @@ router.post('/verify-email', authLimiter, async (req, res) => {
   await prisma.$transaction(async (tx) => {
     await tx.emailVerificationToken.update({ where: { id: record.id }, data: { usedAt: now } });
     await tx.user.update({ where: { id: record.userId }, data: { emailVerifiedAt: record.user.emailVerifiedAt || now } });
-    const pending = await tx.verification.findFirst({
-      where: { userId: record.userId, type: 'STUDENT', method: 'EMAIL_DOMAIN', status: 'PENDING' },
-    });
-    if (pending) {
-      await tx.verification.update({ where: { id: pending.id }, data: { status: 'APPROVED', reviewedAt: now, decisionNote: 'University e-mail confirmed.' } });
-      await tx.user.update({ where: { id: record.userId }, data: { studentVerifiedAt: now } });
-    }
+    // Confirming the e-mail no longer verifies student status: an administrator
+    // reviews the uploaded offer letter and student card.
   });
   ok(res, { verified: true });
 });
@@ -224,14 +227,15 @@ router.post('/forgot-password', authLimiter, async (req, res) => {
 
 router.post('/reset-password', authLimiter, async (req, res) => {
   const data = parse(z.object({ token: z.string().min(10).max(200), password }), req.body);
-  const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: sha256(data.token) } });
+  const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: sha256(data.token) }, include: { user: true } });
   if (!record || record.usedAt || record.expiresAt < new Date())
     throw badRequest('This reset link is invalid or has expired. Please request a new one.');
   const passwordHash = await hashPassword(data.password);
   const now = new Date();
   await prisma.$transaction([
     prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: now } }),
-    prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+    // Using a link sent to the inbox also proves the e-mail address (e.g. new legal reviewers).
+    prisma.user.update({ where: { id: record.userId }, data: { passwordHash, emailVerifiedAt: record.user.emailVerifiedAt || now } }),
     // Invalidate every existing session after a password reset.
     prisma.session.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: now } }),
   ]);

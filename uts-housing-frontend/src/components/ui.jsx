@@ -68,7 +68,7 @@ export function VerificationBanner({ className = '' }) {
     const { user, verification, refresh } = useAuth();
     const [sent, setSent] = useState(false);
     const [error, setError] = useState(null);
-    if (!user || user.role === 'ADMIN') return null;
+    if (!user || user.role === 'ADMIN' || user.role === 'LEGAL_REVIEWER') return null;
 
     const resend = async () => {
         setError(null);
@@ -95,15 +95,19 @@ export function VerificationBanner({ className = '' }) {
         );
     } else if (user.role === 'STUDENT' && !user.studentVerified) {
         content = verification?.status === 'REJECTED' ? (
-            <span>⚠️ Your student verification was not approved{verification.decisionNote ? `: ${verification.decisionNote}` : ''}. <Link to="/student/profile" className="underline">Submit a new request</Link></span>
+            <span>⚠️ Your student verification was not approved{verification.decisionNote ? `: ${verification.decisionNote}` : ''}. <Link to="/student/profile" className="underline">Upload new documents</Link></span>
+        ) : verification?.status === 'PENDING' ? (
+            <span>⏳ An administrator is checking your offer letter and student card. Roommate matching and reviews unlock once approved.</span>
         ) : (
-            <span>⏳ Your UTS student status is waiting for admin verification. Roommate matching and reviews unlock once approved.</span>
+            <span>📄 Upload your offer letter and student card to get verified. <Link to="/student/profile" className="underline">Go to My Profile</Link></span>
         );
     } else if (user.role === 'LANDLORD' && !user.landlordVerified) {
         content = verification?.status === 'REJECTED' ? (
-            <span>⚠️ Your landlord verification was not approved{verification.decisionNote ? `: ${verification.decisionNote}` : ''}. Submit a new request in Account Settings.</span>
+            <span>⚠️ Your landlord verification was not approved{verification.decisionNote ? `: ${verification.decisionNote}` : ''}. Upload new documents in Account Settings.</span>
+        ) : verification?.status === 'PENDING' ? (
+            <span>⏳ The legal reviewer is checking your identity documents. You can prepare listings meanwhile; they can be submitted once you are verified.</span>
         ) : (
-            <span>⏳ Your landlord identity is waiting for admin verification. Your listings will show the Verified badge once approved.</span>
+            <span>📄 Upload your identity card in Account Settings so the legal reviewer can verify you. Listings can only be submitted after that.</span>
         );
     }
     if (!content) return null;

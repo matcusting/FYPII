@@ -28,14 +28,14 @@ This document maps the FYP report (Chapters 1 and 4) and `PROJECT_REQUIREMENTS.m
 
 | FR | Status | Notes |
 |---|---|---|
-| FR-01 Accounts | Done | Register, login, logout, logout from all devices, e-mail verification, reset, change password, deletion request, rate limiting, generic login errors, admin creation script only |
+| FR-01 Accounts | Done | Register (students: university student e-mail only, Student ID must match the e-mail), login, logout, logout from all devices, e-mail verification, reset, change password, deletion request, rate limiting, generic login errors, admin creation script only; legal reviewer accounts created by admins |
 | FR-02 Student profile and lifestyle | Done | Profile, gender (required), 6 habits, weights, roommate gender preference, budget, move-in date, discoverable opt-in, block |
-| FR-03 Listings | Done | All 7 statuses, soft delete, at least 1 photo to publish, image type, size and count limits checked by file signature, stale flag, student sublets (verified students only) |
+| FR-03 Listings | Done | All 7 statuses, soft delete, at least 1 photo and at least 1 ownership / right-to-rent document to submit, legal check by the legal reviewer before admin approval, new documents required after an address change, image type, size and count limits checked by file signature, stale flag, student sublets (verified students only), verified landlords only |
 | FR-04 Search | Done | Keyword, rent, deposit, distance, room type, facilities, furnished, available-by, 4 sort orders, pagination, saved listings. Distance is entered by the landlord. The listing address opens in Google Maps (search link, or the landlord's own Google Maps pin if provided) |
 | FR-05 Matching | Done | Eligibility filters, explainable breakdown, insufficient data shown instead of 0%, consent-based requests |
 | FR-06 Reviews | Done | Verified students only, proof of stay checked by admin, one per listing, edit history, moderation, landlord reply, reporting |
 | FR-07 Contact | Done | In-app inquiries, contact details never exposed, block and report, message rate limit, no payments |
-| FR-08 Admin | Done | Verifications, listings, reviews, reports, users, campuses and domains, facilities, audit log |
+| FR-08 Admin | Done | Student verification (offer letter + student card), legal reviewer accounts, listings (after the legal check), reviews, reports, users, campuses and domains (incl. Student-ID-in-e-mail rule), facilities, audit log (incl. every document view). Landlord identity and property documents are reviewed in the separate legal reviewer portal |
 | FR-09 Notifications | Done | In-app (pushed in real time) plus e-mail (SMTP or a dev log file) for listing decisions, inquiries, roommate requests and availability reminders. Users can switch e-mails off in account settings; security e-mails are always sent. Failures never block the main request |
 
 ## Security (section 11)
@@ -49,7 +49,8 @@ Done: Argon2id, opaque session tokens stored as SHA-256 hashes, HttpOnly + SameS
 - **Maps:** students open the listing address in Google Maps (no API key needed). Distance is entered by the landlord: automatic distance from a map pin was built and then removed on feedback (see the `claude/jolly-edison-1vzpxr` history). Not done: embedded map and address autocomplete, which would need a paid Google Maps API key.
 - **Multilingual UI:** not required by the TRF.
 - **Frontend unit tests and Playwright E2E in CI:** only the backend has automated tests. The UI flows were checked manually with Playwright during development.
-- **Open questions for the supervisor:** see `PROJECT_REQUIREMENTS.md` §18 (verification policy, sublet rules, landlord identity checks, data retention).
+- **Document retention:** verification documents are kept (superseded property documents too, for the audit trail). A retention period and automatic deletion still need to be decided (PDPA).
+- **Open questions for the supervisor:** see `PROJECT_REQUIREMENTS.md` §18 (sublet rules, data retention). Decided in this iteration: students are verified by offer letter + student card (admin); landlords and properties by a legal reviewer.
 
 ## FYP II iteration (November 2026)
 
@@ -61,6 +62,8 @@ Done: Argon2id, opaque session tokens stored as SHA-256 hashes, HttpOnly + SameS
 | Gender options: required student gender, "same gender only / any" roommate filter, male-only / female-only listings with search filter and inquiry check | `prisma/migrations/20261116110000_gender_options`, `services/matching.js` (`genderConflict`), `modules/roommates.js`, `modules/listings.js`, `modules/conversations.js`, `pages/Register.jsx`, `pages/student/Profile.jsx`, `RoommateSearch.jsx`, `HousingSearch.jsx`, `AddListing.jsx`, `ManageListings.jsx` | `tests/matching.test.js` → "roommate gender filter"; `tests/fyp2.test.js` → "gender options" (registration, matching, restricted listings, search, inquiries, privacy); checked in the browser |
 | `prisma generate` runs automatically after `npm install` | `backend/package.json` | — |
 
-Backend test suite: 35 tests (23 from FYP I + 12 new).
+| Document-based verification: student e-mail only registration; students upload offer letter + student card (admin reviews); landlords upload identity documents once and every property's ownership documents (legal reviewer reviews); private document storage with access checks and audit log; legal reviewer role and portal | `prisma/migrations/20261116120000_document_verification`, `services/documents.js`, `modules/documents.js`, `modules/reviewer.js`, `modules/profile.js`, `modules/listings.js`, `modules/admin.js`, `modules/auth.js`, `components/AccountSections.jsx`, `components/Documents.jsx`, `components/PropertyDocuments.jsx`, `pages/reviewer/ReviewerPortal.jsx`, `pages/admin/AdminSections.jsx`, `pages/Register.jsx`, `pages/Login.jsx` | `tests/documents.test.js` (file-type checks, who can open which document, 404 for others, audit log, admin vs reviewer permissions, reject → fix → approve → publish, address change, reviewer account setup); `tests/api.test.js` (student e-mail rules); checked in the browser as reviewer and admin |
+
+Backend test suite: 40 tests (23 from FYP I + 17 new).
 
 Known local issue: on Windows with Node 24, a test run occasionally (about 1 in 8) aborts with a native worker crash (exit code 3221226505) before finishing; no test has failed. It also happens with only the FYP I tests, so it is an environment issue (native modules), not a test failure. Rerun, or use Node 22 as in CI.

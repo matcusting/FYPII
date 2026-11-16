@@ -10,6 +10,9 @@ export const config = {
   frontendOrigin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
   sessionTtlDays: Number(process.env.SESSION_TTL_DAYS || 7),
   uploadDir: process.env.UPLOAD_DIR || 'uploads',
+  // Verification documents: never served statically, only through an access check.
+  privateUploadDir: process.env.PRIVATE_UPLOAD_DIR || 'private-uploads',
+  maxDocumentBytes: 10 * 1024 * 1024,
   smtpUrl: process.env.SMTP_URL || '',
   emailFrom: process.env.EMAIL_FROM || 'no-reply@uts-housing.local',
   maxPhotosPerListing: 6,

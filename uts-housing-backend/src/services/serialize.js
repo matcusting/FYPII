@@ -1,4 +1,5 @@
 import { config } from '../config.js';
+import { serializeDocument } from './documents.js';
 
 const num = (d) => (d == null ? null : Number(d));
 const dateOnly = (d) => (d ? new Date(d).toISOString().slice(0, 10) : null);
@@ -93,6 +94,9 @@ export function serializeListing(listing, opts = {}) {
     if (includePrivate) out.mapUrl = listing.mapUrl;
   }
   if (includePrivate) {
+    out.legalStatus = listing.legalStatus;
+    out.legalNote = listing.legalNote;
+    out.documents = (listing.documents || []).map(serializeDocument);
     out.rejectionReason = listing.rejectionReason;
     out.viewCount = listing.viewCount;
     out.createdAt = listing.createdAt;
@@ -113,6 +117,7 @@ export const listingInclude = {
   photos: true,
   amenities: { include: { amenity: true } },
   campus: true,
+  documents: { where: { supersededAt: null }, orderBy: { createdAt: 'asc' } },
 };
 
 /** Review as shown publicly (proof of stay is admin-only). */

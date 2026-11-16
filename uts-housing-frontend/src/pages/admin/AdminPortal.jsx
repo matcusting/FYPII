@@ -5,15 +5,16 @@ import { api } from '../../lib/api';
 import { useConversations } from '../../hooks/useConversations';
 import NotificationBell from '../../components/NotificationBell';
 import Messages from '../landlord/Messages';
-import { AuditLog, Campuses, ListingQueue, Overview, ReportQueue, ReviewQueue, Users, VerificationQueue } from './AdminSections';
+import { AuditLog, Campuses, ListingQueue, Overview, ReportQueue, ReviewQueue, Reviewers, Users, VerificationQueue } from './AdminSections';
 
 const TABS = [
     ['overview', '📊', 'Overview'],
-    ['verifications', '🪪', 'Verifications', 'pendingVerifications'],
+    ['verifications', '🪪', 'Student Verifications', 'pendingVerifications'],
     ['listings', '🏠', 'Listing Approval', 'pendingListings'],
     ['reviews', '⭐', 'Review Moderation', 'pendingReviews'],
     ['reports', '🚩', 'Abuse Reports', 'openReports'],
     ['users', '👥', 'Users', 'deletionRequests'],
+    ['reviewers', '⚖️', 'Legal Reviewers'],
     ['campuses', '🏫', 'Campus & Domains'],
     ['support', '💬', 'Support Messages'],
     ['audit', '📜', 'Audit Log'],
@@ -78,6 +79,7 @@ const AdminPortal = () => {
                         {tab === 'reviews' && <ReviewQueue onChange={loadOverview} />}
                         {tab === 'reports' && <ReportQueue onChange={loadOverview} />}
                         {tab === 'users' && <Users onChange={loadOverview} currentUserId={user.id} />}
+                        {tab === 'reviewers' && <Reviewers />}
                         {tab === 'campuses' && <Campuses />}
                         {tab === 'support' && <Messages chat={chat} title="Support Conversations" asAdmin />}
                         {tab === 'audit' && <AuditLog />}

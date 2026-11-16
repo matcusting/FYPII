@@ -40,7 +40,7 @@ async function publishedListing(owner, data = {}) {
 
 beforeAll(async () => {
   hash = await hashPassword(PW);
-  const uni = await prisma.university.create({ data: { name: 'University of Technology Sarawak', emailDomains: ['uts.edu.my'] } });
+  const uni = await prisma.university.create({ data: { name: 'University of Technology Sarawak', emailDomains: ['student.uts.edu.my'] } });
   campus = await prisma.campus.create({ data: { universityId: uni.id, name: 'Main', latitude: 2.31, longitude: 111.84 } });
   await prisma.amenity.createMany({ data: [{ name: 'High-Speed Wi-Fi' }, { name: 'Air Conditioning' }] });
 });
@@ -50,36 +50,42 @@ afterAll(async () => {
 });
 
 describe('authentication & student verification', () => {
-  it('registers a UTS student, verifies the e-mail and auto-approves student status', async () => {
+  it('registers a UTS student with the student e-mail; confirming the e-mail does not verify student status', async () => {
     const agent = request.agent(app);
     const reg = await agent.post('/api/v1/auth/register').send({
-      role: 'STUDENT', name: 'New Student', email: 'New.Student@UTS.edu.my', password: PW, acceptTerms: true, studentId: 'bcs26000001', gender: 'FEMALE',
+      role: 'STUDENT', name: 'New Student', email: 'BCS26000001@Student.UTS.edu.my', password: PW, acceptTerms: true, studentId: 'bcs26000001', gender: 'FEMALE',
     });
     expect(reg.status).toBe(201);
-    expect(reg.body.data.user.email).toBe('new.student@uts.edu.my');
+    expect(reg.body.data.user.email).toBe('bcs26000001@student.uts.edu.my');
     expect(reg.body.data.user.studentVerified).toBe(false);
     expect(JSON.stringify(reg.body)).not.toContain('passwordHash');
 
     // Before verification: matching is blocked
     expect((await agent.get('/api/v1/roommates/matches')).status).toBe(403);
 
-    const user = await prisma.user.findUnique({ where: { email: 'new.student@uts.edu.my' } });
+    const user = await prisma.user.findUnique({ where: { email: 'bcs26000001@student.uts.edu.my' } });
     const token = 'known-test-token-1234567890';
     await prisma.emailVerificationToken.create({ data: { userId: user.id, tokenHash: sha256(token), expiresAt: new Date(Date.now() + 60000) } });
     expect((await agent.post('/api/v1/auth/verify-email').send({ token })).status).toBe(200);
     const me = await agent.get('/api/v1/auth/me');
-    expect(me.body.data.user.studentVerified).toBe(true);
+    expect(me.body.data.user.emailVerified).toBe(true);
+    expect(me.body.data.user.studentVerified).toBe(false); // an admin must still check the documents
     // token is single-use
     expect((await agent.post('/api/v1/auth/verify-email').send({ token })).status).toBe(400);
   });
 
-  it('sends non-UTS e-mails to manual verification', async () => {
-    const res = await request(app).post('/api/v1/auth/register').send({
-      role: 'STUDENT', name: 'Gmail Student', email: 'someone@gmail.com', password: PW, acceptTerms: true, studentId: 'BCS26000002', gender: 'MALE',
-    });
-    expect(res.status).toBe(201);
-    const v = await prisma.verification.findFirst({ where: { user: { email: 'someone@gmail.com' } } });
-    expect(v.method).toBe('MANUAL');
+  it('only accepts the university student e-mail, and the Student ID must match it', async () => {
+    const base = { role: 'STUDENT', name: 'Some Student', password: PW, acceptTerms: true, gender: 'MALE' };
+    const gmail = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs26000002@gmail.com', studentId: 'BCS26000002' });
+    expect(gmail.status).toBe(400);
+    expect(gmail.body.error.fields.email).toMatch(/student\.uts\.edu\.my/);
+    const staff = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs26000002@uts.edu.my', studentId: 'BCS26000002' });
+    expect(staff.status).toBe(400); // staff domain is not a student domain
+    const mismatch = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs26000003@student.uts.edu.my', studentId: 'BCS26000002' });
+    expect(mismatch.status).toBe(400);
+    expect(mismatch.body.error.fields.studentId).toMatch(/must match/);
+    const good = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'bcs26000002@student.uts.edu.my', studentId: 'BCS26000002' });
+    expect(good.status).toBe(201);
   });
 
   it('rejects weak passwords and missing terms', async () => {
@@ -122,8 +128,10 @@ describe('listings, moderation and search', () => {
   it('a new listing is not public until an admin approves it', async () => {
     await makeUser('LANDLORD', 'owner@example.com', { landlordVerifiedAt: new Date() });
     await makeUser('ADMIN', 'admin@example.com');
+    await makeUser('LEGAL_REVIEWER', 'lawyer@example.com');
     const owner = await agentFor('owner@example.com');
     const admin = await agentFor('admin@example.com');
+    const lawyer = await agentFor('lawyer@example.com', 'STAFF');
 
     const created = await owner.post('/api/v1/listings').send({
       title: 'Moderated Room', roomType: 'Single Room', rent: 500, deposit: 500, distanceKm: 2, facilities: ['High-Speed Wi-Fi'],
@@ -139,7 +147,16 @@ describe('listings, moderation and search', () => {
     expect(fake.status).toBe(400);
     const up = await owner.post(`/api/v1/listings/${id}/photos`).attach('photos', PNG, { filename: 'room.png', contentType: 'image/png' });
     expect(up.status).toBe(201);
-    expect((await owner.post(`/api/v1/listings/${id}/submit`)).body.data.status).toBe('PENDING_REVIEW');
+    // cannot submit without property ownership documents
+    expect((await owner.post(`/api/v1/listings/${id}/submit`)).body.error.message).toMatch(/ownership documents/);
+    const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF');
+    expect((await owner.post(`/api/v1/listings/${id}/documents`).field('kind', 'PROPERTY_TITLE').attach('documents', PDF, { filename: 'title.pdf', contentType: 'application/pdf' })).status).toBe(201);
+    const submitted = await owner.post(`/api/v1/listings/${id}/submit`);
+    expect(submitted.body.data.status).toBe('PENDING_REVIEW');
+    expect(submitted.body.data.legalStatus).toBe('PENDING');
+    // the admin cannot approve before the legal check
+    expect((await admin.patch(`/api/v1/admin/listings/${id}`).send({ action: 'approve' })).status).toBe(400);
+    expect((await lawyer.patch(`/api/v1/reviewer/properties/${id}`).send({ decision: 'APPROVED' })).status).toBe(200);
 
     expect((await request(app).get(`/api/v1/listings/${id}`)).status).toBe(404);
     const search = await request(app).get('/api/v1/listings').query({ q: 'Moderated' });

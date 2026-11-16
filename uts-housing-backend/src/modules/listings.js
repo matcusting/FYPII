@@ -10,7 +10,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { writeLimiter } from '../middleware/security.js';
 import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.js';
 import { listingInclude, serializeListing } from '../services/serialize.js';
-import { notifyAdmins } from '../services/notify.js';
+import { notifyAdmins, notifyReviewers } from '../services/notify.js';
+import { PROPERTY_KINDS, documentPath, documentUpload, removeFiles, toDocumentRows } from '../services/documents.js';
 import { GENDER_RESTRICTIONS, ROOM_TYPES } from './constants.js';
 
 const router = Router();
@@ -65,7 +66,12 @@ function assertCanSubmit(user) {
   if (!user.emailVerifiedAt) throw forbidden('Please verify your e-mail address before submitting a listing.');
   if (user.role === 'STUDENT' && !user.studentVerifiedAt)
     throw forbidden('Only verified students can post sublets. Your verification is still pending.');
+  if (user.role === 'LANDLORD' && !user.landlordVerifiedAt)
+    throw forbidden('Your landlord identity has not been verified yet. Upload your identity documents in Account Settings; your listing is saved as a draft.');
 }
+
+export const ADDRESS_CHANGED_REASON = 'Address changed — upload the property documents for the new address and submit again.';
+const sameAddress = (a, b) => (a || '').trim().replace(/\s+/g, ' ').toLowerCase() === (b || '').trim().replace(/\s+/g, ' ').toLowerCase();
 
 /* ------------------------------------------------------------ public search */
 
@@ -266,12 +272,22 @@ router.patch('/:id', requireAuth, writeLimiter, async (req, res) => {
     facilities: existing.amenities.map((a) => a.amenity.name),
     ...d,
   });
-  // Changing a live listing sends it back to moderation (admins edit freely).
-  const needsReview = req.user.role !== 'ADMIN' && ['PUBLISHED', 'REJECTED'].includes(existing.status);
+  // A new address needs new ownership documents and a new legal check (admins edit freely).
+  const addressChanged = req.user.role !== 'ADMIN' && existing.legalStatus !== 'NOT_SUBMITTED' && !sameAddress(existing.address, merged.address);
+  // Changing a live listing sends it back to the admin's content check — only
+  // when its documents are already accepted (otherwise the landlord resubmits).
+  const needsReview = !addressChanged && req.user.role !== 'ADMIN' && existing.legalStatus === 'APPROVED' && ['PUBLISHED', 'REJECTED'].includes(existing.status);
   const listing = await prisma.$transaction(async (tx) => {
+    let extra = {};
+    if (addressChanged) {
+      await tx.document.updateMany({ where: { listingId: existing.id, supersededAt: null }, data: { supersededAt: new Date() } });
+      extra = { status: 'DRAFT', legalStatus: 'NOT_SUBMITTED', legalNote: null, legalReviewedAt: null, legalReviewedById: null, rejectionReason: ADDRESS_CHANGED_REASON };
+    } else if (needsReview) {
+      extra = { status: 'PENDING_REVIEW', rejectionReason: null };
+    }
     await tx.listing.update({
       where: { id: existing.id },
-      data: { ...toData(merged), staleReminderAt: null, ...(needsReview ? { status: 'PENDING_REVIEW', rejectionReason: null } : {}), lastConfirmedAt: new Date() },
+      data: { ...toData(merged), staleReminderAt: null, ...extra, lastConfirmedAt: new Date() },
     });
     if (d.facilities) await setAmenities(tx, existing.id, merged.facilities);
     return tx.listing.findUnique({ where: { id: existing.id }, include: listingInclude });
@@ -294,12 +310,59 @@ router.post('/:id/submit', requireAuth, writeLimiter, async (req, res) => {
   if (!['DRAFT', 'REJECTED', 'PAUSED'].includes(listing.status))
     throw badRequest(`A listing that is ${listing.status.toLowerCase().replace('_', ' ')} cannot be submitted.`);
   if (!listing.photos.length) throw badRequest('Add at least one photo before submitting your listing.');
+  // Documents already accepted (e.g. resubmitting after a content fix) go straight to the admin.
+  const legalDone = listing.legalStatus === 'APPROVED';
+  if (!legalDone && !listing.documents.length)
+    throw badRequest('Upload the ownership documents for this property (title deed, tenancy agreement or owner\'s authorisation) before submitting.');
   const updated = await prisma.listing.update({
     where: { id: listing.id },
-    data: { status: 'PENDING_REVIEW', rejectionReason: null, lastConfirmedAt: new Date() },
+    data: {
+      status: 'PENDING_REVIEW', rejectionReason: null, lastConfirmedAt: new Date(),
+      ...(legalDone ? {} : { legalStatus: 'PENDING', legalNote: null }),
+    },
     include: listingInclude,
   });
-  await notifyAdmins({ type: 'LISTING_PENDING', title: 'New listing waiting for approval', body: `"${listing.title}" by ${req.user.name}.`, link: '/admin/listings' });
+  if (legalDone) {
+    await notifyAdmins({ type: 'LISTING_PENDING', title: 'Listing waiting for approval', body: `"${listing.title}" by ${req.user.name}.`, link: '/admin/listings' });
+  } else {
+    await notifyReviewers({ type: 'PROPERTY_DOCUMENTS', title: 'Property documents to check', body: `"${listing.title}" by ${req.user.name}.`, link: '/reviewer/properties' });
+  }
+  ok(res, serializeListing(updated, { includePrivate: true }));
+});
+
+/* ---------------------------------------------------- property documents */
+
+const PROPERTY_FIELDS = [{ name: 'documents', maxCount: 5 }];
+
+// Upload ownership / right-to-rent documents for one property (owner only).
+router.post('/:id/documents', requireAuth, writeLimiter, async (req, res) => {
+  const listing = await ownedListing(req);
+  const files = (await documentUpload(PROPERTY_FIELDS)(req, res)).documents || [];
+  try {
+    if (listing.ownerId !== req.user.id) throw forbidden('Only the owner can upload property documents.');
+    if (listing.legalStatus === 'PENDING') throw badRequest('These documents are being reviewed. Wait for the decision before adding more.');
+    const { kind } = parse(z.object({ kind: z.enum(PROPERTY_KINDS, { message: 'Choose the document type.' }) }), req.body);
+    if (!files.length) throw badRequest('Choose at least one file.');
+    if (listing.documents.length + files.length > 10) throw badRequest('A property can have at most 10 documents.');
+    const rows = toDocumentRows(files, kind, req.user.id);
+    await prisma.document.createMany({ data: rows.map((r) => ({ ...r, listingId: listing.id })) });
+  } catch (err) {
+    removeFiles(files);
+    throw err;
+  }
+  const updated = await prisma.listing.findUnique({ where: { id: listing.id }, include: listingInclude });
+  ok(res, serializeListing(updated, { includePrivate: true }), undefined, 201);
+});
+
+router.delete('/:id/documents/:docId', requireAuth, async (req, res) => {
+  const listing = await ownedListing(req);
+  const doc = listing.documents.find((x) => x.id === req.params.docId);
+  if (!doc) throw notFound('Document not found.');
+  if (['PENDING', 'APPROVED'].includes(listing.legalStatus))
+    throw badRequest('Documents that are under review or already accepted cannot be removed.');
+  await prisma.document.delete({ where: { id: doc.id } });
+  fs.rm(documentPath(doc), { force: true }, () => {});
+  const updated = await prisma.listing.findUnique({ where: { id: listing.id }, include: listingInclude });
   ok(res, serializeListing(updated, { includePrivate: true }));
 });
 
@@ -363,7 +426,6 @@ function hasImageSignature(filePath) {
   return jpg || png || webp;
 }
 
-const removeFiles = (files) => files.forEach((f) => fs.rm(f.path, { force: true }, () => {}));
 
 router.post('/:id/photos', requireAuth, writeLimiter, async (req, res) => {
   const listing = await ownedListing(req);

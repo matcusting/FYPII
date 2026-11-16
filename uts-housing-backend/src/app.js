@@ -17,6 +17,8 @@ import reviewRoutes, { listingReviewsRouter } from './modules/reviews.js';
 import reportRoutes from './modules/reports.js';
 import notificationRoutes from './modules/notifications.js';
 import adminRoutes from './modules/admin.js';
+import reviewerRoutes from './modules/reviewer.js';
+import documentRoutes from './modules/documents.js';
 
 export function createApp() {
   const app = express();
@@ -59,6 +61,8 @@ export function createApp() {
   api.use('/reports', reportRoutes);
   api.use('/notifications', notificationRoutes);
   api.use('/admin', adminRoutes);
+  api.use('/reviewer', reviewerRoutes);
+  api.use('/documents', documentRoutes);
   app.use('/api/v1', api);
 
   app.use(notFoundHandler);

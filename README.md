@@ -13,7 +13,13 @@ A web-based housing rental and roommate matching system for students of the Univ
 
 ## Features
 
-- **Accounts and verification:** student and landlord registration, Argon2id password hashing, HTTP-only session cookies, e-mail verification, password reset, account deletion requests. Students log in with **Student ID + UTS e-mail + password**, and a mismatch shows an error so they can retry (report Fig 4.1). E-mails on a configured UTS domain are verified automatically. Other students and all landlords go to an admin review queue.
+- **Accounts:** student and landlord registration, Argon2id password hashing, HTTP-only session cookies, e-mail verification, password reset, account deletion requests. Students can **only register with their university student e-mail** (`<studentId>@student.uts.edu.my`; domains are set by admins), and the Student ID must match the e-mail. Students log in with **Student ID + student e-mail + password**, and a mismatch shows an error so they can retry (report Fig 4.1).
+- **Document-based verification:**
+  - *Students* upload their **offer letter (PDF)** and a **student card photo**; an **administrator** reviews them.
+  - *Landlords* upload their **identity card** (or company SSM registration) once; a **legal reviewer** (e.g. a lawyer working with the platform) verifies them. Landlords must be verified before they can submit a listing.
+  - *Every property* needs its **ownership / right-to-rent documents** (title deed, or tenancy agreement + owner's authorisation). The legal reviewer checks them first, then the administrator checks the listing details before it goes live. Changing a listing's address requires new documents.
+  - Documents are stored outside the public folder and only opened through an access check (uploader, administrators, and — for landlord/property documents only — legal reviewers). Every view by someone else is written to the audit log. PDF / JPG / PNG only (checked by file signature), 10 MB each.
+- **Legal reviewer portal:** a separate login (“Staff login”) with two queues — property documents and landlord identity. Reviewers cannot see students, chats or the admin console. Admins create reviewer accounts; the reviewer sets a password from an e-mailed link.
 - **Structured listings:** rent, deposit, distance to campus, room type, facilities, area, availability date, house rules, furnished flag and up to 6 photos. Listing status workflow: Draft → Pending Review → Active / Rejected → Paused / Rented. Students only see listings an admin has approved. Listings not reconfirmed for 30 days are flagged as stale and the owner is reminded; after 45 days they are paused automatically until the owner confirms them again.
 - **Address → Google Maps:** landlords enter the property address (and can optionally paste a Google Maps share link for an exact pin). In the listing details students tap the address to open it in Google Maps. Addresses are only returned to logged-in users. Distance to campus is entered by the landlord.
 - **Search:** keyword search; filters for max rent, distance, deposit, room type, facilities, furnished and available-by date; sorting; pagination; saved listings (wishlist).
@@ -21,7 +27,7 @@ A web-based housing rental and roommate matching system for students of the Univ
 - **Verified reviews:** only verified students can post a review (1–5 stars, written feedback, stay dates and a private proof-of-stay note). Each student can review a listing once. Reviews are moderated, edits go back to moderation, and the landlord can reply publicly but cannot edit the review.
 - **Gender options:** students choose Male or Female when they register (existing students are asked in My Profile). In roommate matching they pick "Same gender only" (default) or "Any gender is fine"; students of another gender only appear if both chose "Any". Landlords mark each listing "All genders welcome", "Male tenants only" or "Female tenants only"; students see a badge, can hide rooms they cannot rent, and cannot send an inquiry about a room reserved for the other gender. Gender is only shown to students who could be matched, never on public pages.
 - **Real-time messaging:** listing inquiries, accepted roommate connections and an Admin Support channel, delivered instantly over WebSocket (Socket.IO) with a typing indicator. Contact details stay private.
-- **Admin console:** overview, student and landlord verification, listing approval and suspension, review moderation, abuse reports, user suspension and deletion, campus and e-mail-domain configuration, and an audit log.
+- **Admin console:** overview, student verification, legal reviewer accounts, listing approval (after the legal check) and suspension, review moderation, abuse reports, user suspension and deletion, campus and e-mail-domain configuration, and an audit log.
 - **Notifications:** in-app bell updated in real time, plus e-mail for verification, reset, moderation decisions, inquiries, roommate requests and availability reminders. Users can turn the non-security e-mails off. Without SMTP configured, e-mails are written to the console and `logs/mail.log`.
 - **Responsive UI:** the original desktop design is kept, and pages also work at phone width.
 
@@ -60,11 +66,14 @@ If PostgreSQL is installed without Docker, create the user `uts`, the database `
 
 | Role | Login | Password |
 |---|---|---|
-| Student | Student ID `BCS24020031`, e-mail `student@uts.edu.my` | `Demo@2026` |
+| Student | Student ID `BCS24020031`, e-mail `bcs24020031@student.uts.edu.my` | `Demo@2026` |
 | Landlord | `wong@example.com` | `Demo@2026` |
-| Admin | "Administrator login" link → `admin@uts-housing.local` | `Admin@2026!` |
+| Admin | "Staff login" link → `admin@uts-housing.local` | `Admin@2026!` |
+| Legal reviewer (fictitious) | "Staff login" link → `reviewer@uts-housing.local` | `Review@2026!` |
 
-In development the login form is pre-filled with these accounts. For a real deployment, create the first admin with `npm run create-admin -- "Name" email@domain`. Admins cannot self-register.
+The demo data includes items waiting for review: student *Priya Nair* (offer letter + student card, admin queue), landlord *Mr. Lim* (identity card, reviewer queue) and the listing *Master Room near Lanang Road* (title deed, reviewer queue). All demo documents are generated placeholders marked "DEMO DOCUMENT - FICTITIOUS".
+
+In development the login form is pre-filled with these accounts. For a real deployment, create the first admin with `npm run create-admin -- "Name" email@domain`. Admins cannot self-register. Legal reviewers are added by an admin in **Legal Reviewers** (get the reviewer's agreement first — they will see landlords' personal documents).
 
 ## Tests
 
@@ -83,7 +92,7 @@ npm run lint
 npm run build
 ```
 
-The backend suite (Vitest + Supertest + Socket.IO client, 35 tests) covers the matching formula, gender filters and restricted listings, the address / Google Maps link rules, the availability job, real-time chat and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
+The backend suite (Vitest + Supertest + Socket.IO client, 40 tests) covers student e-mail rules, document verification and access control, the legal review flow, the matching formula, gender filters and restricted listings, the address / Google Maps link rules, the availability job, real-time chat and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
 
 ## Deployment notes
 
@@ -96,5 +105,6 @@ The code is ready to deploy but has not been deployed. Typical setup:
 - Hosting both under one site (for example `housing.example.com` and `api.housing.example.com`), or proxying `/api` and `/socket.io` (with WebSocket upgrade enabled), keeps the SameSite=Lax session cookie working for both REST and real-time connections.
 - Run a single API instance (the real-time layer and the availability job run in-process). Scaling to several instances would need the Socket.IO Redis adapter.
 - Photos are stored on local disk (`UPLOAD_DIR`). Use a persistent volume or move them to S3-compatible storage before going live.
+- Verification documents are stored in `PRIVATE_UPLOAD_DIR` (default `private-uploads/`). Never serve this folder publicly; back it up with the database, use encrypted storage in production, and agree a retention period (see PDPA notes in `PROJECT_REQUIREMENTS.md` §11).
 
 See `docs/IMPLEMENTATION_STATUS.md` for what is implemented against the report and `PROJECT_REQUIREMENTS.md`, and what is still open.

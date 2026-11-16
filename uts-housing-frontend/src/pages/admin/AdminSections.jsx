@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, assetUrl, statusLabel, timeAgo } from '../../lib/api';
+import { LEGAL_STATUS, api, assetUrl, statusLabel, timeAgo } from '../../lib/api';
+import { DocumentLinks } from '../../components/Documents';
 import { ErrorBanner, LoadingBlock, Stars, SuccessBanner } from '../../components/ui';
 
 /* ------------------------------------------------------------ shared bits */
 
-const Page = ({ title, right, children }) => (
+export const Page = ({ title, right, children }) => (
     <div className="p-5 sm:p-10 overflow-y-auto animate-fade-in-up">
         <div className="flex flex-wrap gap-3 justify-between items-center border-b border-gray-100 pb-4 mb-6">
             <h2 className="text-[1.4rem] font-bold text-[#0f172a]">{title}</h2>
@@ -14,18 +15,18 @@ const Page = ({ title, right, children }) => (
     </div>
 );
 
-const StatusFilter = ({ value, onChange, options }) => (
+export const StatusFilter = ({ value, onChange, options }) => (
     <select aria-label="Filter by status" value={value} onChange={(e) => onChange(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer">
         {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
     </select>
 );
 
-const Card = ({ children }) => <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm">{children}</div>;
-const Empty = ({ text }) => <p className="text-sm text-gray-400 font-bold py-10 text-center">{text}</p>;
-const Pill = ({ className, children }) => <span className={`text-[11px] font-bold px-2.5 py-1 rounded ${className}`}>{children}</span>;
+export const Card = ({ children }) => <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm">{children}</div>;
+export const Empty = ({ text }) => <p className="text-sm text-gray-400 font-bold py-10 text-center">{text}</p>;
+export const Pill = ({ className, children }) => <span className={`text-[11px] font-bold px-2.5 py-1 rounded ${className}`}>{children}</span>;
 
 /** Approve button + "reject with reason" inline form. */
-function Decision({ onApprove, onReject, approveLabel = 'Approve', rejectLabel = 'Reject', extra }) {
+export function Decision({ onApprove, onReject, approveLabel = 'Approve', rejectLabel = 'Reject', extra }) {
     const [rejecting, setRejecting] = useState(false);
     const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
@@ -80,6 +81,11 @@ export function Overview({ data, go }) {
                     </div>
                 ))}
             </div>
+            {(data.awaitingLegalListings > 0 || data.awaitingLegalLandlords > 0) && (
+                <p className="bg-[#f5f3ff] border border-[#ddd6fe] text-[#6d28d9] text-[13px] font-bold px-4 py-3 rounded-lg mb-4">
+                    ⚖️ With the legal reviewer: {data.awaitingLegalListings} property document check(s), {data.awaitingLegalLandlords} landlord identity check(s).
+                </p>
+            )}
             {data.deletionRequests > 0 && (
                 <p onClick={() => go('users')} className="bg-[#fee2e2] border border-[#fecaca] text-[#b91c1c] text-[13px] font-bold px-4 py-3 rounded-lg cursor-pointer mb-8">
                     🗑 {data.deletionRequests} account deletion request(s) waiting.
@@ -88,8 +94,8 @@ export function Overview({ data, go }) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <Card>
                     <h3 className="font-bold text-[#0f172a] mb-3">Users</h3>
-                    {['STUDENT', 'LANDLORD', 'ADMIN'].map((r) => (
-                        <div key={r} className="flex justify-between text-sm py-1.5 border-b border-gray-50"><span className="text-gray-600 capitalize">{r.toLowerCase()}s</span><strong>{data.users[r] || 0}</strong></div>
+                    {[['STUDENT', 'Students'], ['LANDLORD', 'Landlords'], ['ADMIN', 'Admins'], ['LEGAL_REVIEWER', 'Legal reviewers']].map(([r, label]) => (
+                        <div key={r} className="flex justify-between text-sm py-1.5 border-b border-gray-50"><span className="text-gray-600">{label}</span><strong>{data.users[r] || 0}</strong></div>
                     ))}
                 </Card>
                 <Card>
@@ -122,8 +128,9 @@ export function VerificationQueue({ onChange }) {
         } catch (err) { q.setError(err); }
     };
     return (
-        <Page title="Identity Verifications" right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']]} />}>
+        <Page title="Student Verifications" right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']]} />}>
             <ErrorBanner error={q.error} className="mb-4" />
+            <p className="text-[12px] text-gray-500 mb-4">Check the offer letter and student card against the student's name and Student ID. Landlord identity is checked by the legal reviewer.</p>
             {!q.items ? <LoadingBlock /> : q.items.length === 0 ? <Empty text="Nothing to review. 🎉" /> : (
                 <div className="space-y-4">
                     {q.items.map((v) => (
@@ -136,11 +143,12 @@ export function VerificationQueue({ onChange }) {
                                         {v.user.studentId && <> • Student ID: <strong>{v.user.studentId}</strong></>}
                                         {v.user.phone && <> • {v.user.phone}</>}
                                     </p>
-                                    <p className="text-[12px] text-gray-400 mt-1">Method: {v.method === 'EMAIL_DOMAIN' ? 'University e-mail domain' : 'Manual review'} • Submitted {timeAgo(v.createdAt)}</p>
+                                    <p className="text-[12px] text-gray-400 mt-1">Method: {{ EMAIL_DOMAIN: 'University e-mail (legacy)', MANUAL: 'Written note (legacy)', DOCUMENTS: 'Uploaded documents' }[v.method]} • Submitted {timeAgo(v.createdAt)}</p>
                                 </div>
                                 <Pill className={v.status === 'APPROVED' ? 'bg-[#dcfce7] text-[#15803d]' : v.status === 'REJECTED' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fefce8] text-[#a16207]'}>{v.status}</Pill>
                             </div>
                             {v.note && <p className="text-[13px] text-gray-700 bg-[#f8f9fa] border-l-4 border-[#203569] p-3 rounded-r-lg mt-3">"{v.note}"</p>}
+                            {v.documents?.length > 0 && <div className="mt-3"><DocumentLinks documents={v.documents} /></div>}
                             {v.decisionNote && <p className="text-[12px] text-gray-500 mt-2">Decision note: {v.decisionNote} {v.reviewedBy && `— ${v.reviewedBy}`}</p>}
                             {v.status === 'PENDING' && (
                                 <Decision onApprove={() => decide(v.id, 'APPROVED')} onReject={(note) => decide(v.id, 'REJECTED', note)} />
@@ -177,7 +185,10 @@ export function ListingQueue({ onChange }) {
                                 <div className="flex-1">
                                     <div className="flex flex-wrap justify-between gap-2">
                                         <h3 className="font-bold text-[#1e3a8a] text-[1.05rem]">{l.title}</h3>
-                                        <Pill className="bg-gray-100 text-gray-600">{statusLabel(l.status)}</Pill>
+                                        <div className="flex flex-wrap gap-2">
+                                            <Pill className={LEGAL_STATUS[l.legalStatus].className}>{LEGAL_STATUS[l.legalStatus].label}</Pill>
+                                            <Pill className="bg-gray-100 text-gray-600">{statusLabel(l.status)}</Pill>
+                                        </div>
                                     </div>
                                     <p className="text-[13px] text-gray-500 mt-1">
                                         By <strong>{l.landlord.name}</strong> {l.landlord.verified ? '(verified)' : '(not verified)'} • RM {l.rent}/mo • Deposit RM {l.deposit} • {l.distanceKm} km • {l.roomType}
@@ -200,9 +211,17 @@ export function ListingQueue({ onChange }) {
                                     <p><strong>Area:</strong> {l.approximateArea || '—'} • <strong>Available:</strong> {l.availableFrom || 'now'} • <strong>Furnished:</strong> {l.furnished ? 'Yes' : 'No'}</p>
                                     <div className="flex flex-wrap gap-1.5">{l.facilities.map((f) => <span key={f} className="bg-gray-100 text-gray-600 text-[11px] font-bold px-2 py-0.5 rounded">{f}</span>)}</div>
                                     <div className="flex flex-wrap gap-2">{l.photos.map((p) => <img key={p.id} src={assetUrl(p.url)} alt="" className="w-24 h-16 object-cover rounded" />)}</div>
+                                    <div>
+                                        <p className="font-bold text-gray-700 mb-1">Ownership documents</p>
+                                        <DocumentLinks documents={l.documents} empty="None (approved before document checks existed)." />
+                                        {l.legalNote && <p className="text-[12px] text-gray-500 mt-1">Legal reviewer: {l.legalNote}</p>}
+                                    </div>
                                 </div>
                             )}
-                            {l.status === 'PENDING_REVIEW' && <Decision onApprove={() => act(l.id, 'approve')} onReject={(r) => act(l.id, 'reject', r)} />}
+                            {l.status === 'PENDING_REVIEW' && l.legalStatus !== 'APPROVED' && (
+                                <p className="mt-4 text-[12px] font-bold text-[#6d28d9]">⚖️ Waiting for the legal reviewer to check the property documents. You can approve it after that.</p>
+                            )}
+                            {l.status === 'PENDING_REVIEW' && l.legalStatus === 'APPROVED' && <Decision onApprove={() => act(l.id, 'approve')} onReject={(r) => act(l.id, 'reject', r)} />}
                             {l.status === 'PUBLISHED' && <Decision onReject={(r) => act(l.id, 'suspend', r)} rejectLabel="Suspend Listing" />}
                         </Card>
                     ))}
@@ -358,7 +377,7 @@ export function Users({ onChange, currentUserId }) {
             right={
                 <div className="flex flex-wrap gap-2">
                     <input type="search" aria-label="Search users" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, e-mail or Student ID" className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569]" />
-                    <StatusFilter value={role} onChange={setRole} options={[['', 'All roles'], ['STUDENT', 'Students'], ['LANDLORD', 'Landlords'], ['ADMIN', 'Admins']]} />
+                    <StatusFilter value={role} onChange={setRole} options={[['', 'All roles'], ['STUDENT', 'Students'], ['LANDLORD', 'Landlords'], ['LEGAL_REVIEWER', 'Legal reviewers'], ['ADMIN', 'Admins']]} />
                     <StatusFilter value={status} onChange={setStatus} options={[['', 'Any status'], ['ACTIVE', 'Active'], ['SUSPENDED', 'Suspended'], ['DELETION_REQUESTED', 'Deletion requested']]} />
                 </div>
             }
@@ -376,8 +395,8 @@ export function Users({ onChange, currentUserId }) {
                             {items.map((u) => (
                                 <tr key={u.id} className="border-b border-gray-100 align-top">
                                     <td className="py-3 pr-3"><strong className="text-gray-900">{u.name}</strong><br /><span className="text-gray-500 text-[12px]">{u.email}{u.studentId && ` • ${u.studentId}`}</span></td>
-                                    <td className="py-3 pr-3 text-gray-600 capitalize">{u.role.toLowerCase()}</td>
-                                    <td className="py-3 pr-3">{u.role === 'ADMIN' ? '—' : (u.role === 'STUDENT' ? u.studentVerified : u.landlordVerified) ? '✓' : <span className="text-[#a16207] font-bold">Pending</span>}</td>
+                                    <td className="py-3 pr-3 text-gray-600 capitalize">{u.role.replace('_', ' ').toLowerCase()}</td>
+                                    <td className="py-3 pr-3">{['ADMIN', 'LEGAL_REVIEWER'].includes(u.role) ? '—' : (u.role === 'STUDENT' ? u.studentVerified : u.landlordVerified) ? '✓' : <span className="text-[#a16207] font-bold">Pending</span>}</td>
                                     <td className="py-3 pr-3"><Pill className={statusPill(u.status)}>{u.status.replace('_', ' ')}</Pill></td>
                                     <td className="py-3 whitespace-nowrap">
                                         {u.role !== 'ADMIN' && u.id !== currentUserId && (
@@ -434,12 +453,20 @@ export function Campuses() {
                 <Card key={u.id}>
                     <h3 className="font-bold text-[#0f172a] mb-4">{u.name}</h3>
                     <form onSubmit={wrap(() => api(`/admin/universities/${u.id}`, { method: 'PATCH', body: { emailDomains: domains[u.id].split(',').map((d) => d.trim()).filter(Boolean) } }), 'E-mail domains saved.')} className="mb-6">
-                        <label htmlFor={`dom-${u.id}`} className="block text-[13px] font-bold text-[#374151] mb-1.5">Student e-mail domains (auto-verified, comma separated)</label>
+                        <label htmlFor={`dom-${u.id}`} className="block text-[13px] font-bold text-[#374151] mb-1.5">Student e-mail domains (only these can register as students, comma separated)</label>
                         <div className="flex flex-col sm:flex-row gap-2">
                             <input id={`dom-${u.id}`} value={domains[u.id] || ''} onChange={(e) => setDomains({ ...domains, [u.id]: e.target.value })} className={`flex-1 ${input}`} />
                             <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">Save Domains</button>
                         </div>
                     </form>
+
+                    <label className="flex items-start gap-2 text-[13px] text-[#374151] font-bold mb-6 cursor-pointer">
+                        <input type="checkbox" checked={u.requireStudentIdEmail} onChange={wrap(() => api(`/admin/universities/${u.id}`, { method: 'PATCH', body: { requireStudentIdEmail: !u.requireStudentIdEmail } }), 'Setting saved.')} className="accent-[#203569] w-4 h-4 mt-0.5" />
+                        <span>
+                            Student ID must match the e-mail (e.g. BCS24020031 ↔ bcs24020031@student.uts.edu.my)
+                            <span className="block text-[12px] text-gray-500 font-medium">Turn off if some students' e-mails do not start with their Student ID.</span>
+                        </span>
+                    </label>
 
                     <p className="text-[13px] font-bold text-[#374151] mb-2">Campuses (coordinates used for distance reference)</p>
                     <div className="space-y-2 mb-4">
@@ -507,6 +534,72 @@ export function AuditLog() {
                     </table>
                 </div>
             )}
+        </Page>
+    );
+}
+
+/* --------------------------------------------------------- legal reviewers */
+
+export function Reviewers() {
+    const [items, setItems] = useState(null);
+    const [form, setForm] = useState({ name: '', email: '' });
+    const [error, setError] = useState(null);
+    const [notice, setNotice] = useState(null);
+    const load = useCallback(() => api('/admin/reviewers').then(setItems).catch(setError), []);
+    useEffect(() => { load(); }, [load]);
+
+    const create = async (e) => {
+        e.preventDefault();
+        setError(null);
+        setNotice(null);
+        try {
+            const r = await api('/admin/reviewers', { method: 'POST', body: form });
+            setNotice(`Account created. ${r.email} will receive an e-mail to choose a password.`);
+            setForm({ name: '', email: '' });
+            load();
+        } catch (err) { setError(err); }
+    };
+    const setStatus = async (u, status) => {
+        try {
+            await api(`/admin/users/${u.id}`, { method: 'PATCH', body: { status } });
+            load();
+        } catch (err) { setError(err); }
+    };
+    const input = 'p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 text-sm';
+
+    return (
+        <Page title="Legal Reviewers">
+            <p className="text-[13px] text-gray-600 mb-5">
+                Legal reviewers (for example, a lawyer working with the platform) check each landlord's identity once, and the ownership or right-to-rent documents of every property before it can be approved. They cannot see students, chats or any other admin page.
+                Get the reviewer's agreement before creating an account, because they will see landlords' personal documents.
+            </p>
+            <ErrorBanner error={error} className="mb-4" />
+            <SuccessBanner message={notice} className="mb-4" />
+            <Card>
+                <h3 className="font-bold text-[#0f172a] mb-3">Add a legal reviewer</h3>
+                <form onSubmit={create} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
+                    <input aria-label="Reviewer name" required placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
+                    <input aria-label="Reviewer e-mail" required type="email" placeholder="E-mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
+                    <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">Create Account</button>
+                </form>
+                <p className="text-[11px] text-gray-400 mt-2">They receive a link (valid 72 hours) to set their password, then sign in with “Staff login”.</p>
+            </Card>
+            <div className="mt-6 space-y-3">
+                {!items ? <LoadingBlock /> : items.length === 0 ? <Empty text="No legal reviewers yet." /> : items.map((u) => (
+                    <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-xl px-5 py-3">
+                        <div>
+                            <p className="font-bold text-gray-900">{u.name}</p>
+                            <p className="text-[12px] text-gray-500">{u.email} • {u.passwordSet ? 'Active' : 'Waiting for password setup'}</p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <Pill className={u.status === 'ACTIVE' ? 'bg-[#dcfce7] text-[#15803d]' : 'bg-[#fee2e2] text-[#b91c1c]'}>{u.status}</Pill>
+                            {u.status === 'ACTIVE'
+                                ? <button onClick={() => setStatus(u, 'SUSPENDED')} className="text-[12px] font-bold text-red-600 hover:underline cursor-pointer">Suspend</button>
+                                : <button onClick={() => setStatus(u, 'ACTIVE')} className="text-[12px] font-bold text-[#15803d] hover:underline cursor-pointer">Reactivate</button>}
+                        </div>
+                    </div>
+                ))}
+            </div>
         </Page>
     );
 }
