@@ -29,7 +29,7 @@ This document maps the FYP report (Chapters 1 and 4) and `PROJECT_REQUIREMENTS.m
 | FR | Status | Notes |
 |---|---|---|
 | FR-01 Accounts | Done | Register, login, logout, logout from all devices, e-mail verification, reset, change password, deletion request, rate limiting, generic login errors, admin creation script only |
-| FR-02 Student profile and lifestyle | Done | Profile, 6 habits, weights, budget, move-in date, discoverable opt-in, block |
+| FR-02 Student profile and lifestyle | Done | Profile, gender (required), 6 habits, weights, roommate gender preference, budget, move-in date, discoverable opt-in, block |
 | FR-03 Listings | Done | All 7 statuses, soft delete, at least 1 photo to publish, image type, size and count limits checked by file signature, stale flag, student sublets (verified students only) |
 | FR-04 Search | Done | Keyword, rent, deposit, distance, room type, facilities, furnished, available-by, 4 sort orders, pagination, saved listings. Distance is entered by the landlord. The listing address opens in Google Maps (search link, or the landlord's own Google Maps pin if provided) |
 | FR-05 Matching | Done | Eligibility filters, explainable breakdown, insufficient data shown instead of 0%, consent-based requests |
@@ -58,8 +58,9 @@ Done: Argon2id, opaque session tokens stored as SHA-256 hashes, HttpOnly + SameS
 | Real-time chat, typing indicator and notifications over WebSocket (fallback polling only while offline) | `backend/src/realtime.js`, `frontend/src/lib/socket.js`, `hooks/useConversations.js` | `tests/fyp2.test.js` → "real-time messaging" (auth rejection, delivery to participants only, logout disconnect); checked in the browser with two accounts |
 | Availability upkeep job (remind at 30 days, auto-pause at 45 days) | `backend/src/services/jobs.js` | `tests/fyp2.test.js` → "listing availability upkeep" |
 | E-mail notification preference | `services/notify.js`, `components/AccountSections.jsx` | `tests/fyp2.test.js` → "notification preferences" |
+| Gender options: required student gender, "same gender only / any" roommate filter, male-only / female-only listings with search filter and inquiry check | `prisma/migrations/20261116110000_gender_options`, `services/matching.js` (`genderConflict`), `modules/roommates.js`, `modules/listings.js`, `modules/conversations.js`, `pages/Register.jsx`, `pages/student/Profile.jsx`, `RoommateSearch.jsx`, `HousingSearch.jsx`, `AddListing.jsx`, `ManageListings.jsx` | `tests/matching.test.js` → "roommate gender filter"; `tests/fyp2.test.js` → "gender options" (registration, matching, restricted listings, search, inquiries, privacy); checked in the browser |
 | `prisma generate` runs automatically after `npm install` | `backend/package.json` | — |
 
-Backend test suite: 27 tests (23 from FYP I + 4 new).
+Backend test suite: 35 tests (23 from FYP I + 12 new).
 
 Known local issue: on Windows with Node 24, a test run occasionally (about 1 in 8) aborts with a native worker crash (exit code 3221226505) before finishing; no test has failed. It also happens with only the FYP I tests, so it is an environment issue (native modules), not a test failure. Rerun, or use Node 22 as in CI.

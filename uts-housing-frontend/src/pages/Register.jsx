@@ -10,7 +10,7 @@ const Register = () => {
     const { register } = useAuth();
     const [role, setRole] = useState(params.get('role') === 'landlord' ? 'landlord' : 'student');
     const [form, setForm] = useState({
-        name: '', email: '', password: '', confirm: '', studentId: '', major: '', academicYear: 'Year 1', phone: '', verificationNote: '', acceptTerms: false,
+        name: '', email: '', password: '', confirm: '', studentId: '', gender: '', major: '', academicYear: 'Year 1', phone: '', verificationNote: '', acceptTerms: false,
     });
     const [error, setError] = useState(null);
     const [submitting, setSubmitting] = useState(false);
@@ -34,7 +34,7 @@ const Register = () => {
                 acceptTerms: form.acceptTerms,
                 verificationNote: form.verificationNote || undefined,
                 ...(role === 'student'
-                    ? { studentId: form.studentId, major: form.major || undefined, academicYear: form.academicYear }
+                    ? { studentId: form.studentId, gender: form.gender || undefined, major: form.major || undefined, academicYear: form.academicYear }
                     : { phone: form.phone || undefined }),
             };
             const user = await register(payload);
@@ -86,6 +86,19 @@ const Register = () => {
                                     <option>Year 1</option><option>Year 2</option><option>Year 3</option><option>Year 4</option>
                                 </select>
                             </div>
+                        </div>
+                        <div>
+                            <span className={labelClass}>Gender</span>
+                            <div role="radiogroup" aria-label="Gender" className="flex gap-3">
+                                {[['MALE', 'Male'], ['FEMALE', 'Female']].map(([value, text]) => (
+                                    <label key={value} className={`flex-1 flex items-center justify-center gap-2 border rounded-lg py-2.5 text-sm font-bold cursor-pointer transition ${form.gender === value ? 'border-[#203569] bg-[#eef2ff] text-[#203569]' : 'border-gray-300 text-gray-600 hover:border-gray-400'}`}>
+                                        <input type="radio" name="gender" value={value} required checked={form.gender === value} onChange={set('gender')} className="sr-only" />
+                                        {text}
+                                    </label>
+                                ))}
+                            </div>
+                            <p className="text-[11px] text-gray-400 mt-1">Used for roommate matching and gender-specific rentals. Only shown to students you could be matched with.</p>
+                            <FieldError error={error} name="gender" />
                         </div>
                         <div>
                             <label htmlFor="major" className={labelClass}>Major / Course</label>

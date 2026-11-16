@@ -16,13 +16,14 @@ const profileSchema = z.object({
   bio: z.string().trim().max(1000).nullable().optional(),
   phone: z.string().trim().max(30).nullable().optional(),
   emailNotifications: z.boolean().optional(),
+  gender: z.enum(['MALE', 'FEMALE'], { message: 'Choose your gender.' }).optional(),
 });
 
 router.get('/', (req, res) => ok(res, { user: serializeMe(req.user) }));
 
 router.patch('/', async (req, res) => {
   const data = parse(profileSchema, req.body);
-  if (req.user.role !== 'STUDENT') { delete data.major; delete data.academicYear; }
+  if (req.user.role !== 'STUDENT') { delete data.major; delete data.academicYear; delete data.gender; }
   if (req.user.role !== 'LANDLORD') delete data.phone;
   const user = await prisma.user.update({ where: { id: req.user.id }, data });
   ok(res, { user: serializeMe(user) });

@@ -7,6 +7,7 @@ import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.
 import { googleMapsUrl, photoUrl, serializePublicUser } from '../services/serialize.js';
 import { notify } from '../services/notify.js';
 import { emitToUser } from '../realtime.js';
+import { GENDER_RESTRICTION_LABELS, genderAllowed } from './constants.js';
 
 /* ----------------------------------------------------------------- helpers */
 
@@ -186,6 +187,11 @@ inquiryRouter.post('/', requireAuth, writeLimiter, async (req, res) => {
   const listing = await prisma.listing.findFirst({ where: { id: listingId, status: 'PUBLISHED', deletedAt: null } });
   if (!listing) throw notFound('Listing not found.');
   if (listing.ownerId === req.user.id) throw badRequest('This is your own listing.');
+  if (req.user.role === 'STUDENT' && listing.genderRestriction !== 'ANY') {
+    if (!req.user.gender) throw badRequest('Set your gender in My Profile first — this landlord only rents to one gender.');
+    if (!genderAllowed(listing.genderRestriction, req.user.gender))
+      throw forbidden(`This property is for ${GENDER_RESTRICTION_LABELS[listing.genderRestriction].toLowerCase()}.`);
+  }
   const blocked = await blockedIdsFor(req.user.id);
   if (blocked.includes(listing.ownerId)) throw forbidden('You cannot contact this landlord.');
   const convo = await prisma.$transaction((tx) =>

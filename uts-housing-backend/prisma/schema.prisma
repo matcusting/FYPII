@@ -74,6 +74,25 @@ enum ReportTarget {
   MESSAGE
 }
 
+// Self-reported by students; used for roommate matching and gender-restricted rentals.
+enum Gender {
+  MALE
+  FEMALE
+}
+
+// Which roommates a student wants to be matched with.
+enum RoommateGenderPreference {
+  SAME // same gender only
+  ANY
+}
+
+// Who a landlord rents a listing to.
+enum GenderRestriction {
+  ANY
+  MALE_ONLY
+  FEMALE_ONLY
+}
+
 enum ReportStatus {
   OPEN
   RESOLVED
@@ -111,6 +130,7 @@ model User {
   emailVerifiedAt    DateTime?     @db.Timestamptz
   // Student-only fields
   studentId          String?       @unique
+  gender             Gender? // required for students (registration); null for landlords/admins
   major              String?
   academicYear       String?
   studentVerifiedAt  DateTime?     @db.Timestamptz
@@ -220,6 +240,7 @@ model Listing {
   approximateArea String?
   furnished       Boolean       @default(false)
   houseRules      String?
+  genderRestriction GenderRestriction @default(ANY) // e.g. "women only"
   availableFrom   DateTime?     @db.Date
   status          ListingStatus @default(DRAFT)
   rejectionReason String?
@@ -241,6 +262,7 @@ model Listing {
   @@index([availableFrom])
   @@index([ownerId])
   @@index([status, lastConfirmedAt])
+  @@index([status, genderRestriction])
 }
 
 model ListingAmenity {
@@ -283,6 +305,7 @@ model LifestyleProfile {
   pets          String?
   weights       Json      @default("{}") // optional importance per habit (1-3)
   smokeFreeOnly Boolean   @default(false) // hard deal-breaker
+  roommateGender RoommateGenderPreference @default(SAME) // hard filter in matching
   budgetMin     Int?
   budgetMax     Int?
   moveInDate    DateTime? @db.Date

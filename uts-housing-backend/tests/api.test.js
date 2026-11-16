@@ -53,7 +53,7 @@ describe('authentication & student verification', () => {
   it('registers a UTS student, verifies the e-mail and auto-approves student status', async () => {
     const agent = request.agent(app);
     const reg = await agent.post('/api/v1/auth/register').send({
-      role: 'STUDENT', name: 'New Student', email: 'New.Student@UTS.edu.my', password: PW, acceptTerms: true, studentId: 'bcs26000001',
+      role: 'STUDENT', name: 'New Student', email: 'New.Student@UTS.edu.my', password: PW, acceptTerms: true, studentId: 'bcs26000001', gender: 'FEMALE',
     });
     expect(reg.status).toBe(201);
     expect(reg.body.data.user.email).toBe('new.student@uts.edu.my');
@@ -75,7 +75,7 @@ describe('authentication & student verification', () => {
 
   it('sends non-UTS e-mails to manual verification', async () => {
     const res = await request(app).post('/api/v1/auth/register').send({
-      role: 'STUDENT', name: 'Gmail Student', email: 'someone@gmail.com', password: PW, acceptTerms: true, studentId: 'BCS26000002',
+      role: 'STUDENT', name: 'Gmail Student', email: 'someone@gmail.com', password: PW, acceptTerms: true, studentId: 'BCS26000002', gender: 'MALE',
     });
     expect(res.status).toBe(201);
     const v = await prisma.verification.findFirst({ where: { user: { email: 'someone@gmail.com' } } });
@@ -212,7 +212,7 @@ describe('listings, moderation and search', () => {
 describe('roommate matching', () => {
   it('ranks verified, discoverable students and excludes deal-breakers', async () => {
     const habits = { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', discoverable: true };
-    const mk = (email, sid, h) => makeUser('STUDENT', email, { studentId: sid, studentVerifiedAt: new Date(), lifestyle: { create: { ...habits, ...h } } });
+    const mk = (email, sid, h) => makeUser('STUDENT', email, { studentId: sid, gender: 'MALE', studentVerifiedAt: new Date(), lifestyle: { create: { ...habits, ...h } } });
     await mk('rm-me@uts.edu.my', 'RM000001', { smokeFreeOnly: true });
     await mk('rm-twin@uts.edu.my', 'RM000002', {});
     await mk('rm-diff@uts.edu.my', 'RM000003', { cleanliness: 'Relaxed' });

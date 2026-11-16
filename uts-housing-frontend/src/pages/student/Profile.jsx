@@ -14,6 +14,7 @@ const Profile = () => {
         studentId: user.studentId,
         email: user.email,
         major: user.major || '',
+        gender: user.gender || '',
         year: user.academicYear || 'Year 1',
         bio: user.bio || '',
     });
@@ -27,7 +28,7 @@ const Profile = () => {
         setError(null);
         setSaving(true);
         try {
-            await api('/profile', { method: 'PATCH', body: { name: profile.name, major: profile.major, academicYear: profile.year, bio: profile.bio } });
+            await api('/profile', { method: 'PATCH', body: { name: profile.name, major: profile.major, academicYear: profile.year, bio: profile.bio, gender: profile.gender || undefined } });
             await refresh();
             setIsSaved(true);
             setTimeout(() => setIsSaved(false), 2000); // 2秒后自动隐藏成功提示
@@ -86,6 +87,24 @@ const Profile = () => {
                                 className="w-full p-2.5 border border-gray-200 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
                             />
                         </div>
+                    </div>
+
+                    <div>
+                        <label htmlFor="pgender" className="block text-[13px] font-bold text-gray-700 mb-1.5">Gender</label>
+                        <select
+                            id="pgender"
+                            required
+                            value={profile.gender}
+                            onChange={(e) => setProfile({ ...profile, gender: e.target.value })}
+                            className={`w-full p-2.5 border rounded-lg outline-none focus:border-[#203569] text-gray-800 bg-white ${profile.gender ? 'border-gray-300' : 'border-[#f59e0b]'}`}
+                        >
+                            <option value="" disabled>Choose…</option>
+                            <option value="MALE">Male</option>
+                            <option value="FEMALE">Female</option>
+                        </select>
+                        <p className={`text-[11px] mt-1 ${profile.gender ? 'text-gray-400' : 'text-[#b45309] font-bold'}`}>
+                            {profile.gender ? 'Used for roommate matching and gender-specific rentals.' : 'Please choose your gender — roommate matching needs it.'}
+                        </p>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">

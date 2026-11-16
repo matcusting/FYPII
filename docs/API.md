@@ -9,10 +9,10 @@ Authentication uses the HTTP-only `uts_sid` session cookie. Health checks: `GET 
 | GET | `/auth/me` | Auth |
 | POST | `/auth/verify-email` · `/auth/resend-verification` | Public / Auth |
 | POST | `/auth/forgot-password` · `/auth/reset-password` · `/auth/change-password` · `/auth/delete-account` | Public / Auth |
-| GET, PATCH | `/profile` (includes `emailNotifications: boolean`) | Auth |
+| GET, PATCH | `/profile` (includes `emailNotifications: boolean`; students also `gender: MALE \| FEMALE`) | Auth |
 | GET, POST | `/profile/verification` | Student, Landlord |
 | GET | `/meta` (facilities, room types, campuses, habit options, report reasons) | Public |
-| GET | `/listings` (`q, minRent, maxRent, maxDeposit, maxDistance, roomType, amenities, furnished, availableBy, saved, sort, page, limit`) | Public |
+| GET | `/listings` (`q, minRent, maxRent, maxDeposit, maxDistance, roomType, amenities, furnished, availableBy, suitableFor, genderRestriction, saved, sort, page, limit`) | Public |
 | GET | `/listings/mine` · `/listings/:id` | Owner / Public (published only) |
 | POST | `/listings` · `/listings/:id/submit` · `/listings/:id/status` · `/listings/:id/availability` | Owner |
 | PATCH, DELETE | `/listings/:id` | Owner, Admin |
@@ -34,6 +34,18 @@ Authentication uses the HTTP-only `uts_sid` session cookie. Health checks: `GET 
 | GET, PATCH | `/admin/verifications[/:id]` · `/admin/listings[/:id]` · `/admin/reviews[/:id]` · `/admin/reports[/:id]` | Admin |
 | GET, PATCH, DELETE | `/admin/users[/:id]` | Admin |
 | GET, POST, PATCH | `/admin/universities[/:id]` · `/admin/campuses[/:id]` · POST `/admin/amenities` | Admin |
+
+## Gender fields
+
+| Where | Field | Values | Notes |
+|---|---|---|---|
+| `POST /auth/register` (students) | `gender` | `MALE`, `FEMALE` | Required for students; ignored for landlords. |
+| `PATCH /profile` | `gender` | `MALE`, `FEMALE` | Students without a gender (older accounts) set it here. |
+| `PUT /roommates/profile` | `roommateGender` | `SAME` (default), `ANY` | Hard filter, not scored. A different-gender pair only matches if both chose `ANY`. Students without a gender are never matched, and `GET /roommates/matches` asks them to set it first. Match results include the candidate's `gender`. |
+| `POST`/`PATCH /listings` | `genderRestriction` | `ANY` (default), `MALE_ONLY`, `FEMALE_ONLY` | Returned on every listing. |
+| `GET /listings` | `suitableFor` | `MALE`, `FEMALE` | Only listings that gender may rent (`ANY` + matching restriction). |
+| `GET /listings` | `genderRestriction` | comma list | Filter by restriction. |
+| `POST /listings/:id/inquiries` | — | — | 403 when a student's gender does not fit the listing's restriction. |
 
 ## Real-time events (Socket.IO, same origin as the API)
 

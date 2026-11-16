@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import ListingReviews from '../../components/ListingReviews';
 import { ErrorBanner, ReportDialog } from '../../components/ui';
-import { api, assetUrl } from '../../lib/api';
+import { api, assetUrl, genderAllowed, genderBadge } from '../../lib/api';
+import { useAuth } from '../../context/AuthContext';
 
 const PAGE_SIZE = 10;
 
@@ -17,6 +18,7 @@ const tagsFor = (prop) => {
 
 const HousingSearch = ({ savedOnly = false }) => {
     const navigate = useNavigate();
+    const { user } = useAuth();
     const [meta, setMeta] = useState({ amenities: [], roomTypes: [] });
 
     // 筛选表单状态
@@ -27,6 +29,8 @@ const HousingSearch = ({ savedOnly = false }) => {
     const [maxDeposit, setMaxDeposit] = useState('any');
     const [facilities, setFacilities] = useState([]);
     const [furnishedOnly, setFurnishedOnly] = useState(false);
+    // Hide rooms reserved for the other gender (on by default once the student has set a gender).
+    const [suitableOnly, setSuitableOnly] = useState(true);
     const [availableBy, setAvailableBy] = useState('');
     const [sort, setSort] = useState('newest');
     const [showSaved, setShowSaved] = useState(savedOnly);
@@ -63,6 +67,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                 maxDeposit: maxDeposit === 'any' ? undefined : maxDeposit,
                 amenities: facilities,
                 furnished: furnishedOnly ? 'true' : undefined,
+                suitableFor: suitableOnly && user?.gender ? user.gender : undefined,
                 availableBy,
                 saved: saved ? 'true' : undefined,
                 sort: sortBy,
@@ -104,7 +109,7 @@ const HousingSearch = ({ savedOnly = false }) => {
 
     const resetFilters = () => {
         setMaxRent(1000); setMaxDistance('any'); setKeyword(''); setRoomType(''); setMaxDeposit('any');
-        setFacilities([]); setFurnishedOnly(false); setAvailableBy(''); setShowSaved(false);
+        setFacilities([]); setFurnishedOnly(false); setSuitableOnly(true); setAvailableBy(''); setShowSaved(false);
     };
 
     const toggleFacility = (f) => setFacilities(facilities.includes(f) ? facilities.filter((x) => x !== f) : [...facilities, f]);
@@ -279,6 +284,13 @@ const HousingSearch = ({ savedOnly = false }) => {
                             </>
                         )}
 
+                        {user?.gender && (
+                            <label className="mb-4 flex items-center gap-2 text-[13px] font-bold text-[#4b5563] cursor-pointer">
+                                <input type="checkbox" checked={suitableOnly} onChange={(e) => setSuitableOnly(e.target.checked)} className="accent-[#203569] w-4 h-4" />
+                                Hide rooms for {user.gender === 'MALE' ? 'female' : 'male'} tenants only
+                            </label>
+                        )}
+
                         <label className="mb-8 flex items-center gap-2 text-[13px] font-bold text-[#e11d48] cursor-pointer">
                             <input type="checkbox" checked={showSaved} onChange={(e) => changeSaved(e.target.checked)} className="accent-[#e11d48] w-4 h-4" />
                             ❤️ Show my saved listings only
@@ -359,6 +371,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                                 {prop.landlord.verified ? 'Verified Landlord' : 'Landlord'} <span className="mx-1">•</span> {prop.distanceKm} km to UTS
                                                 {prop.rating.count > 0 && <> <span className="mx-1">•</span> <span className="text-[#eab308] font-bold">★ {prop.rating.average}</span> ({prop.rating.count})</>}
                                             </p>
+                                            {genderBadge(prop.genderRestriction) && <span className="inline-block mt-1 mr-2 bg-[#fdf2f8] text-[#be185d] text-[11px] font-bold px-2 py-0.5 rounded">{genderBadge(prop.genderRestriction)}</span>}
                                             {prop.isStale && <p className="text-[11px] text-[#a16207] font-bold mt-1">⚠ Availability not confirmed recently</p>}
                                         </div>
                                     </div>
@@ -474,6 +487,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                     📅 {selectedProperty.availableFrom ? `Available from ${selectedProperty.availableFrom}` : 'Available now'}
                                 </span>
                                 {selectedProperty.furnished && <span className="bg-[#f0fdf4] text-[#15803d] text-xs font-bold px-3 py-1.5 rounded-md">🛋 Fully Furnished</span>}
+                                {genderBadge(selectedProperty.genderRestriction) && <span className="bg-[#fdf2f8] text-[#be185d] text-xs font-bold px-3 py-1.5 rounded-md">{genderBadge(selectedProperty.genderRestriction)}</span>}
                                 <span className={`text-xs font-bold px-3 py-1.5 rounded-md ${selectedProperty.isStale ? 'bg-[#fefce8] text-[#a16207]' : 'bg-gray-100 text-gray-500'}`}>
                                     {selectedProperty.isStale ? '⚠ ' : ''}Availability confirmed {new Date(selectedProperty.lastConfirmedAt).toLocaleDateString()}
                                 </span>
@@ -511,6 +525,14 @@ const HousingSearch = ({ savedOnly = false }) => {
                             <div className="mb-8">
                                 <ListingReviews listingId={selectedProperty.id} landlordName={selectedProperty.landlord.name} />
                             </div>
+
+                            {user?.role === 'STUDENT' && !genderAllowed(selectedProperty.genderRestriction, user.gender) && (
+                                <p className="mb-4 text-[13px] font-bold text-[#be185d] bg-[#fdf2f8] border border-[#fbcfe8] rounded-lg px-4 py-3">
+                                    {user.gender
+                                        ? `This landlord only rents this property to ${selectedProperty.genderRestriction === 'MALE_ONLY' ? 'male' : 'female'} tenants, so you cannot send an inquiry.`
+                                        : 'This property is for one gender only. Set your gender in My Profile to contact the landlord.'}
+                                </p>
+                            )}
 
                             <ErrorBanner error={modalError} className="mb-4" />
 

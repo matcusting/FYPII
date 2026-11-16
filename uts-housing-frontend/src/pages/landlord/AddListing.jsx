@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, mapsSearchUrl } from '../../lib/api';
+import { GENDER_RESTRICTION_OPTIONS, api, mapsSearchUrl } from '../../lib/api';
 import { ErrorBanner, FieldError } from '../../components/ui';
 import { MAX_PHOTOS, pickPhotos } from '../../lib/photos';
 
@@ -18,6 +18,7 @@ const AddListing = ({ onCreated }) => {
     const [availableFrom, setAvailableFrom] = useState('');
     const [furnished, setFurnished] = useState(true);
     const [houseRules, setHouseRules] = useState('');
+    const [genderRestriction, setGenderRestriction] = useState('ANY');
     const [selectedFacilities, setSelectedFacilities] = useState(['High-Speed Wi-Fi', 'Air Conditioning']);
     const [photos, setPhotos] = useState([]);
     const [isPublishing, setIsPublishing] = useState(false);
@@ -73,6 +74,7 @@ const AddListing = ({ onCreated }) => {
                     availableFrom: availableFrom || null,
                     furnished,
                     houseRules: houseRules || null,
+                    genderRestriction,
                     facilities: selectedFacilities,
                 },
             });
@@ -267,6 +269,14 @@ const AddListing = ({ onCreated }) => {
                 <div>
                     <label htmlFor="houseRules" className="block text-[13px] font-bold text-[#374151] mb-2">House Rules (optional)</label>
                     <textarea id="houseRules" rows="2" maxLength={1000} value={houseRules} onChange={(e) => setHouseRules(e.target.value)} placeholder="e.g., No smoking indoors, quiet hours after 11pm" className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"></textarea>
+                </div>
+
+                <div>
+                    <label htmlFor="genderRestriction" className="block text-[13px] font-bold text-[#374151] mb-2">Who can rent this property?</label>
+                    <select id="genderRestriction" value={genderRestriction} onChange={(e) => setGenderRestriction(e.target.value)} className="w-full sm:w-1/2 p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 bg-white">
+                        {GENDER_RESTRICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <p className="text-[12px] text-gray-500 mt-1.5">Students of the other gender will not be able to send an inquiry.</p>
                 </div>
 
                 <label className="flex items-center gap-3 text-[13px] font-bold text-[#374151] cursor-pointer">

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { budgetsOverlap, compatibility, habitMatch, moveInCompatible } from '../src/services/matching.js';
+import { budgetsOverlap, compatibility, genderConflict, habitMatch, moveInCompatible } from '../src/services/matching.js';
 
-const base = { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', weights: {} };
+const base = { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', weights: {}, gender: 'MALE', roommateGender: 'SAME' };
 
 describe('roommate compatibility (report formula)', () => {
   it('gives 100% when all three core habits are identical', () => {
@@ -51,5 +51,31 @@ describe('roommate compatibility (report formula)', () => {
     expect(budgetsOverlap({}, { budgetMin: 900 })).toBe(true);
     expect(moveInCompatible({ moveInDate: '2026-01-01' }, { moveInDate: '2026-02-15' })).toBe(true);
     expect(moveInCompatible({ moveInDate: '2026-01-01' }, { moveInDate: '2026-06-01' })).toBe(false);
+  });
+});
+
+describe('roommate gender filter', () => {
+  const male = { ...base, gender: 'MALE' };
+  const female = { ...base, gender: 'FEMALE' };
+
+  it('same gender always passes, whatever the preference', () => {
+    expect(genderConflict(male, { ...male })).toBeNull();
+    expect(compatibility(female, { ...female }).excluded).toBeNull();
+  });
+
+  it('a "same gender only" preference on either side excludes a different-gender pair', () => {
+    expect(compatibility(male, female).excluded).toMatch(/same gender/);
+    expect(compatibility({ ...male, roommateGender: 'ANY' }, female).excluded).toMatch(/They only want/);
+    expect(compatibility(male, { ...female, roommateGender: 'ANY' }).excluded).toMatch(/You only want/);
+  });
+
+  it('two students who both accept any gender can match, and gender does not change the score', () => {
+    const r = compatibility({ ...male, roommateGender: 'ANY' }, { ...female, roommateGender: 'ANY' });
+    expect(r.excluded).toBeNull();
+    expect(r.score).toBe(100);
+  });
+
+  it('an unknown gender never passes a "same gender only" filter', () => {
+    expect(genderConflict(male, { ...base, gender: null, roommateGender: 'ANY' })).toBeTruthy();
   });
 });

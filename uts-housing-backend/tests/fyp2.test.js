@@ -1,4 +1,4 @@
-// FYP II features: real-time chat, listing availability upkeep, notification preferences.
+// FYP II features: real-time chat, listing availability upkeep, notification preferences, gender options.
 import http from 'node:http';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
@@ -211,5 +211,109 @@ describe('real-time messaging (WebSocket)', () => {
 
     ownerSock.close();
     outsiderSock.close();
+  });
+});
+
+/* ---------------------------------------------------------- gender options */
+
+describe('gender options', () => {
+  it('students must choose a gender when registering; landlords do not', async () => {
+    const base = { role: 'STUDENT', name: 'No Gender', password: PW, acceptTerms: true };
+    const missing = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'nog@fyp2.edu.my', studentId: 'BCS77770001' });
+    expect(missing.status).toBe(400);
+    expect(missing.body.error.fields.gender).toBe('Choose your gender.');
+    const bad = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'nog@fyp2.edu.my', studentId: 'BCS77770001', gender: 'OTHER' });
+    expect(bad.status).toBe(400);
+    const okRes = await request(app).post('/api/v1/auth/register').send({ ...base, email: 'nog@fyp2.edu.my', studentId: 'BCS77770001', gender: 'FEMALE' });
+    expect(okRes.status).toBe(201);
+    expect(okRes.body.data.user.gender).toBe('FEMALE');
+    const landlord = await request(app).post('/api/v1/auth/register').send({ role: 'LANDLORD', name: 'Some Landlord', email: 'gl@example.com', password: PW, acceptTerms: true });
+    expect(landlord.status).toBe(201);
+    expect(landlord.body.data.user.gender).toBeNull();
+  });
+
+  it('roommate matching respects the same-gender preference and needs a gender', async () => {
+    const habits = { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', discoverable: true };
+    const mk = (email, sid, gender, h = {}) =>
+      makeUser('STUDENT', email, { studentId: sid, gender, studentVerifiedAt: new Date(), lifestyle: { create: { ...habits, ...h } } });
+    await mk('g-me@fyp2.edu.my', 'GEN00001', 'FEMALE'); // default: same gender only
+    await mk('g-she@fyp2.edu.my', 'GEN00002', 'FEMALE');
+    await mk('g-he-any@fyp2.edu.my', 'GEN00003', 'MALE', { roommateGender: 'ANY' });
+    await mk('g-nogender@fyp2.edu.my', 'GEN00004', null, { roommateGender: 'ANY' });
+
+    const me = request.agent(app);
+    await me.post('/api/v1/auth/login').send({ email: 'g-me@fyp2.edu.my', password: PW });
+    let names = (await me.get('/api/v1/roommates/matches')).body.data.map((m) => m.user.name);
+    expect(names).toContain('g-she');
+    expect(names).not.toContain('g-he-any'); // I asked for same gender only
+    expect(names).not.toContain('g-nogender');
+    const sheRow = (await me.get('/api/v1/roommates/matches')).body.data.find((m) => m.user.name === 'g-she');
+    expect(sheRow.gender).toBe('FEMALE');
+
+    // A request to an excluded student is refused too.
+    const he = await prisma.user.findUnique({ where: { email: 'g-he-any@fyp2.edu.my' } });
+    expect((await me.post('/api/v1/roommates/requests').send({ recipientId: he.id })).status).toBe(400);
+
+    // Switching to "any gender" lets both sides who accept any gender match.
+    const put = await me.put('/api/v1/roommates/profile').send({ roommateGender: 'ANY' });
+    expect(put.body.data.roommateGender).toBe('ANY');
+    names = (await me.get('/api/v1/roommates/matches')).body.data.map((m) => m.user.name);
+    expect(names).toContain('g-he-any');
+    expect(names).not.toContain('g-nogender'); // unknown gender only matches nobody
+
+    // A student without a gender is asked to set it before matching.
+    const nog = request.agent(app);
+    await nog.post('/api/v1/auth/login').send({ email: 'g-nogender@fyp2.edu.my', password: PW });
+    const blocked = await nog.get('/api/v1/roommates/matches');
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.error.message).toMatch(/Set your gender/);
+    expect((await nog.patch('/api/v1/profile').send({ gender: 'MALE' })).body.data.user.gender).toBe('MALE');
+    expect((await nog.get('/api/v1/roommates/matches')).status).toBe(200);
+
+    // Hide these students again so they do not show up in other tests' matches.
+    await prisma.lifestyleProfile.updateMany({ where: { user: { email: { startsWith: 'g-' } } }, data: { discoverable: false } });
+  });
+
+  it('landlords can rent to one gender; search and inquiries respect it', async () => {
+    await makeUser('LANDLORD', 'g-owner@example.com', { landlordVerifiedAt: new Date() });
+    await makeUser('STUDENT', 'g-boy@fyp2.edu.my', { studentId: 'GEN10001', gender: 'MALE', studentVerifiedAt: new Date() });
+    await makeUser('STUDENT', 'g-girl@fyp2.edu.my', { studentId: 'GEN10002', gender: 'FEMALE', studentVerifiedAt: new Date() });
+    const owner = request.agent(app);
+    await owner.post('/api/v1/auth/login').send({ email: 'g-owner@example.com', password: PW });
+    const base = { roomType: 'Single Room', rent: 400, distanceKm: 1, address: '1 Jalan Gender Test, Sibu', campusId: campus.id };
+
+    const women = await owner.post('/api/v1/listings').send({ ...base, title: 'Gender Women Only Room', genderRestriction: 'FEMALE_ONLY' });
+    expect(women.status).toBe(201);
+    expect(women.body.data.genderRestriction).toBe('FEMALE_ONLY');
+    const open = await owner.post('/api/v1/listings').send({ ...base, title: 'Gender Open Room' });
+    expect(open.body.data.genderRestriction).toBe('ANY'); // default
+    expect((await owner.post('/api/v1/listings').send({ ...base, title: 'Gender Bad Room', genderRestriction: 'KIDS_ONLY' })).status).toBe(400);
+    const edited = await owner.patch(`/api/v1/listings/${open.body.data.id}`).send({ genderRestriction: 'MALE_ONLY' });
+    expect(edited.body.data.genderRestriction).toBe('MALE_ONLY');
+    await owner.patch(`/api/v1/listings/${open.body.data.id}`).send({ genderRestriction: 'ANY' });
+    await prisma.listing.updateMany({ where: { title: { startsWith: 'Gender ' } }, data: { status: 'PUBLISHED', publishedAt: new Date() } });
+
+    // Search: "suitable for" hides rooms the student cannot rent.
+    const forBoy = await request(app).get('/api/v1/listings').query({ q: 'Gender', suitableFor: 'MALE' });
+    expect(forBoy.body.data.map((l) => l.title)).toEqual(['Gender Open Room']);
+    const forGirl = await request(app).get('/api/v1/listings').query({ q: 'Gender', suitableFor: 'FEMALE' });
+    expect(forGirl.body.data.map((l) => l.title).sort()).toEqual(['Gender Open Room', 'Gender Women Only Room']);
+    const onlyRestricted = await request(app).get('/api/v1/listings').query({ q: 'Gender', genderRestriction: 'FEMALE_ONLY' });
+    expect(onlyRestricted.body.data.map((l) => l.title)).toEqual(['Gender Women Only Room']);
+
+    // Inquiries: a male student cannot ask about a women-only room; a female student can.
+    const boy = request.agent(app);
+    await boy.post('/api/v1/auth/login').send({ email: 'g-boy@fyp2.edu.my', password: PW });
+    const refused = await boy.post(`/api/v1/listings/${women.body.data.id}/inquiries`).send({ body: 'Is it available?' });
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.message).toMatch(/female tenants only/);
+    const girl = request.agent(app);
+    await girl.post('/api/v1/auth/login').send({ email: 'g-girl@fyp2.edu.my', password: PW });
+    expect((await girl.post(`/api/v1/listings/${women.body.data.id}/inquiries`).send({ body: 'Is it available?' })).status).toBe(201);
+  });
+
+  it('gender is not shown on public user cards', async () => {
+    const res = await request(app).get('/api/v1/listings').query({ q: 'Gender Women Only Room' });
+    expect(res.body.data[0].landlord.gender).toBeUndefined();
   });
 });

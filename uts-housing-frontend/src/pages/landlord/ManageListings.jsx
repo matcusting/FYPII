@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, assetUrl, mapsSearchUrl, statusLabel } from '../../lib/api';
+import { GENDER_RESTRICTION_OPTIONS, api, assetUrl, genderBadge, mapsSearchUrl, statusLabel } from '../../lib/api';
 import { pickPhotos } from '../../lib/photos';
 import { ErrorBanner, LoadingBlock } from '../../components/ui';
 
@@ -109,6 +109,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                     availableFrom: p.availableFrom || null,
                     houseRules: p.houseRules || null,
                     furnished: p.furnished,
+                    genderRestriction: p.genderRestriction || 'ANY',
                     facilities: p.facilities,
                 },
             });
@@ -212,6 +213,7 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                 )}
 
                                 <div className="flex flex-wrap gap-1.5 mb-4">
+                                    {genderBadge(prop.genderRestriction) && <span className="bg-[#fdf2f8] text-[#be185d] text-[10px] font-bold px-2 py-0.5 rounded">{genderBadge(prop.genderRestriction)}</span>}
                                     {prop.facilities && prop.facilities.map((fac, idx) => (
                                         <span key={idx} className="bg-gray-100 text-gray-600 text-[10px] font-bold px-2 py-0.5 rounded">
                                             {fac}
@@ -321,6 +323,12 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                             <div>
                                 <label htmlFor="e-rules" className="block text-[13px] font-bold text-[#374151] mb-1">House Rules</label>
                                 <textarea id="e-rules" rows="2" maxLength={1000} value={editingProperty.houseRules} onChange={(e) => setEditingProperty({...editingProperty, houseRules: e.target.value})} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800"></textarea>
+                            </div>
+                            <div>
+                                <label htmlFor="e-gender" className="block text-[13px] font-bold text-[#374151] mb-1">Who can rent this property?</label>
+                                <select id="e-gender" value={editingProperty.genderRestriction || 'ANY'} onChange={(e) => setEditingProperty({ ...editingProperty, genderRestriction: e.target.value })} className="w-full p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#1d4ed8] text-gray-800 bg-white">
+                                    {GENDER_RESTRICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                </select>
                             </div>
                             <label className="flex items-center gap-2 text-[13px] font-bold text-[#374151] cursor-pointer">
                                 <input type="checkbox" checked={editingProperty.furnished} onChange={(e) => setEditingProperty({ ...editingProperty, furnished: e.target.checked })} className="accent-[#1d4ed8] w-4 h-4" />

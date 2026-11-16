@@ -121,7 +121,7 @@ async function main() {
     const verified = extra.verified !== false;
     const u = await prisma.user.create({
       data: {
-        name, email, studentId, major, academicYear, role: 'STUDENT', passwordHash: demoHash,
+        name, email, studentId, major, academicYear, gender: extra.gender, role: 'STUDENT', passwordHash: demoHash,
         emailVerifiedAt: now, studentVerifiedAt: verified ? now : null, bio: extra.bio,
         verifications: {
           create: {
@@ -140,23 +140,27 @@ async function main() {
 
   const marcus = await mkStudent('Marcus Ting', 'student@uts.edu.my', 'BCS24020031', 'Computer Science', 'Year 2',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', noise: 'Quiet', budgetMin: 300, budgetMax: 600 },
-    { bio: 'Looking for a quiet roommate near UTS campus who respects study hours.' });
+    { gender: 'MALE', bio: 'Looking for a quiet roommate near UTS campus who respects study hours.' });
   const alex = await mkStudent('Alex Lee', 'alex.lee@uts.edu.my', 'BCS23010012', 'Computer Science', 'Year 3',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', noise: 'Quiet', budgetMin: 350, budgetMax: 650 },
-    { bio: 'Gamer and coder, usually up late but quiet.' });
+    { gender: 'MALE', bio: 'Gamer and coder, usually up late but quiet.' });
   const jonathan = await mkStudent('Jonathan Tan', 'jonathan.tan@uts.edu.my', 'BEE24030045', 'Engineering', 'Year 2',
     { studySchedule: 'Night Owl (Late)', cleanliness: 'Strict (Daily)', smoking: 'Non-Smoker', noise: 'Moderate', budgetMin: 300, budgetMax: 500 },
-    { bio: 'Neat freak, happy to share chores.' });
+    { gender: 'MALE', bio: 'Neat freak, happy to share chores.' });
   const sarah = await mkStudent('Sarah Tan', 'sarah.tan@uts.edu.my', 'BBA24050078', 'Business', 'Year 1',
-    { studySchedule: 'Early Bird (Morning)', cleanliness: 'Strict (Daily)', smoking: 'Non-Smoker', pets: 'No Pets', budgetMin: 250, budgetMax: 450 });
+    { studySchedule: 'Early Bird (Morning)', cleanliness: 'Strict (Daily)', smoking: 'Non-Smoker', pets: 'No Pets', budgetMin: 250, budgetMax: 450 },
+    { gender: 'FEMALE' });
   const daniel = await mkStudent('Daniel Wong', 'daniel.wong@uts.edu.my', 'BCE23020033', 'Civil Engineering', 'Year 3',
-    { studySchedule: 'Early Bird (Morning)', cleanliness: 'Relaxed', smoking: 'Smoker', guests: 'Often' });
+    { studySchedule: 'Early Bird (Morning)', cleanliness: 'Relaxed', smoking: 'Smoker', guests: 'Often' },
+    { gender: 'MALE' });
   const amanda = await mkStudent('Amanda Kho', 'amanda.kho@uts.edu.my', 'BAC22040021', 'Accounting', 'Year 2',
-    { studySchedule: 'Early Bird (Morning)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker' }, { verified: true });
+    { studySchedule: 'Early Bird (Morning)', cleanliness: 'Moderate (Weekly)', smoking: 'Non-Smoker', roommateGender: 'ANY' },
+    { verified: true, gender: 'FEMALE' });
   const jason = await mkStudent('Jason Lau', 'jason.lau@uts.edu.my', 'BCS21010099', 'Computer Science', 'Year 4',
-    { studySchedule: 'Night Owl (Late)', cleanliness: 'Relaxed', smoking: 'Smoker Ok' });
+    { studySchedule: 'Night Owl (Late)', cleanliness: 'Relaxed', smoking: 'Smoker Ok' },
+    { gender: 'MALE' });
   await mkStudent('Priya Nair', 'priya.nair@gmail.com', 'BFT24060011', 'Food Technology', 'Year 1', {},
-    { verified: false, note: 'I use my personal Gmail; my student card number is BFT24060011, intake Sept 2026.' });
+    { verified: false, gender: 'FEMALE', note: 'I use my personal Gmail; my student card number is BFT24060011, intake Sept 2026.' });
 
   const mkLandlord = (name, email, phone, verified = true) =>
     prisma.user.create({
@@ -178,7 +182,7 @@ async function main() {
       data: {
         ownerId: owner.id, campusId: campus.id, title: d.title, description: d.description, roomType: d.roomType,
         rent: d.rent, deposit: d.deposit, distanceKm: d.distance, approximateArea: d.area, furnished: d.furnished ?? true,
-        address: d.address, houseRules: d.rules, availableFrom: d.availableFrom ? day(d.availableFrom) : null, status,
+        address: d.address, houseRules: d.rules, genderRestriction: d.gender ?? 'ANY', availableFrom: d.availableFrom ? day(d.availableFrom) : null, status,
         publishedAt: status === 'PUBLISHED' || status === 'RENTED' ? daysAgo(d.age ?? 5) : null,
         lastConfirmedAt: daysAgo(d.confirmed ?? 2), viewCount: d.views ?? 0, createdAt: daysAgo((d.age ?? 5) + 1),
         amenities: { create: d.facilities.map((n) => ({ amenityId: amenities[n] })) },
@@ -210,13 +214,13 @@ async function main() {
     title: 'Campus Walk Single', address: 'No. 5, Jalan Universiti, 96000 Sibu, Sarawak', rent: 550, deposit: 0, distance: 0.8, roomType: 'Single Room', area: 'Jalan Universiti',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Study Desk', 'Water Dispenser'],
     description: 'Superb location just 800m from UTS main gate! Zero deposit promotion for verified UTS students. Newly renovated with brand new furniture.',
-    views: 87, age: 3,
+    views: 87, age: 3, gender: 'MALE_ONLY',
   });
   await mkListing(rachel, {
     title: 'Pahlawan Master Room', address: 'No. 21, Jalan Pahlawan, 96000 Sibu, Sarawak', rent: 650, deposit: 650, distance: 2.5, roomType: 'Master Room', area: 'Pahlawan',
     facilities: ['High-Speed Wi-Fi', 'Air Conditioning', 'Attached Bathroom', 'Washing Machine', 'Balcony'],
     description: 'Large master bedroom with a private attached bathroom and balcony. Located near Pahlawan bus terminal and commercial center.',
-    views: 15, age: 40, confirmed: 45, // stale: not reconfirmed for 45 days
+    views: 15, age: 40, confirmed: 35, gender: 'FEMALE_ONLY', // stale: not reconfirmed for 35 days (auto-paused at 45)
   });
   await mkListing(wong, {
     title: 'Master Room near Lanang Road', address: 'No. 7, Jalan Lanang, 96000 Sibu, Sarawak', rent: 520, deposit: 520, distance: 2.0, roomType: 'Master Room', area: 'Lanang Road',

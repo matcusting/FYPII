@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import { useAuth } from '../../context/AuthContext';
-import { api } from '../../lib/api';
+import { GENDER_LABELS, api } from '../../lib/api';
 import { ErrorBanner, LoadingBlock, ReportDialog, SuccessBanner, VerificationBanner } from '../../components/ui';
 
 const AVATAR_COLORS = [
@@ -98,6 +98,7 @@ const RoommateSearch = () => {
                 ...Object.fromEntries(dimensions.map((d) => [d.key, profile[d.key] || null])),
                 weights: profile.weights,
                 smokeFreeOnly: profile.smokeFreeOnly,
+                roommateGender: profile.roommateGender || 'SAME',
                 budgetMin: profile.budgetMin === '' ? null : profile.budgetMin,
                 budgetMax: profile.budgetMax === '' ? null : profile.budgetMax,
                 moveInDate: profile.moveInDate || null,
@@ -284,6 +285,24 @@ const RoommateSearch = () => {
                                 </div>
                             ))}
 
+                            {/* 室友性别偏好 */}
+                            <div className="border-t border-gray-100 pt-8">
+                                <p className="text-[15px] font-bold text-[#374151] mb-1">Roommate Gender</p>
+                                <p className="text-[12px] text-gray-500 mb-3">
+                                    {user?.gender
+                                        ? <>You are registered as <strong>{GENDER_LABELS[user.gender]}</strong>. This is a filter, not part of the score.</>
+                                        : <span className="text-[#b45309] font-bold">Set your gender in My Profile first — matching needs it.</span>}
+                                </p>
+                                <div className="flex flex-wrap gap-3">
+                                    {[['SAME', 'Same gender only'], ['ANY', 'Any gender is fine']].map(([value, text]) => (
+                                        <button key={value} type="button" aria-pressed={(profile.roommateGender || 'SAME') === value} onClick={() => setProfile({ ...profile, roommateGender: value })} className={getPillClass(profile.roommateGender || 'SAME', value)}>
+                                            {text}
+                                        </button>
+                                    ))}
+                                </div>
+                                <p className="text-[11px] text-gray-400 mt-2">Students of another gender only appear if you <em>both</em> choose “Any gender is fine”.</p>
+                            </div>
+
                             {/* 预算和入住时间 */}
                             <div className="border-t border-gray-100 pt-8 grid grid-cols-1 sm:grid-cols-3 gap-5">
                                 <div>
@@ -326,7 +345,7 @@ const RoommateSearch = () => {
                         <h2 className="text-[1.3rem] font-bold text-[#1f2937] mb-2">Top Compatible Roommates</h2>
                         <p className="text-[12px] text-gray-500 mb-8">
                             Score = matching habits ÷ habits you both answered × 100%, weighted by the importance you chose. It's a guide, not a guarantee.
-                            {matchMeta?.excludedByPreferences > 0 && ` ${matchMeta.excludedByPreferences} student(s) hidden by your budget, move-in date or deal-breakers.`}
+                            {matchMeta?.excludedByPreferences > 0 && ` ${matchMeta.excludedByPreferences} student(s) hidden by your budget, move-in date, gender preference or deal-breakers.`}
                         </p>
 
                         {loadingMatches ? <LoadingBlock text="Finding matches..." /> : matches.length === 0 ? (
@@ -346,6 +365,7 @@ const RoommateSearch = () => {
                                         <div>
                                             <h3 className="font-bold text-[1.1rem] text-gray-900">{match.user.name}</h3>
                                             <p className="text-[13px] text-gray-500 mt-0.5">
+                                                {match.gender && <>{GENDER_LABELS[match.gender]}<span className="mx-1">•</span></>}
                                                 {match.user.academicYear || 'UTS Student'} {match.user.major && <><span className="mx-1">•</span> {match.user.major}</>}
                                             </p>
                                         </div>

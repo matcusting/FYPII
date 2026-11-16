@@ -21,6 +21,7 @@ const profileSchema = z
     ...habitFields,
     weights: z.record(z.string(), z.coerce.number().int().min(1).max(MAX_WEIGHT)).optional(),
     smokeFreeOnly: z.boolean().optional(),
+    roommateGender: z.enum(['SAME', 'ANY'], { message: 'Choose a roommate gender preference.' }).optional(),
     budgetMin: z.coerce.number().int().min(0).max(100000).nullable().optional(),
     budgetMax: z.coerce.number().int().min(0).max(100000).nullable().optional(),
     moveInDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
@@ -36,6 +37,7 @@ const serializeProfile = (p) => ({
   ...Object.fromEntries(DIMENSIONS.map((d) => [d.key, p[d.key]])),
   weights: normaliseWeights(p.weights),
   smokeFreeOnly: p.smokeFreeOnly,
+  roommateGender: p.roommateGender,
   budgetMin: p.budgetMin,
   budgetMax: p.budgetMax,
   moveInDate: p.moveInDate ? p.moveInDate.toISOString().slice(0, 10) : null,
@@ -46,6 +48,13 @@ const serializeProfile = (p) => ({
 
 async function myProfile(userId) {
   return prisma.lifestyleProfile.upsert({ where: { userId }, create: { userId }, update: {} });
+}
+
+/** Matching needs the student's gender (from the account) next to their habits. */
+const withGender = (profile, user) => ({ ...profile, gender: user.gender ?? null });
+
+function requireGender(user) {
+  if (!user.gender) throw badRequest('Set your gender in My Profile first — it is used to find suitable roommates.');
 }
 
 router.get('/profile', async (req, res) => {
@@ -64,7 +73,8 @@ router.put('/profile', async (req, res) => {
 /* ----------------------------------------------------------------- matches */
 
 router.get('/matches', requireVerifiedStudent, async (req, res) => {
-  const me = await myProfile(req.user.id);
+  requireGender(req.user);
+  const me = withGender(await myProfile(req.user.id), req.user);
   const core = DIMENSIONS.filter((d) => d.core);
   const missing = core.filter((d) => !me[d.key]);
   if (missing.length) throw badRequest(`Complete your habit profile first: ${missing.map((d) => d.label).join(', ')}.`);
@@ -93,11 +103,14 @@ router.get('/matches', requireVerifiedStudent, async (req, res) => {
   const results = [];
   for (const c of candidates) {
     if (!budgetsOverlap(me, c) || !moveInCompatible(me, c)) { excludedCount++; continue; }
-    const result = compatibility(me, c);
+    const result = compatibility(me, withGender(c, c.user));
     if (result.excluded) { excludedCount++; continue; }
     if (result.score == null) { insufficient++; continue; }
     results.push({
       user: serializePublicUser(c.user),
+      // Shown only to students who passed the gender filter (never in public listings).
+      gender: c.user.gender,
+      roommateGender: c.roommateGender,
       bio: c.user.bio,
       score: result.score,
       breakdown: result.breakdown,
@@ -141,6 +154,7 @@ router.post('/requests', requireVerifiedStudent, writeLimiter, async (req, res) 
   if (recipientId === req.user.id) throw badRequest('You cannot connect with yourself.');
   const blocked = await blockedIdsFor(req.user.id);
   if (blocked.includes(recipientId)) throw notFound('Student not found.');
+  requireGender(req.user);
   const [me, them] = await Promise.all([
     myProfile(req.user.id),
     prisma.lifestyleProfile.findFirst({
@@ -149,7 +163,7 @@ router.post('/requests', requireVerifiedStudent, writeLimiter, async (req, res) 
     }),
   ]);
   if (!them) throw notFound('Student not found.');
-  const result = compatibility(me, them);
+  const result = compatibility(withGender(me, req.user), withGender(them, them.user));
   if (result.excluded) throw badRequest('You have a deal-breaker conflict with this student.');
 
   const reverse = await prisma.connectionRequest.findUnique({

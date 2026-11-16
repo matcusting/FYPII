@@ -81,3 +81,18 @@ export const statusLabel = (s) =>
         RENTED: 'Rented',
         ARCHIVED: 'Archived',
     }[s] || s);
+
+export const GENDER_LABELS = { MALE: 'Male', FEMALE: 'Female' };
+
+export const GENDER_RESTRICTION_OPTIONS = [
+    { value: 'ANY', label: 'All genders welcome' },
+    { value: 'MALE_ONLY', label: 'Male tenants only' },
+    { value: 'FEMALE_ONLY', label: 'Female tenants only' },
+];
+
+/** Short badge text for a gender-restricted listing (null when anyone can rent). */
+export const genderBadge = (restriction) => ({ MALE_ONLY: '♂ Male only', FEMALE_ONLY: '♀ Female only' }[restriction] || null);
+
+/** True when a student of `gender` may rent a listing with this restriction. */
+export const genderAllowed = (restriction, gender) =>
+    !restriction || restriction === 'ANY' || (restriction === 'MALE_ONLY' && gender === 'MALE') || (restriction === 'FEMALE_ONLY' && gender === 'FEMALE');

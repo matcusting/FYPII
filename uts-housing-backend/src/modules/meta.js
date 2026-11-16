@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { ok } from '../utils/http.js';
 import { DIMENSIONS, MAX_WEIGHT } from '../services/matching.js';
-import { ROOM_TYPES, REPORT_REASONS } from './constants.js';
+import { GENDER_LABELS, GENDER_RESTRICTION_LABELS, ROOM_TYPES, REPORT_REASONS } from './constants.js';
 
 const router = Router();
 
@@ -19,6 +19,8 @@ router.get('/', async (_req, res) => {
     lifestyleDimensions: DIMENSIONS,
     maxWeight: MAX_WEIGHT,
     reportReasons: REPORT_REASONS,
+    genders: GENDER_LABELS,
+    genderRestrictions: GENDER_RESTRICTION_LABELS,
   });
 });
 

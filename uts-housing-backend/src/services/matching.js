@@ -13,8 +13,9 @@
  *    importance to 2 or 3 (addresses report limitation 5.2 #2 "static weighting").
  *  - Unanswered habits are left out of numerator AND denominator.
  *  - Fewer than MIN_ANSWERED shared answers → "insufficient data", never 0%.
- *  - Hard deal-breakers (smoke-free-only vs. a smoker) remove the candidate
- *    instead of producing a misleading low score.
+ *  - Hard deal-breakers (smoke-free-only vs. a smoker, or a "same gender only"
+ *    preference vs. a different gender) remove the candidate instead of
+ *    producing a misleading low score. Gender is not scored — it is a filter.
  */
 
 export const DIMENSIONS = [
@@ -40,8 +41,25 @@ export function habitMatch(key, a, b) {
   return 0;
 }
 
+/**
+ * Gender filter. Profiles carry `gender` (from the user) and `roommateGender`
+ * ('SAME' | 'ANY'). Either student asking for the same gender is enough to
+ * exclude a different-gender pair. Unknown gender never matches "same only".
+ */
+export function genderConflict(me, other) {
+  // Students who have not set their gender are never matched with anyone.
+  if (!me.gender) return 'Set your gender to see matches.';
+  if (!other.gender) return 'They have not set their gender yet.';
+  if (me.gender === other.gender) return null;
+  if ((me.roommateGender ?? 'SAME') === 'SAME') return 'You only want a roommate of the same gender.';
+  if ((other.roommateGender ?? 'SAME') === 'SAME') return 'They only want a roommate of the same gender.';
+  return null;
+}
+
 /** Returns a reason string if the pair has a hard conflict, otherwise null. */
 export function hardConflict(me, other) {
+  const g = genderConflict(me, other);
+  if (g) return g;
   if (me.smokeFreeOnly && other.smoking === 'Smoker') return 'You only want a smoke-free home.';
   if (other.smokeFreeOnly && me.smoking === 'Smoker') return 'They only want a smoke-free home.';
   return null;

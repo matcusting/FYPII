@@ -11,7 +11,7 @@ import { writeLimiter } from '../middleware/security.js';
 import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.js';
 import { listingInclude, serializeListing } from '../services/serialize.js';
 import { notifyAdmins } from '../services/notify.js';
-import { ROOM_TYPES } from './constants.js';
+import { GENDER_RESTRICTIONS, ROOM_TYPES } from './constants.js';
 
 const router = Router();
 
@@ -87,6 +87,9 @@ const searchSchema = z.object({
   saved: boolish,
   availableBy: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   campusId: uuid.optional(),
+  // Only listings this gender may rent (ANY + matching "only" listings).
+  suitableFor: z.enum(['MALE', 'FEMALE']).optional(),
+  genderRestriction: csv,
   sort: z.enum(['newest', 'rent_asc', 'rent_desc', 'distance']).default('newest'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(10),
@@ -115,6 +118,11 @@ router.get('/', async (req, res) => {
   if (f.roomType.length) where.roomType = { in: f.roomType };
   if (f.furnished != null) where.furnished = f.furnished;
   if (f.campusId) where.campusId = f.campusId;
+  if (f.suitableFor) where.genderRestriction = { in: ['ANY', f.suitableFor === 'MALE' ? 'MALE_ONLY' : 'FEMALE_ONLY'] };
+  else if (f.genderRestriction.length) {
+    if (!f.genderRestriction.every((g) => GENDER_RESTRICTIONS.includes(g))) throw badRequest('Unknown gender restriction.');
+    where.genderRestriction = { in: f.genderRestriction };
+  }
   if (f.availableBy) where.AND = [{ OR: [{ availableFrom: null }, { availableFrom: { lte: new Date(f.availableBy) } }] }];
   const and = where.AND || [];
   for (const name of f.amenities) and.push({ amenities: { some: { amenity: { name } } } });
@@ -188,6 +196,7 @@ const listingSchema = z.object({
   approximateArea: z.string().trim().max(120).nullable().optional(),
   furnished: z.boolean().default(false),
   houseRules: z.string().trim().max(1000).nullable().optional(),
+  genderRestriction: z.enum(GENDER_RESTRICTIONS, { message: 'Choose who can rent this property.' }).default('ANY'),
   availableFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.').nullable().optional(),
   facilities: z.array(z.string().max(60)).max(30).default([]),
   campusId: uuid.optional(),
@@ -220,6 +229,7 @@ const toData = (d) => ({
   approximateArea: d.approximateArea ?? null,
   furnished: d.furnished,
   houseRules: d.houseRules ?? null,
+  genderRestriction: d.genderRestriction,
   availableFrom: d.availableFrom ? new Date(d.availableFrom) : null,
 });
 
@@ -251,6 +261,7 @@ router.patch('/:id', requireAuth, writeLimiter, async (req, res) => {
     approximateArea: existing.approximateArea,
     furnished: existing.furnished,
     houseRules: existing.houseRules,
+    genderRestriction: existing.genderRestriction,
     availableFrom: existing.availableFrom ? existing.availableFrom.toISOString().slice(0, 10) : null,
     facilities: existing.amenities.map((a) => a.amenity.name),
     ...d,

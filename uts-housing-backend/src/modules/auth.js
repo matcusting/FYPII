@@ -33,12 +33,14 @@ const registerSchema = z
     password,
     acceptTerms: z.literal(true, { message: 'You must accept the terms of use.' }),
     studentId: studentId.optional(),
+    gender: z.enum(['MALE', 'FEMALE'], { message: 'Choose your gender.' }).optional(),
     major: z.string().trim().max(100).optional(),
     academicYear: z.string().trim().max(20).optional(),
     phone: z.string().trim().max(30).optional(),
     verificationNote: z.string().trim().max(1000).optional(),
   })
-  .refine((d) => d.role !== 'STUDENT' || d.studentId, { path: ['studentId'], message: 'Student ID is required.' });
+  .refine((d) => d.role !== 'STUDENT' || d.studentId, { path: ['studentId'], message: 'Student ID is required.' })
+  .refine((d) => d.role !== 'STUDENT' || d.gender, { path: ['gender'], message: 'Choose your gender.' });
 
 // Used to keep login timing similar whether or not the account exists.
 const DUMMY_HASH = await hashPassword('timing-equaliser-not-a-real-password');
@@ -81,6 +83,7 @@ router.post('/register', authLimiter, async (req, res) => {
         email: data.email,
         passwordHash,
         studentId: data.role === 'STUDENT' ? data.studentId : null,
+        gender: data.role === 'STUDENT' ? data.gender : null,
         major: data.role === 'STUDENT' ? data.major : null,
         academicYear: data.role === 'STUDENT' ? data.academicYear : null,
         phone: data.role === 'LANDLORD' ? data.phone : null,
