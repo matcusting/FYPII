@@ -101,7 +101,6 @@ export function toDocumentRows(files, kind, ownerId, allow = ['pdf', 'jpg', 'png
   });
 }
 
-export const documentPath = (doc) => path.join(config.privateUploadDir, doc.objectKey);
 
 /** Shape returned to clients (never the storage key). */
 export const serializeDocument = (d) => ({

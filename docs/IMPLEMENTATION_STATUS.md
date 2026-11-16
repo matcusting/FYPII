@@ -44,10 +44,10 @@ Done: Argon2id, opaque session tokens stored as SHA-256 hashes, HttpOnly + SameS
 
 ## Not done / needs a decision
 
-- **Public deployment:** no hosting account or domain has been provisioned (README → Deployment notes).
-- **Object storage:** photos are on local disk. S3-compatible storage is needed before production.
+- **Public deployment:** ready for Render (free) + Neon PostgreSQL + Brevo e-mail via `render.yaml` (README → Online demo); the hosting accounts are created by the project owner. Uploaded files can be stored in PostgreSQL (`STORAGE_DRIVER=database`, `services/storage.js`) for hosts without a permanent disk.
+- **Object storage:** S3-compatible storage would be better than the database for large numbers of files in production.
 - **Maps:** students open the listing address in Google Maps (no API key needed). Distance is entered by the landlord: automatic distance from a map pin was built and then removed on feedback (see the `claude/jolly-edison-1vzpxr` history). Not done: embedded map and address autocomplete, which would need a paid Google Maps API key.
-- **Multilingual UI:** not required by the TRF.
+- **Multilingual UI:** done for the web interface (English / Bahasa Melayu / 中文, `src/i18n`). E-mails and notification bodies from the API are still English only.
 - **Frontend unit tests and Playwright E2E in CI:** only the backend has automated tests. The UI flows were checked manually with Playwright during development.
 - **Document retention:** verification documents are kept (superseded property documents too, for the audit trail). A retention period and automatic deletion still need to be decided (PDPA).
 - **Open questions for the supervisor:** see `PROJECT_REQUIREMENTS.md` §18 (sublet rules, data retention). Decided in this iteration: students are verified by offer letter + student card (admin); landlords and properties by a legal reviewer.

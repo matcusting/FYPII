@@ -11,7 +11,8 @@ import { writeLimiter } from '../middleware/security.js';
 import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.js';
 import { listingInclude, serializeListing } from '../services/serialize.js';
 import { notifyAdmins, notifyReviewers } from '../services/notify.js';
-import { PROPERTY_KINDS, documentPath, documentUpload, removeFiles, toDocumentRows } from '../services/documents.js';
+import { PROPERTY_KINDS, documentUpload, removeFiles, toDocumentRows } from '../services/documents.js';
+import { discardUploads, removeStored, saveUploads } from '../services/storage.js';
 import { GENDER_RESTRICTIONS, ROOM_TYPES } from './constants.js';
 
 const router = Router();
@@ -345,9 +346,10 @@ router.post('/:id/documents', requireAuth, writeLimiter, async (req, res) => {
     if (!files.length) throw badRequest('Choose at least one file.');
     if (listing.documents.length + files.length > 10) throw badRequest('A property can have at most 10 documents.');
     const rows = toDocumentRows(files, kind, req.user.id);
+    await saveUploads('private', files);
     await prisma.document.createMany({ data: rows.map((r) => ({ ...r, listingId: listing.id })) });
   } catch (err) {
-    removeFiles(files);
+    await discardUploads('private', files);
     throw err;
   }
   const updated = await prisma.listing.findUnique({ where: { id: listing.id }, include: listingInclude });
@@ -361,7 +363,7 @@ router.delete('/:id/documents/:docId', requireAuth, async (req, res) => {
   if (['PENDING', 'APPROVED'].includes(listing.legalStatus))
     throw badRequest('Documents that are under review or already accepted cannot be removed.');
   await prisma.document.delete({ where: { id: doc.id } });
-  fs.rm(documentPath(doc), { force: true }, () => {});
+  await removeStored('private', [doc.objectKey]);
   const updated = await prisma.listing.findUnique({ where: { id: listing.id }, include: listingInclude });
   ok(res, serializeListing(updated, { includePrivate: true }));
 });
@@ -441,6 +443,7 @@ router.post('/:id/photos', requireAuth, writeLimiter, async (req, res) => {
     throw badRequest('One of the files is not a valid image.');
   }
   const start = listing.photos.length;
+  await saveUploads('public', files);
   await prisma.listingPhoto.createMany({
     data: files.map((f, i) => ({ listingId: listing.id, objectKey: path.basename(f.path), sortOrder: start + i })),
   });
@@ -454,7 +457,7 @@ router.delete('/:id/photos/:photoId', requireAuth, async (req, res) => {
   if (!photo) throw notFound('Photo not found.');
   if (listing.status === 'PUBLISHED' && listing.photos.length === 1) throw badRequest('A published listing needs at least one photo.');
   await prisma.listingPhoto.delete({ where: { id: photo.id } });
-  fs.rm(path.join(config.uploadDir, photo.objectKey), { force: true }, () => {});
+  await removeStored('public', [photo.objectKey]);
   const updated = await prisma.listing.findUnique({ where: { id: listing.id }, include: listingInclude });
   ok(res, serializeListing(updated, { includePrivate: true }));
 });

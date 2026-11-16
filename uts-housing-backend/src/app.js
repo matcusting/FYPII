@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -19,12 +21,24 @@ import notificationRoutes from './modules/notifications.js';
 import adminRoutes from './modules/admin.js';
 import reviewerRoutes from './modules/reviewer.js';
 import documentRoutes from './modules/documents.js';
+import { readStored, usesDatabase } from './services/storage.js';
 
 export function createApp() {
   const app = express();
   app.set('trust proxy', 1);
   app.disable('x-powered-by');
-  app.use(helmet({ crossOriginResourcePolicy: { policy: 'same-site' } }));
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'same-site' },
+      // The built React app is served from here in production: allow photo previews (blob:) and the WebSocket.
+      contentSecurityPolicy: {
+        directives: {
+          'img-src': ["'self'", 'data:', 'blob:'],
+          'connect-src': ["'self'", 'ws:', 'wss:'],
+        },
+      },
+    }),
+  );
   // Only the known frontend origin may send credentialed requests (never "*").
   app.use(cors({ origin: config.frontendOrigin, credentials: true }));
   app.use(express.json({ limit: '100kb' }));
@@ -42,7 +56,20 @@ export function createApp() {
   });
 
   // Uploaded listing photos (random, unguessable file names)
-  app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d', index: false, dotfiles: 'deny' }));
+  if (usesDatabase()) {
+    app.get('/uploads/:key', async (req, res, next) => {
+      try {
+        const file = await readStored('public', req.params.key);
+        if (!file) return res.status(404).end();
+        res.setHeader('Content-Type', file.mimeType);
+        res.setHeader('Cache-Control', 'public, max-age=604800, immutable');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+        res.send(file.data);
+      } catch (err) { next(err); }
+    });
+  } else {
+    app.use('/uploads', express.static(config.uploadDir, { maxAge: '7d', index: false, dotfiles: 'deny' }));
+  }
 
   const api = express.Router();
   api.use(originCheck);
@@ -64,6 +91,13 @@ export function createApp() {
   api.use('/reviewer', reviewerRoutes);
   api.use('/documents', documentRoutes);
   app.use('/api/v1', api);
+
+  // Single-origin deployment: serve the built React app and let it handle its own routes.
+  const dist = config.frontendDist && path.resolve(config.frontendDist);
+  if (dist && fs.existsSync(path.join(dist, 'index.html'))) {
+    app.use(express.static(dist, { index: false, maxAge: '1h' }));
+    app.get(/^\/(?!api\/|uploads\/|socket\.io\/|health\/).*/, (req, res) => res.sendFile(path.join(dist, 'index.html')));
+  }
 
   app.use(notFoundHandler);
   app.use(errorHandler);

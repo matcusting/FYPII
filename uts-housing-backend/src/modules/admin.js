@@ -1,6 +1,4 @@
 import { Router } from 'express';
-import fs from 'node:fs';
-import path from 'node:path';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { disconnectUser } from '../realtime.js';
@@ -12,6 +10,7 @@ import { notify } from '../services/notify.js';
 import { audit } from '../services/audit.js';
 import { sendMail } from '../services/mailer.js';
 import { serializeDocument } from '../services/documents.js';
+import { removeStored } from '../services/storage.js';
 import { hashPassword, randomToken, sha256 } from '../utils/crypto.js';
 
 const router = Router();
@@ -295,7 +294,7 @@ router.delete('/users/:id', async (req, res) => {
   if (user.role === 'ADMIN') throw badRequest('Administrator accounts cannot be deleted here.');
   const keys = user.listings.flatMap((l) => l.photos.map((p) => p.objectKey));
   await prisma.user.delete({ where: { id } });
-  keys.forEach((k) => fs.rm(path.join(config.uploadDir, k), { force: true }, () => {}));
+  await removeStored('public', keys);
   await audit(req.user.id, 'USER_DELETED', 'User', id, { email: user.email, role: user.role });
   ok(res, { deleted: true });
 });

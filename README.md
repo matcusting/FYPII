@@ -95,17 +95,24 @@ npm run build
 
 The backend suite (Vitest + Supertest + Socket.IO client, 40 tests) covers student e-mail rules, document verification and access control, the legal review flow, the matching formula, gender filters and restricted listings, the address / Google Maps link rules, the availability job, real-time chat and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
 
-## Deployment notes
+## Online demo (Render + Neon + Brevo, all free plans)
 
-The code is ready to deploy but has not been deployed. Typical setup:
+`render.yaml` deploys **one** Render web service that serves the built React app *and* the API from the same address, so the session cookie and the real-time WebSocket work without extra configuration. Render's free plan has no permanent disk, so uploaded photos and documents are stored in PostgreSQL (`STORAGE_DRIVER=database`).
 
-- Frontend: static build on Vercel or Cloudflare Pages, with an SPA fallback to `index.html`.
-- Backend: a Node host such as Render or Railway.
-- Database: managed PostgreSQL. Run `npm run db:deploy` on each release.
-- Production settings: `NODE_ENV=production` (secure cookies), `FRONTEND_ORIGIN`, `SMTP_URL`.
-- Hosting both under one site (for example `housing.example.com` and `api.housing.example.com`), or proxying `/api` and `/socket.io` (with WebSocket upgrade enabled), keeps the SameSite=Lax session cookie working for both REST and real-time connections.
-- Run a single API instance (the real-time layer and the availability job run in-process). Scaling to several instances would need the Socket.IO Redis adapter.
-- Photos are stored on local disk (`UPLOAD_DIR`). Use a persistent volume or move them to S3-compatible storage before going live.
-- Verification documents are stored in `PRIVATE_UPLOAD_DIR` (default `private-uploads/`). Never serve this folder publicly; back it up with the database, use encrypted storage in production, and agree a retention period (see PDPA notes in `PROJECT_REQUIREMENTS.md` §11).
+1. **Database — [Neon](https://neon.tech):** create a free project (region: Singapore). Copy the connection string (it ends with `?sslmode=require`).
+2. **E-mail — [Brevo](https://www.brevo.com):** create a free account, verify the sender address you want to use (Senders & IP → Senders), then open SMTP & API → SMTP and create an SMTP key. Build the URL as `smtp://LOGIN:KEY@smtp-relay.brevo.com:587`, writing the `@` inside the login as `%40` (e.g. `8a1b2c001%40smtp-brevo.com`).
+3. **Website — [Render](https://render.com):** New → Blueprint → connect the GitHub repository → Render reads `render.yaml`. When asked, fill in:
+   - `DATABASE_URL` — the Neon connection string
+   - `SMTP_URL` — the Brevo URL from step 2, and `EMAIL_FROM` — the verified sender, e.g. `UTS Housing <you@example.com>`
+   - `SEED_ADMIN_PASSWORD`, `SEED_REVIEWER_PASSWORD` — strong passwords (12+ characters) for `admin@uts-housing.local` and `reviewer@uts-housing.local`. **These replace the public demo passwords**, so strangers can't open the admin console.
+4. The first build runs the migrations and loads the fictitious demo data (only when the database is empty; later deploys keep all data). The site is then live at `https://<service-name>.onrender.com`. Demo student and landlord accounts use `Demo@2026` as in the table above.
+
+Free-plan behaviour: the service sleeps after 15 minutes without visitors, and the first visit afterwards takes about a minute. Open the site a minute before a presentation. To wipe the demo and reseed, set `SEED_FORCE=true` for one deploy, then remove it.
+
+### Other deployment notes
+
+- Run a single API instance (the real-time layer and the availability job run in-process). Several instances would need the Socket.IO Redis adapter.
+- With `STORAGE_DRIVER=disk` (default), photos are in `UPLOAD_DIR` and verification documents in `PRIVATE_UPLOAD_DIR`; use a persistent volume. Never serve the private folder publicly.
+- Verification documents are personal data: back them up with the database, and agree a retention period before real use (see PDPA notes in `PROJECT_REQUIREMENTS.md` §11).
 
 See `docs/IMPLEMENTATION_STATUS.md` for what is implemented against the report and `PROJECT_REQUIREMENTS.md`, and what is still open.

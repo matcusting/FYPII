@@ -4,7 +4,8 @@ import { prisma } from '../db.js';
 import { requireAuth } from '../middleware/auth.js';
 import { badRequest, forbidden, ok, parse } from '../utils/http.js';
 import { writeLimiter } from '../middleware/security.js';
-import { documentUpload, removeFiles, serializeDocument, toDocumentRows } from '../services/documents.js';
+import { documentUpload, serializeDocument, toDocumentRows } from '../services/documents.js';
+import { discardUploads, saveUploads } from '../services/storage.js';
 import { notifyAdmins, notifyReviewers } from '../services/notify.js';
 import { serializeMe } from '../services/serialize.js';
 
@@ -80,6 +81,7 @@ router.post('/verification', writeLimiter, async (req, res) => {
         ...toDocumentRows(files.companyRegistration || [], 'COMPANY_REGISTRATION', req.user.id),
       ];
     }
+    await saveUploads('private', all);
     const v = await prisma.verification.create({
       data: {
         userId: req.user.id,
@@ -100,7 +102,7 @@ router.post('/verification', writeLimiter, async (req, res) => {
     else await notifyReviewers(payload);
     ok(res, { id: v.id, status: v.status, documents: v.documents.map(serializeDocument) }, undefined, 201);
   } catch (err) {
-    removeFiles(all);
+    await discardUploads('private', all);
     throw err;
   }
 });

@@ -1,10 +1,14 @@
 /**
  * DEMO SEED DATA — every person, listing, address and review below is FICTITIOUS and only
- * exists so the prototype can be demonstrated. Do not run this in production.
+ * exists so the prototype can be demonstrated. It deletes all existing data first.
  *
  * All demo accounts use the password:  Demo@2026
  * Admin account:                       admin@uts-housing.local / Admin@2026!
  * Legal reviewer (fictitious):         reviewer@uts-housing.local / Review@2026!
+ *
+ * Online demo (NODE_ENV=production): the admin and reviewer passwords MUST come from
+ * SEED_ADMIN_PASSWORD and SEED_REVIEWER_PASSWORD (never the public ones above), and the
+ * seed refuses to wipe a database that already has users unless SEED_FORCE=true.
  * Demo students use <studentId>@student.uts.edu.my, e.g. bcs24020031@student.uts.edu.my
  */
 import fs from 'node:fs';
@@ -14,10 +18,14 @@ import crypto from 'node:crypto';
 import { prisma } from '../src/db.js';
 import { config } from '../src/config.js';
 import { hashPassword } from '../src/utils/crypto.js';
+import { saveBuffer } from '../src/services/storage.js';
 
 const DEMO_PASSWORD = 'Demo@2026';
-const ADMIN_PASSWORD = 'Admin@2026!';
-const REVIEWER_PASSWORD = 'Review@2026!';
+const ADMIN_PASSWORD = config.isProd ? process.env.SEED_ADMIN_PASSWORD : process.env.SEED_ADMIN_PASSWORD || 'Admin@2026!';
+const REVIEWER_PASSWORD = config.isProd ? process.env.SEED_REVIEWER_PASSWORD : process.env.SEED_REVIEWER_PASSWORD || 'Review@2026!';
+
+// Files are written at the end (to disk or the database, see services/storage.js).
+const pendingFiles = [];
 
 /* ---- tiny PNG generator so demo listings have real (placeholder) photos ---- */
 function crc32(buf) {
@@ -71,10 +79,9 @@ const PALETTES = [
   [[190, 18, 60], [253, 164, 175]],
 ];
 function demoPhoto(i) {
-  fs.mkdirSync(config.uploadDir, { recursive: true });
   const key = `demo-${crypto.randomUUID()}.png`;
   const [a, b] = PALETTES[i % PALETTES.length];
-  fs.writeFileSync(path.join(config.uploadDir, key), gradientPng(320, 200, a, b));
+  pendingFiles.push(['public', key, gradientPng(320, 200, a, b), 'image/png']);
   return key;
 }
 
@@ -99,10 +106,9 @@ function demoPdf(title) {
   return Buffer.from(out, 'latin1');
 }
 function demoDocument(ownerId, kind, name, type = 'pdf') {
-  fs.mkdirSync(config.privateUploadDir, { recursive: true });
   const key = `demo-${crypto.randomUUID()}.${type}`;
   const data = type === 'pdf' ? demoPdf(name) : gradientPng(320, 200, [30, 41, 59], [148, 163, 184]);
-  fs.writeFileSync(path.join(config.privateUploadDir, key), data);
+  pendingFiles.push(['private', key, data, type === 'pdf' ? 'application/pdf' : 'image/png']);
   return { ownerId, kind, objectKey: key, originalName: `${name}.${type}`, mimeType: type === 'pdf' ? 'application/pdf' : 'image/png', sizeBytes: data.length };
 }
 
@@ -110,8 +116,19 @@ const daysAgo = (n) => new Date(Date.now() - n * 86400000);
 const day = (s) => new Date(`${s}T00:00:00Z`);
 
 async function main() {
+  if (config.isProd) {
+    const strong = (p) => typeof p === 'string' && p.length >= 12;
+    if (!strong(ADMIN_PASSWORD) || !strong(REVIEWER_PASSWORD)) {
+      throw new Error('Set SEED_ADMIN_PASSWORD and SEED_REVIEWER_PASSWORD (12+ characters) before seeding the online demo.');
+    }
+    if ((await prisma.user.count()) > 0 && process.env.SEED_FORCE !== 'true') {
+      console.log('Database already has users — skipping the demo seed (set SEED_FORCE=true to wipe and reseed).');
+      return;
+    }
+  }
   console.log('Clearing existing data…');
   await prisma.$transaction([
+    prisma.storedFile.deleteMany(),
     prisma.auditLog.deleteMany(), prisma.notification.deleteMany(), prisma.report.deleteMany(), prisma.document.deleteMany(),
     prisma.message.deleteMany(), prisma.conversationParticipant.deleteMany(), prisma.conversation.deleteMany(),
     prisma.review.deleteMany(), prisma.favorite.deleteMany(), prisma.listingPhoto.deleteMany(),
@@ -349,11 +366,13 @@ async function main() {
     ],
   });
 
+  for (const [bucket, key, data, mime] of pendingFiles) await saveBuffer(bucket, key, data, mime);
+
   console.log('\nDemo data ready (all records are fictitious).');
   console.log(`  Student : BCS24020031 / bcs24020031@student.uts.edu.my / ${DEMO_PASSWORD}`);
   console.log(`  Landlord: wong@example.com / ${DEMO_PASSWORD}`);
-  console.log(`  Admin   : admin@uts-housing.local / ${ADMIN_PASSWORD}`);
-  console.log(`  Reviewer: reviewer@uts-housing.local / ${REVIEWER_PASSWORD} (staff login)`);
+  console.log(`  Admin   : admin@uts-housing.local / ${config.isProd ? '(SEED_ADMIN_PASSWORD)' : ADMIN_PASSWORD}`);
+  console.log(`  Reviewer: reviewer@uts-housing.local / ${config.isProd ? '(SEED_REVIEWER_PASSWORD)' : REVIEWER_PASSWORD} (staff login)`);
 }
 
 main()

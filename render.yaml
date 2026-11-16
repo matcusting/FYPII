@@ -1,0 +1,38 @@
+# Render Blueprint — one free web service serves both the React app and the API
+# (same origin, so the session cookie and the WebSocket work without extra setup).
+# The database is an external PostgreSQL (e.g. Neon free plan): paste its URL as DATABASE_URL.
+# Uploaded photos and documents are stored in the database (STORAGE_DRIVER=database),
+# because Render's free plan has no permanent disk.
+services:
+  - type: web
+    name: uts-housing
+    runtime: node
+    plan: free
+    region: singapore
+    branch: fyp2-realtime-features
+    buildCommand: >-
+      cd uts-housing-frontend && npm ci --include=dev && npm run build &&
+      cd ../uts-housing-backend && npm ci --include=dev &&
+      npx prisma migrate deploy && node prisma/seed.js
+    startCommand: cd uts-housing-backend && node src/server.js
+    healthCheckPath: /health/ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: STORAGE_DRIVER
+        value: database
+      - key: FRONTEND_DIST
+        value: ../uts-housing-frontend/dist
+      # --- set these in the Render dashboard (never commit them) ---
+      - key: DATABASE_URL # Neon connection string, ending in ?sslmode=require
+        sync: false
+      - key: SMTP_URL # Brevo: smtp://<login with @ written as %40>:<SMTP key>@smtp-relay.brevo.com:587
+        sync: false
+      - key: EMAIL_FROM # a sender address verified in Brevo, e.g. "UTS Housing <you@example.com>"
+        sync: false
+      - key: SEED_ADMIN_PASSWORD # admin@uts-housing.local on the online demo (12+ characters)
+        sync: false
+      - key: SEED_REVIEWER_PASSWORD # reviewer@uts-housing.local on the online demo (12+ characters)
+        sync: false

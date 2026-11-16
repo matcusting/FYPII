@@ -263,6 +263,16 @@ model Document {
   @@index([listingId])
 }
 
+/// File content when STORAGE_DRIVER=database (hosts without a permanent disk).
+model StoredFile {
+  objectKey String   @id // same key as ListingPhoto.objectKey / Document.objectKey
+  bucket    String // 'public' (photos) or 'private' (verification documents)
+  mimeType  String
+  sizeBytes Int
+  data      Bytes
+  createdAt DateTime @default(now()) @db.Timestamptz
+}
+
 model Amenity {
   id       String           @id @default(uuid()) @db.Uuid
   name     String           @unique
