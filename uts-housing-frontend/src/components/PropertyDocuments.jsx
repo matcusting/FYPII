@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { MAX_DOCUMENT_MB, PROPERTY_DOCUMENT_KINDS, tooLarge } from '../lib/api';
+import { useT } from '../i18n';
 
 /**
  * Pick ownership / right-to-rent documents for a property before upload.
  * `value` is a list of { kind, file }.
  */
 export default function PropertyDocumentPicker({ value, onChange, disabled = false }) {
+    const { t } = useT();
     const [kind, setKind] = useState('PROPERTY_TITLE');
     const [error, setError] = useState(null);
     const labelFor = (k) => PROPERTY_DOCUMENT_KINDS.find((x) => x.value === k)?.label || k;
@@ -14,7 +16,7 @@ export default function PropertyDocumentPicker({ value, onChange, disabled = fal
         const files = Array.from(e.target.files || []);
         e.target.value = '';
         const big = tooLarge(files);
-        if (big) { setError(`"${big.name}" is larger than ${MAX_DOCUMENT_MB} MB.`); return; }
+        if (big) { setError(t('"{name}" is larger than {mb} MB.', { name: big.name, mb: MAX_DOCUMENT_MB })); return; }
         setError(null);
         onChange([...value, ...files.map((file) => ({ kind, file }))].slice(0, 10));
     };
@@ -22,11 +24,11 @@ export default function PropertyDocumentPicker({ value, onChange, disabled = fal
     return (
         <div className="space-y-3">
             <div className="flex flex-col sm:flex-row gap-2">
-                <select aria-label="Document type" value={kind} onChange={(e) => setKind(e.target.value)} disabled={disabled} className="flex-1 p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 bg-white text-sm">
+                <select aria-label={t('Document type')} value={kind} onChange={(e) => setKind(e.target.value)} disabled={disabled} className="flex-1 p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 bg-white text-sm">
                     {PROPERTY_DOCUMENT_KINDS.map((k) => <option key={k.value} value={k.value}>{k.label}</option>)}
                 </select>
                 <label className={`border border-[#203569] text-[#203569] text-sm font-bold px-4 py-2.5 rounded-md text-center transition ${disabled ? 'opacity-50' : 'cursor-pointer hover:bg-blue-50'}`}>
-                    + Add file
+                    + {t('Add file')}
                     <input type="file" accept="application/pdf,image/jpeg,image/png" multiple disabled={disabled} onChange={add} className="hidden" />
                 </label>
             </div>
@@ -38,7 +40,7 @@ export default function PropertyDocumentPicker({ value, onChange, disabled = fal
                             <span>{d.file.type === 'application/pdf' ? '📄' : '🖼'}</span>
                             <strong className="text-gray-800">{labelFor(d.kind)}</strong>
                             <span className="text-gray-500 break-all">{d.file.name}</span>
-                            <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="ml-auto text-[12px] font-bold text-red-600 hover:underline cursor-pointer">Remove</button>
+                            <button type="button" onClick={() => onChange(value.filter((_, j) => j !== i))} className="ml-auto text-[12px] font-bold text-red-600 hover:underline cursor-pointer">{t('Remove')}</button>
                         </li>
                     ))}
                 </ul>

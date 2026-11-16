@@ -3,20 +3,22 @@ import { useNavigate } from 'react-router-dom';
 import Navbar from '../../components/Navbar';
 import ListingReviews from '../../components/ListingReviews';
 import { ErrorBanner, ReportDialog } from '../../components/ui';
-import { api, assetUrl, genderAllowed, genderBadge } from '../../lib/api';
+import { api, assetUrl, formatDate, genderAllowed, genderBadge } from '../../lib/api';
 import { useAuth } from '../../context/AuthContext';
+import { translate, useT } from '../../i18n';
 
 const PAGE_SIZE = 10;
 
 // 卡片上的标签：押金 / 家具 / 第一个设施
 const tagsFor = (prop) => {
-    const tags = [prop.deposit > 0 ? `Deposit: RM ${prop.deposit}` : 'No Deposit'];
-    if (prop.furnished) tags.push('Fully Furnished');
-    if (prop.facilities[0]) tags.push(prop.facilities[0]);
+    const tags = [prop.deposit > 0 ? translate('Deposit: RM {n}', { n: prop.deposit }) : translate('No Deposit')];
+    if (prop.furnished) tags.push(translate('Fully Furnished'));
+    if (prop.facilities[0]) tags.push(translate(prop.facilities[0]));
     return tags.slice(0, 3);
 };
 
 const HousingSearch = ({ savedOnly = false }) => {
+    const { t } = useT();
     const navigate = useNavigate();
     const { user } = useAuth();
     const [meta, setMeta] = useState({ amenities: [], roomTypes: [] });
@@ -118,7 +120,7 @@ const HousingSearch = ({ savedOnly = false }) => {
         setSelectedProperty(prop);
         setPhotoIndex(0);
         setComposing(false);
-        setInquiryText(`Hi ${prop.landlord.name}, is "${prop.title}" still available?`);
+        setInquiryText(t('Hi {name}, is "{title}" still available?', { name: prop.landlord.name, title: prop.title }));
         setModalError(null);
         // 获取最新详情（同时记录浏览次数）
         try {
@@ -167,15 +169,15 @@ const HousingSearch = ({ savedOnly = false }) => {
 
             <div className="max-w-[1000px] w-[calc(100%-2rem)] mx-auto mb-4 flex justify-between items-center">
                 <button onClick={() => navigate('/student')} className="text-gray-500 hover:text-gray-800 font-bold text-sm flex items-center gap-1 transition-colors cursor-pointer">
-                    ← Back to Dashboard
+                    ← {t('Back to Dashboard')}
                 </button>
                 <label className="text-sm font-bold text-gray-600 flex items-center gap-2">
-                    Sort by
+                    {t('Sort by')}
                     <select value={sort} onChange={(e) => changeSort(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer">
-                        <option value="newest">Newest</option>
-                        <option value="rent_asc">Rent: Low to High</option>
-                        <option value="rent_desc">Rent: High to Low</option>
-                        <option value="distance">Distance to UTS</option>
+                        <option value="newest">{t('Newest')}</option>
+                        <option value="rent_asc">{t('Rent: Low to High')}</option>
+                        <option value="rent_desc">{t('Rent: High to Low')}</option>
+                        <option value="distance">{t('Distance to UTS')}</option>
                     </select>
                 </label>
             </div>
@@ -184,23 +186,23 @@ const HousingSearch = ({ savedOnly = false }) => {
 
                 {/* 左侧：Filters 筛选面板 */}
                 <div className="w-full md:w-[300px] bg-[#fcfcfd] border-b md:border-b-0 md:border-r border-gray-100 p-6 md:p-8 flex flex-col">
-                    <h2 className="text-xl font-bold text-[#1f2937] mb-8">Filters</h2>
+                    <h2 className="text-xl font-bold text-[#1f2937] mb-8">{t('Filters')}</h2>
 
                     <form onSubmit={handleApplyFilters} className="flex-1 flex flex-col">
                         <div className="mb-6">
-                            <label htmlFor="keyword" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">Search</label>
+                            <label htmlFor="keyword" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">{t('Search')}</label>
                             <input
                                 id="keyword"
                                 type="search"
                                 value={keyword}
                                 onChange={(e) => setKeyword(e.target.value)}
-                                placeholder="Area, title or keyword"
+                                placeholder={t('Area, title or keyword')}
                                 className="w-full p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white"
                             />
                         </div>
 
                         <div className="mb-8">
-                            <label htmlFor="maxRent" className="block text-[11px] font-bold text-[#4b5563] mb-4 uppercase tracking-wider">Max Rent (RM)</label>
+                            <label htmlFor="maxRent" className="block text-[11px] font-bold text-[#4b5563] mb-4 uppercase tracking-wider">{t('Max Rent (RM)')}</label>
                             <input
                                 id="maxRent"
                                 type="range"
@@ -214,7 +216,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                         </div>
 
                         <div className="mb-8">
-                            <label htmlFor="maxDistance" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">Distance to UTS</label>
+                            <label htmlFor="maxDistance" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">{t('Distance to UTS')}</label>
                             <select
                                 id="maxDistance"
                                 value={maxDistance}
@@ -222,44 +224,44 @@ const HousingSearch = ({ savedOnly = false }) => {
                                 onChange={(e) => setMaxDistance(e.target.value)}
                                 className="w-full p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer"
                             >
-                                <option value="5">Less than 5 km</option>
-                                <option value="2">Less than 2 km</option>
-                                <option value="any">Any Distance</option>
+                                <option value="5">{t('Less than 5 km')}</option>
+                                <option value="2">{t('Less than 2 km')}</option>
+                                <option value="any">{t('Any Distance')}</option>
                             </select>
-                            <p className="text-[11px] text-gray-400 mt-1.5">Approximate straight-line distance, not driving distance.</p>
+                            <p className="text-[11px] text-gray-400 mt-1.5">{t('Approximate straight-line distance, not driving distance.')}</p>
                         </div>
 
                         <button type="button" onClick={() => setShowMoreFilters(!showMoreFilters)} className="text-left text-[12px] font-bold text-[#203569] mb-6 cursor-pointer hover:underline" aria-expanded={showMoreFilters}>
-                            {showMoreFilters ? '− Fewer filters' : '+ More filters (deposit, room type, facilities...)'}
+                            {showMoreFilters ? t('− Fewer filters') : t('+ More filters (deposit, room type, facilities...)')}
                         </button>
 
                         {showMoreFilters && (
                             <>
                                 <div className="mb-6">
-                                    <label htmlFor="maxDeposit" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">Security Deposit</label>
+                                    <label htmlFor="maxDeposit" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">{t('Security Deposit')}</label>
                                     <select id="maxDeposit" value={maxDeposit} onChange={(e) => setMaxDeposit(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer">
-                                        <option value="any">Any Deposit</option>
-                                        <option value="0">No Deposit</option>
-                                        <option value="500">Up to RM 500</option>
-                                        <option value="1000">Up to RM 1000</option>
+                                        <option value="any">{t('Any Deposit')}</option>
+                                        <option value="0">{t('No Deposit')}</option>
+                                        <option value="500">{t('Up to RM 500')}</option>
+                                        <option value="1000">{t('Up to RM 1000')}</option>
                                     </select>
                                 </div>
 
                                 <div className="mb-6">
-                                    <label htmlFor="roomType" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">Room Type</label>
+                                    <label htmlFor="roomType" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">{t('Room Type')}</label>
                                     <select id="roomType" value={roomType} onChange={(e) => setRoomType(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer">
-                                        <option value="">Any Room Type</option>
-                                        {meta.roomTypes.map((t) => <option key={t}>{t}</option>)}
+                                        <option value="">{t('Any Room Type')}</option>
+                                        {meta.roomTypes.map((rt) => <option key={rt} value={rt}>{t(rt)}</option>)}
                                     </select>
                                 </div>
 
                                 <div className="mb-6">
-                                    <label htmlFor="availableBy" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">Available By</label>
+                                    <label htmlFor="availableBy" className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">{t('Available By')}</label>
                                     <input id="availableBy" type="date" value={availableBy} onChange={(e) => setAvailableBy(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white" />
                                 </div>
 
                                 <div className="mb-6">
-                                    <p className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">Facilities</p>
+                                    <p className="block text-[11px] font-bold text-[#4b5563] mb-3 uppercase tracking-wider">{t('Facilities')}</p>
                                     <div className="flex flex-wrap gap-2">
                                         {meta.amenities.map((f) => (
                                             <button
@@ -271,7 +273,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                                     ? 'bg-[#203569] text-white px-3 py-1.5 rounded-full text-[11px] font-bold cursor-pointer'
                                                     : 'bg-[#f3f4f6] text-gray-500 border border-gray-200 px-3 py-1.5 rounded-full text-[11px] font-bold hover:bg-gray-200 cursor-pointer'}
                                             >
-                                                {facilities.includes(f) ? `✓ ${f}` : f}
+                                                {facilities.includes(f) ? `✓ ${t(f)}` : t(f)}
                                             </button>
                                         ))}
                                     </div>
@@ -279,7 +281,7 @@ const HousingSearch = ({ savedOnly = false }) => {
 
                                 <label className="mb-6 flex items-center gap-2 text-[13px] font-bold text-[#4b5563] cursor-pointer">
                                     <input type="checkbox" checked={furnishedOnly} onChange={(e) => setFurnishedOnly(e.target.checked)} className="accent-[#203569] w-4 h-4" />
-                                    Fully furnished only
+                                    {t('Fully furnished only')}
                                 </label>
                             </>
                         )}
@@ -287,13 +289,13 @@ const HousingSearch = ({ savedOnly = false }) => {
                         {user?.gender && (
                             <label className="mb-4 flex items-center gap-2 text-[13px] font-bold text-[#4b5563] cursor-pointer">
                                 <input type="checkbox" checked={suitableOnly} onChange={(e) => setSuitableOnly(e.target.checked)} className="accent-[#203569] w-4 h-4" />
-                                Hide rooms for {user.gender === 'MALE' ? 'female' : 'male'} tenants only
+                                {user.gender === 'MALE' ? t('Hide rooms for female tenants only') : t('Hide rooms for male tenants only')}
                             </label>
                         )}
 
                         <label className="mb-8 flex items-center gap-2 text-[13px] font-bold text-[#e11d48] cursor-pointer">
                             <input type="checkbox" checked={showSaved} onChange={(e) => changeSaved(e.target.checked)} className="accent-[#e11d48] w-4 h-4" />
-                            ❤️ Show my saved listings only
+                            ❤️ {t('Show my saved listings only')}
                         </label>
 
                         <div className="flex-1"></div>
@@ -303,7 +305,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                             disabled={isFiltering}
                             className={`w-full font-bold py-3 rounded-lg transition shadow-sm flex justify-center items-center cursor-pointer ${isFiltering ? 'bg-[#1a2b56] text-gray-300 cursor-not-allowed' : 'bg-[#203569] text-white hover:bg-[#1a2b56]'}`}
                         >
-                            {isFiltering ? 'Searching...' : 'Apply Filters'}
+                            {isFiltering ? t('Searching...') : t('Apply Filters')}
                         </button>
                     </form>
                 </div>
@@ -311,7 +313,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                 {/* 右侧：Listings 房源列表 */}
                 <div className="flex-1 p-5 md:p-8 bg-white overflow-y-auto">
                     <h2 className="text-xl font-bold text-[#203569] mb-6" aria-live="polite">
-                        {isFiltering ? 'Loading...' : showSaved ? `${pageMeta.total} Saved Listings` : `${pageMeta.total} Verified Listings`}
+                        {isFiltering ? t('Loading...') : showSaved ? t('{n} Saved Listings', { n: pageMeta.total }) : t('{n} Verified Listings', { n: pageMeta.total })}
                     </h2>
 
                     <ErrorBanner error={error} className="mb-4" />
@@ -319,13 +321,13 @@ const HousingSearch = ({ savedOnly = false }) => {
                     {!isFiltering && !error && displayProperties.length === 0 && (
                         <div className="h-64 flex flex-col items-center justify-center text-center">
                             <div className="text-4xl mb-4">{showSaved ? '🤍' : '🔍'}</div>
-                            <h3 className="text-lg font-bold text-gray-800 mb-2">{showSaved ? 'No saved listings yet' : 'No properties found'}</h3>
-                            <p className="text-sm text-gray-500">{showSaved ? 'Tap the heart on a listing to save it here.' : 'Try adjusting your filters to see more results.'}</p>
+                            <h3 className="text-lg font-bold text-gray-800 mb-2">{showSaved ? t('No saved listings yet') : t('No properties found')}</h3>
+                            <p className="text-sm text-gray-500">{showSaved ? t('Tap the heart on a listing to save it here.') : t('Try adjusting your filters to see more results.')}</p>
                             <button
                                 onClick={resetFilters}
                                 className="mt-4 text-[#e11d48] font-bold text-sm hover:underline cursor-pointer"
                             >
-                                Reset Filters
+                                {t('Reset Filters')}
                             </button>
                         </div>
                     )}
@@ -343,7 +345,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                 {/* 收藏/爱心按钮 */}
                                 <button
                                     onClick={(e) => toggleSaveProperty(e, prop)}
-                                    aria-label={prop.isSaved ? 'Remove from wishlist' : 'Save to wishlist'}
+                                    aria-label={prop.isSaved ? t('Remove from wishlist') : t('Save to wishlist')}
                                     className="absolute top-4 right-4 z-10 w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 transition-colors cursor-pointer"
                                 >
                                     <svg
@@ -359,7 +361,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                     <img src={assetUrl(prop.photos[0].url)} alt={prop.title} className="w-full sm:w-[140px] h-[160px] sm:h-[100px] object-cover rounded-lg flex-shrink-0" />
                                 ) : (
                                     <div className="w-full sm:w-[140px] h-[100px] bg-[#e2e8f0] rounded-lg flex-shrink-0 flex items-center justify-center text-gray-400 font-bold text-sm group-hover:bg-[#cbd5e1] transition-colors">
-                                        Image
+                                        {t('Image')}
                                     </div>
                                 )}
 
@@ -368,11 +370,11 @@ const HousingSearch = ({ savedOnly = false }) => {
                                         <div>
                                             <h3 className="text-[1.1rem] font-bold text-[#203569] group-hover:text-blue-700 transition-colors">{prop.title}</h3>
                                             <p className="text-[13px] text-gray-500 mt-1">
-                                                {prop.landlord.verified ? 'Verified Landlord' : 'Landlord'} <span className="mx-1">•</span> {prop.distanceKm} km to UTS
+                                                {prop.landlord.verified ? t('Verified Landlord') : t('Landlord')} <span className="mx-1">•</span> {t('{n} km to UTS', { n: prop.distanceKm })}
                                                 {prop.rating.count > 0 && <> <span className="mx-1">•</span> <span className="text-[#eab308] font-bold">★ {prop.rating.average}</span> ({prop.rating.count})</>}
                                             </p>
                                             {genderBadge(prop.genderRestriction) && <span className="inline-block mt-1 mr-2 bg-[#fdf2f8] text-[#be185d] text-[11px] font-bold px-2 py-0.5 rounded">{genderBadge(prop.genderRestriction)}</span>}
-                                            {prop.isStale && <p className="text-[11px] text-[#a16207] font-bold mt-1">⚠ Availability not confirmed recently</p>}
+                                            {prop.isStale && <p className="text-[11px] text-[#a16207] font-bold mt-1">⚠ {t('Availability not confirmed recently')}</p>}
                                         </div>
                                     </div>
 
@@ -384,7 +386,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                                 </span>
                                             ))}
                                         </div>
-                                        <div className="text-[1.1rem] font-bold text-[#16a34a]">RM {prop.rent}/mo</div>
+                                        <div className="text-[1.1rem] font-bold text-[#16a34a]">RM {prop.rent}/{t('mo')}</div>
                                     </div>
                                 </div>
                             </div>
@@ -394,9 +396,9 @@ const HousingSearch = ({ savedOnly = false }) => {
                     {/* 分页 */}
                     {!isFiltering && pageMeta.totalPages > 1 && (
                         <div className="flex justify-center items-center gap-3 pb-6">
-                            <button disabled={page <= 1} onClick={() => applyFilters({ page: page - 1 })} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer">← Prev</button>
-                            <span className="text-sm font-bold text-gray-500">Page {page} of {pageMeta.totalPages}</span>
-                            <button disabled={page >= pageMeta.totalPages} onClick={() => applyFilters({ page: page + 1 })} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer">Next →</button>
+                            <button disabled={page <= 1} onClick={() => applyFilters({ page: page - 1 })} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer">← {t('Prev')}</button>
+                            <span className="text-sm font-bold text-gray-500">{t('Page {page} of {total}', { page, total: pageMeta.totalPages })}</span>
+                            <button disabled={page >= pageMeta.totalPages} onClick={() => applyFilters({ page: page + 1 })} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-bold text-gray-700 hover:bg-gray-50 disabled:opacity-40 cursor-pointer">{t('Next →')}</button>
                         </div>
                     )}
                 </div>
@@ -418,15 +420,15 @@ const HousingSearch = ({ savedOnly = false }) => {
                         {/* 顶部大图区域 */}
                         <div className="h-[220px] bg-[#cbd5e1] relative flex items-center justify-center overflow-hidden">
                             {photos.length > 0 ? (
-                                <img src={assetUrl(photos[photoIndex]?.url)} alt={`${selectedProperty.title} photo ${photoIndex + 1}`} className="w-full h-full object-cover" />
+                                <img src={assetUrl(photos[photoIndex]?.url)} alt={`${selectedProperty.title} ${photoIndex + 1}`} className="w-full h-full object-cover" />
                             ) : (
-                                <span className="text-gray-500 font-bold text-lg">Property Image Gallery</span>
+                                <span className="text-gray-500 font-bold text-lg">{t('Property Image Gallery')}</span>
                             )}
 
                             {photos.length > 1 && (
                                 <>
-                                    <button onClick={() => setPhotoIndex((photoIndex - 1 + photos.length) % photos.length)} aria-label="Previous photo" className="absolute left-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center font-bold transition cursor-pointer">‹</button>
-                                    <button onClick={() => setPhotoIndex((photoIndex + 1) % photos.length)} aria-label="Next photo" className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center font-bold transition cursor-pointer">›</button>
+                                    <button onClick={() => setPhotoIndex((photoIndex - 1 + photos.length) % photos.length)} aria-label={t('Previous photo')} className="absolute left-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center font-bold transition cursor-pointer">‹</button>
+                                    <button onClick={() => setPhotoIndex((photoIndex + 1) % photos.length)} aria-label={t('Next photo')} className="absolute right-4 top-1/2 -translate-y-1/2 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center font-bold transition cursor-pointer">›</button>
                                     <span className="absolute bottom-4 right-6 bg-black/50 text-white text-xs font-bold px-2.5 py-1 rounded-md">{photoIndex + 1} / {photos.length}</span>
                                 </>
                             )}
@@ -434,7 +436,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                             {/* 右上角关闭按钮 */}
                             <button
                                 onClick={() => setSelectedProperty(null)}
-                                aria-label="Close"
+                                aria-label={t('Close')}
                                 className="absolute top-4 right-4 w-9 h-9 bg-black/40 hover:bg-black/60 text-white rounded-full flex items-center justify-center font-bold text-xl transition cursor-pointer"
                             >
                                 ×
@@ -442,7 +444,7 @@ const HousingSearch = ({ savedOnly = false }) => {
 
                             {/* 左下角房型标签 */}
                             <span className="absolute bottom-4 left-6 bg-[#203569] text-white text-xs font-bold px-3 py-1.5 rounded-md shadow-sm">
-                                {selectedProperty.roomType}
+                                {t(selectedProperty.roomType)}
                             </span>
                         </div>
 
@@ -452,15 +454,15 @@ const HousingSearch = ({ savedOnly = false }) => {
                                 <div>
                                     <h2 className="text-2xl font-bold text-[#1f2937]">{selectedProperty.title}</h2>
                                     <p className="text-sm text-gray-500 mt-1 flex flex-wrap items-center gap-2">
-                                        <span>Posted by <strong className="text-gray-800">{selectedProperty.landlord.name}</strong></span>
-                                        {selectedProperty.landlord.verified && <span className="bg-[#dcfce7] text-[#15803d] text-[10px] font-bold px-2 py-0.5 rounded">✓ Verified</span>}
-                                        <span>• {selectedProperty.distanceKm} km to UTS</span>
+                                        <span>{t('Posted by')} <strong className="text-gray-800">{selectedProperty.landlord.name}</strong></span>
+                                        {selectedProperty.landlord.verified && <span className="bg-[#dcfce7] text-[#15803d] text-[10px] font-bold px-2 py-0.5 rounded">✓ {t('Verified')}</span>}
+                                        <span>• {t('{n} km to UTS', { n: selectedProperty.distanceKm })}</span>
                                         {selectedProperty.approximateArea && <span>• {selectedProperty.approximateArea}</span>}
                                     </p>
                                 </div>
                                 <div className="sm:text-right">
-                                    <div className="text-2xl font-bold text-[#16a34a]">RM {selectedProperty.rent}<span className="text-sm text-gray-500 font-normal">/mo</span></div>
-                                    <div className="text-xs text-gray-400 font-medium mt-0.5">Deposit: RM {selectedProperty.deposit}</div>
+                                    <div className="text-2xl font-bold text-[#16a34a]">RM {selectedProperty.rent}<span className="text-sm text-gray-500 font-normal">/{t('mo')}</span></div>
+                                    <div className="text-xs text-gray-400 font-medium mt-0.5">{t('Deposit: RM {n}', { n: selectedProperty.deposit })}</div>
                                 </div>
                             </div>
 
@@ -474,48 +476,48 @@ const HousingSearch = ({ savedOnly = false }) => {
                                 >
                                     <span className="text-xl leading-none mt-0.5">📍</span>
                                     <span className="flex-1 min-w-0">
-                                        <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">Address</span>
+                                        <span className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider">{t('Address')}</span>
                                         <span className="block text-sm font-bold text-[#203569] group-hover:underline break-words">{selectedProperty.address}</span>
                                     </span>
-                                    <span className="text-[12px] font-bold text-[#1d4ed8] whitespace-nowrap self-center">Open in Google Maps ↗</span>
+                                    <span className="text-[12px] font-bold text-[#1d4ed8] whitespace-nowrap self-center">{t('Open in Google Maps ↗')}</span>
                                 </a>
                             )}
 
                             {/* 可入住时间 / 状态 */}
                             <div className="mb-6 flex flex-wrap gap-2">
                                 <span className="bg-[#eff6ff] text-[#1d4ed8] text-xs font-bold px-3 py-1.5 rounded-md">
-                                    📅 {selectedProperty.availableFrom ? `Available from ${selectedProperty.availableFrom}` : 'Available now'}
+                                    📅 {selectedProperty.availableFrom ? t('Available from {date}', { date: selectedProperty.availableFrom }) : t('Available now')}
                                 </span>
-                                {selectedProperty.furnished && <span className="bg-[#f0fdf4] text-[#15803d] text-xs font-bold px-3 py-1.5 rounded-md">🛋 Fully Furnished</span>}
+                                {selectedProperty.furnished && <span className="bg-[#f0fdf4] text-[#15803d] text-xs font-bold px-3 py-1.5 rounded-md">🛋 {t('Fully Furnished')}</span>}
                                 {genderBadge(selectedProperty.genderRestriction) && <span className="bg-[#fdf2f8] text-[#be185d] text-xs font-bold px-3 py-1.5 rounded-md">{genderBadge(selectedProperty.genderRestriction)}</span>}
                                 <span className={`text-xs font-bold px-3 py-1.5 rounded-md ${selectedProperty.isStale ? 'bg-[#fefce8] text-[#a16207]' : 'bg-gray-100 text-gray-500'}`}>
-                                    {selectedProperty.isStale ? '⚠ ' : ''}Availability confirmed {new Date(selectedProperty.lastConfirmedAt).toLocaleDateString()}
+                                    {selectedProperty.isStale ? '⚠ ' : ''}{t('Availability confirmed {date}', { date: formatDate(selectedProperty.lastConfirmedAt) })}
                                 </span>
                             </div>
 
                             {/* 房源简介 */}
                             <div className="mb-6">
-                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">About this property</h4>
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('About this property')}</h4>
                                 <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">
-                                    {selectedProperty.description || 'No description provided.'}
+                                    {selectedProperty.description || t('No description provided.')}
                                 </p>
                             </div>
 
                             {selectedProperty.houseRules && (
                                 <div className="mb-6">
-                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">House Rules</h4>
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">{t('House Rules')}</h4>
                                     <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{selectedProperty.houseRules}</p>
                                 </div>
                             )}
 
                             {/* 配套设施列表 */}
                             <div className="mb-8">
-                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Included Facilities</h4>
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">{t('Included Facilities')}</h4>
                                 <div className="flex flex-wrap gap-2.5">
-                                    {selectedProperty.facilities.length === 0 && <span className="text-sm text-gray-500">None listed.</span>}
+                                    {selectedProperty.facilities.length === 0 && <span className="text-sm text-gray-500">{t('None listed.')}</span>}
                                     {selectedProperty.facilities.map((fac, idx) => (
                                         <span key={idx} className="bg-[#f0f4f8] text-[#203569] text-xs font-bold px-3.5 py-1.5 rounded-full flex items-center gap-1.5">
-                                            ✓ {fac}
+                                            ✓ {t(fac)}
                                         </span>
                                     ))}
                                 </div>
@@ -529,8 +531,8 @@ const HousingSearch = ({ savedOnly = false }) => {
                             {user?.role === 'STUDENT' && !genderAllowed(selectedProperty.genderRestriction, user.gender) && (
                                 <p className="mb-4 text-[13px] font-bold text-[#be185d] bg-[#fdf2f8] border border-[#fbcfe8] rounded-lg px-4 py-3">
                                     {user.gender
-                                        ? `This landlord only rents this property to ${selectedProperty.genderRestriction === 'MALE_ONLY' ? 'male' : 'female'} tenants, so you cannot send an inquiry.`
-                                        : 'This property is for one gender only. Set your gender in My Profile to contact the landlord.'}
+                                        ? (selectedProperty.genderRestriction === 'MALE_ONLY' ? t('This landlord only rents this property to male tenants, so you cannot send an inquiry.') : t('This landlord only rents this property to female tenants, so you cannot send an inquiry.'))
+                                        : t('This property is for one gender only. Set your gender in My Profile to contact the landlord.')}
                                 </p>
                             )}
 
@@ -539,9 +541,9 @@ const HousingSearch = ({ savedOnly = false }) => {
                             {/* 联系房东的消息输入 */}
                             {composing && (
                                 <div className="mb-4">
-                                    <label htmlFor="inquiry" className="block text-[13px] font-bold text-[#374151] mb-1.5">Message to {selectedProperty.landlord.name}</label>
+                                    <label htmlFor="inquiry" className="block text-[13px] font-bold text-[#374151] mb-1.5">{t('Message to {name}', { name: selectedProperty.landlord.name })}</label>
                                     <textarea id="inquiry" rows="3" maxLength={2000} value={inquiryText} onChange={(e) => setInquiryText(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl outline-none focus:border-[#203569] text-gray-800 text-sm"></textarea>
-                                    <p className="text-[11px] text-gray-400 mt-1">Your e-mail and phone stay private — the conversation happens in Messages.</p>
+                                    <p className="text-[11px] text-gray-400 mt-1">{t('Your e-mail and phone stay private — the conversation happens in Messages.')}</p>
                                 </div>
                             )}
 
@@ -551,7 +553,7 @@ const HousingSearch = ({ savedOnly = false }) => {
                                     onClick={(e) => toggleSaveProperty(e, selectedProperty)}
                                     className={`px-5 py-3 rounded-xl font-bold text-sm border flex items-center justify-center gap-2 transition cursor-pointer ${selectedProperty.isSaved ? 'border-[#e11d48] text-[#e11d48] bg-pink-50' : 'border-gray-300 text-gray-700 hover:bg-gray-50'}`}
                                 >
-                                    <span>{selectedProperty.isSaved ? '❤️ Saved' : '🤍 Save to Wishlist'}</span>
+                                    <span>{selectedProperty.isSaved ? t('❤️ Saved') : t('🤍 Save to Wishlist')}</span>
                                 </button>
 
                                 <button
@@ -559,11 +561,11 @@ const HousingSearch = ({ savedOnly = false }) => {
                                     disabled={sending}
                                     className="flex-1 bg-[#203569] hover:bg-[#1a2b56] text-white font-bold py-3 px-6 rounded-xl transition shadow-sm cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
                                 >
-                                    <span>{sending ? 'Sending...' : composing ? '✈ Send Message' : `💬 Contact Landlord (${selectedProperty.landlord.name})`}</span>
+                                    <span>{sending ? t('Sending...') : composing ? t('✈ Send Message') : `💬 ${t('Contact Landlord ({name})', { name: selectedProperty.landlord.name })}`}</span>
                                 </button>
                             </div>
                             <div className="text-center mt-4">
-                                <button onClick={() => setReporting(true)} className="text-[12px] font-bold text-gray-400 hover:text-[#e11d48] cursor-pointer">🚩 Report this listing</button>
+                                <button onClick={() => setReporting(true)} className="text-[12px] font-bold text-gray-400 hover:text-[#e11d48] cursor-pointer">🚩 {t('Report this listing')}</button>
                             </div>
                         </div>
                     </div>

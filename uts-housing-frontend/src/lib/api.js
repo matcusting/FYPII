@@ -1,4 +1,6 @@
 // Small fetch wrapper for the UTS Housing REST API (/api/v1).
+import { getLocale, translate as t } from '../i18n';
+
 const API_ORIGIN = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 const BASE = `${API_ORIGIN}/api/v1`;
 
@@ -53,26 +55,26 @@ export const homeFor = (role) => ({ STUDENT: '/student', LANDLORD: '/landlord', 
 
 export const timeAgo = (iso) => {
     const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-    if (s < 60) return 'just now';
-    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
-    if (s < 86400) return `${Math.floor(s / 3600)} hours ago`;
-    if (s < 172800) return 'Yesterday';
-    if (s < 604800) return `${Math.floor(s / 86400)} days ago`;
-    return new Date(iso).toLocaleDateString();
+    if (s < 60) return t('just now');
+    if (s < 3600) return t('{n} min ago', { n: Math.floor(s / 60) });
+    if (s < 86400) return t('{n} hours ago', { n: Math.floor(s / 3600) });
+    if (s < 172800) return t('Yesterday');
+    if (s < 604800) return t('{n} days ago', { n: Math.floor(s / 86400) });
+    return new Date(iso).toLocaleDateString(getLocale());
 };
 
 export const chatTime = (iso) => {
     const d = new Date(iso);
     const today = new Date();
-    if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (d.toDateString() === today.toDateString()) return d.toLocaleTimeString(getLocale(), { hour: '2-digit', minute: '2-digit' });
     const y = new Date(today);
     y.setDate(today.getDate() - 1);
-    if (d.toDateString() === y.toDateString()) return 'Yesterday';
-    return d.toLocaleDateString([], { weekday: 'long' });
+    if (d.toDateString() === y.toDateString()) return t('Yesterday');
+    return d.toLocaleDateString(getLocale(), { weekday: 'long' });
 };
 
 export const statusLabel = (s) =>
-    ({
+    t({
         DRAFT: 'Draft',
         PENDING_REVIEW: 'Pending Review',
         PUBLISHED: 'Active',
@@ -81,6 +83,9 @@ export const statusLabel = (s) =>
         RENTED: 'Rented',
         ARCHIVED: 'Archived',
     }[s] || s);
+
+/** Format a date in the current language. */
+export const formatDate = (iso, opts) => new Date(iso).toLocaleDateString(getLocale(), opts);
 
 export const GENDER_LABELS = { MALE: 'Male', FEMALE: 'Female' };
 
@@ -91,7 +96,10 @@ export const GENDER_RESTRICTION_OPTIONS = [
 ];
 
 /** Short badge text for a gender-restricted listing (null when anyone can rent). */
-export const genderBadge = (restriction) => ({ MALE_ONLY: '♂ Male only', FEMALE_ONLY: '♀ Female only' }[restriction] || null);
+export const genderBadge = (restriction) => {
+    const text = { MALE_ONLY: '♂ Male only', FEMALE_ONLY: '♀ Female only' }[restriction];
+    return text ? t(text) : null;
+};
 
 /** True when a student of `gender` may rent a listing with this restriction. */
 export const genderAllowed = (restriction, gender) =>

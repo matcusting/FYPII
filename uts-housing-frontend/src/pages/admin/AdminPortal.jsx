@@ -6,6 +6,8 @@ import { useConversations } from '../../hooks/useConversations';
 import NotificationBell from '../../components/NotificationBell';
 import Messages from '../landlord/Messages';
 import { AuditLog, Campuses, ListingQueue, Overview, ReportQueue, ReviewQueue, Reviewers, Users, VerificationQueue } from './AdminSections';
+import { useT } from '../../i18n';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 
 const TABS = [
     ['overview', '📊', 'Overview'],
@@ -21,6 +23,7 @@ const TABS = [
 ];
 
 const AdminPortal = () => {
+    const { t } = useT();
     const navigate = useNavigate();
     const { tab = 'overview' } = useParams();
     const { user, logout } = useAuth();
@@ -49,12 +52,13 @@ const AdminPortal = () => {
 
                 {/* 顶部 Navbar */}
                 <div className="bg-[#0f172a] px-5 sm:px-8 py-5 flex flex-wrap gap-3 justify-between items-center">
-                    <h1 className="text-white text-xl font-bold tracking-wide">UTS Housing Admin Console</h1>
-                    <div className="flex items-center gap-4">
-                        <span className="bg-[#6366f1] text-white text-[11px] font-bold px-3 py-1 rounded">Administrator</span>
+                    <h1 className="text-white text-xl font-bold tracking-wide">{t('UTS Housing Admin Console')}</h1>
+                    <div className="flex flex-wrap items-center gap-4">
+                        <span className="bg-[#6366f1] text-white text-[11px] font-bold px-3 py-1 rounded">{t('Administrator')}</span>
+                        <LanguageSwitcher dark />
                         <NotificationBell dark />
                         <span className="text-white font-bold text-sm">{user.name}</span>
-                        <button onClick={handleLogout} className="text-gray-400 hover:text-white text-sm ml-2 font-bold transition cursor-pointer">Logout</button>
+                        <button onClick={handleLogout} className="text-gray-400 hover:text-white text-sm ml-2 font-bold transition cursor-pointer">{t('Logout')}</button>
                     </div>
                 </div>
 
@@ -65,7 +69,7 @@ const AdminPortal = () => {
                             const count = name === 'support' ? supportUnread : countKey ? overview?.[countKey] : 0;
                             return (
                                 <div key={name} onClick={() => go(name)} onKeyDown={(e) => { if (e.key === 'Enter') go(name); }} tabIndex={0} role="tab" aria-selected={tab === name} className={getTabClass(name)}>
-                                    <span className="text-lg">{icon}</span> {label}
+                                    <span className="text-lg">{icon}</span> {t(label)}
                                     {count > 0 && <span className="ml-auto bg-[#e11d48] text-white text-[10px] px-2 py-0.5 rounded-full">{count}</span>}
                                 </div>
                             );
@@ -81,7 +85,7 @@ const AdminPortal = () => {
                         {tab === 'users' && <Users onChange={loadOverview} currentUserId={user.id} />}
                         {tab === 'reviewers' && <Reviewers />}
                         {tab === 'campuses' && <Campuses />}
-                        {tab === 'support' && <Messages chat={chat} title="Support Conversations" asAdmin />}
+                        {tab === 'support' && <Messages chat={chat} title={t('Support Conversations')} asAdmin />}
                         {tab === 'audit' && <AuditLog />}
                     </div>
                 </div>

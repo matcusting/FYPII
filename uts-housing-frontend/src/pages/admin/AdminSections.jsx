@@ -2,31 +2,36 @@ import { useCallback, useEffect, useState } from 'react';
 import { LEGAL_STATUS, api, assetUrl, statusLabel, timeAgo } from '../../lib/api';
 import { DocumentLinks } from '../../components/Documents';
 import { ErrorBanner, LoadingBlock, Stars, SuccessBanner } from '../../components/ui';
+import { getLocale, translate, useT } from '../../i18n';
 
 /* ------------------------------------------------------------ shared bits */
 
 export const Page = ({ title, right, children }) => (
     <div className="p-5 sm:p-10 overflow-y-auto animate-fade-in-up">
         <div className="flex flex-wrap gap-3 justify-between items-center border-b border-gray-100 pb-4 mb-6">
-            <h2 className="text-[1.4rem] font-bold text-[#0f172a]">{title}</h2>
+            <h2 className="text-[1.4rem] font-bold text-[#0f172a]">{translate(title)}</h2>
             {right}
         </div>
         {children}
     </div>
 );
 
-export const StatusFilter = ({ value, onChange, options }) => (
-    <select aria-label="Filter by status" value={value} onChange={(e) => onChange(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer">
-        {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-    </select>
-);
+export function StatusFilter({ value, onChange, options }) {
+    const { t } = useT();
+    return (
+        <select aria-label={t('Filter by status')} value={value} onChange={(e) => onChange(e.target.value)} className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569] text-gray-800 bg-white cursor-pointer">
+            {options.map(([v, label]) => <option key={v} value={v}>{t(label)}</option>)}
+        </select>
+    );
+}
 
 export const Card = ({ children }) => <div className="border border-gray-200 rounded-xl p-5 bg-white shadow-sm">{children}</div>;
-export const Empty = ({ text }) => <p className="text-sm text-gray-400 font-bold py-10 text-center">{text}</p>;
+export const Empty = ({ text }) => <p className="text-sm text-gray-400 font-bold py-10 text-center">{translate(text)}</p>;
 export const Pill = ({ className, children }) => <span className={`text-[11px] font-bold px-2.5 py-1 rounded ${className}`}>{children}</span>;
 
 /** Approve button + "reject with reason" inline form. */
 export function Decision({ onApprove, onReject, approveLabel = 'Approve', rejectLabel = 'Reject', extra }) {
+    const { t } = useT();
     const [rejecting, setRejecting] = useState(false);
     const [reason, setReason] = useState('');
     const [busy, setBusy] = useState(false);
@@ -34,20 +39,24 @@ export function Decision({ onApprove, onReject, approveLabel = 'Approve', reject
     if (rejecting) {
         return (
             <div className="flex flex-col sm:flex-row gap-2 mt-4">
-                <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason shown to the user..." aria-label="Reason" maxLength={500} className="flex-1 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-[#203569]" />
-                <button disabled={busy || !reason.trim()} onClick={wrap(() => onReject(reason))} className="bg-[#e11d48] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-red-700 cursor-pointer disabled:opacity-50">{rejectLabel}</button>
-                <button onClick={() => setRejecting(false)} className="text-gray-500 text-xs font-bold px-3 py-2 hover:bg-gray-100 rounded-lg cursor-pointer">Cancel</button>
+                <input autoFocus value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('Reason shown to the user...')} aria-label={t('Reason')} maxLength={500} className="flex-1 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-[#203569]" />
+                <button disabled={busy || !reason.trim()} onClick={wrap(() => onReject(reason))} className="bg-[#e11d48] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-red-700 cursor-pointer disabled:opacity-50">{t(rejectLabel)}</button>
+                <button onClick={() => setRejecting(false)} className="text-gray-500 text-xs font-bold px-3 py-2 hover:bg-gray-100 rounded-lg cursor-pointer">{t('Cancel')}</button>
             </div>
         );
     }
     return (
         <div className="flex flex-wrap gap-3 mt-4">
-            {onApprove && <button disabled={busy} onClick={wrap(onApprove)} className="bg-[#15803d] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-800 transition cursor-pointer disabled:opacity-50">✓ {approveLabel}</button>}
-            {onReject && <button disabled={busy} onClick={() => setRejecting(true)} className="border border-red-200 text-red-600 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-red-50 transition cursor-pointer">✖ {rejectLabel}</button>}
+            {onApprove && <button disabled={busy} onClick={wrap(onApprove)} className="bg-[#15803d] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-800 transition cursor-pointer disabled:opacity-50">✓ {t(approveLabel)}</button>}
+            {onReject && <button disabled={busy} onClick={() => setRejecting(true)} className="border border-red-200 text-red-600 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-red-50 transition cursor-pointer">✖ {t(rejectLabel)}</button>}
             {extra}
         </div>
     );
 }
+
+const STATUS_TEXT = { PENDING: 'Pending', APPROVED: 'Approved', REJECTED: 'Rejected' };
+const ROLE_TEXT = { STUDENT: 'Student', LANDLORD: 'Landlord', ADMIN: 'Admin', LEGAL_REVIEWER: 'Legal Reviewer' };
+const USER_STATUS_TEXT = { ACTIVE: 'Active', SUSPENDED: 'Suspended', DELETION_REQUESTED: 'Deletion requested' };
 
 function useQueue(path, initialStatus) {
     const [status, setStatus] = useState(initialStatus);
@@ -64,7 +73,8 @@ function useQueue(path, initialStatus) {
 /* ---------------------------------------------------------------- overview */
 
 export function Overview({ data, go }) {
-    if (!data) return <Page title="Admin Overview"><LoadingBlock /></Page>;
+    const { t } = useT();
+    if (!data) return <Page title={t('Admin Overview')}><LoadingBlock /></Page>;
     const cards = [
         ['verifications', data.pendingVerifications, 'Pending Verifications', 'bg-[#eff6ff] border-[#bfdbfe] text-[#1d4ed8]'],
         ['listings', data.pendingListings, 'Listings to Approve', 'bg-[#f0fdf4] border-[#bbf7d0] text-[#15803d]'],
@@ -72,43 +82,43 @@ export function Overview({ data, go }) {
         ['reports', data.openReports, 'Open Reports', 'bg-[#fff1f2] border-[#fecdd3] text-[#be123c]'],
     ];
     return (
-        <Page title="Admin Overview">
+        <Page title={t('Admin Overview')}>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
                 {cards.map(([tab, n, label, cls]) => (
                     <div key={tab} onClick={() => go(tab)} className={`rounded-xl p-6 border cursor-pointer hover:shadow-md transition ${cls}`}>
                         <div className="text-4xl font-bold mb-2">{n}</div>
-                        <div className="text-sm font-bold">{label} →</div>
+                        <div className="text-sm font-bold">{t(label)} →</div>
                     </div>
                 ))}
             </div>
             {(data.awaitingLegalListings > 0 || data.awaitingLegalLandlords > 0) && (
                 <p className="bg-[#f5f3ff] border border-[#ddd6fe] text-[#6d28d9] text-[13px] font-bold px-4 py-3 rounded-lg mb-4">
-                    ⚖️ With the legal reviewer: {data.awaitingLegalListings} property document check(s), {data.awaitingLegalLandlords} landlord identity check(s).
+                    ⚖️ {t('With the legal reviewer: {p} property document check(s), {l} landlord identity check(s).', { p: data.awaitingLegalListings, l: data.awaitingLegalLandlords })}
                 </p>
             )}
             {data.deletionRequests > 0 && (
                 <p onClick={() => go('users')} className="bg-[#fee2e2] border border-[#fecaca] text-[#b91c1c] text-[13px] font-bold px-4 py-3 rounded-lg cursor-pointer mb-8">
-                    🗑 {data.deletionRequests} account deletion request(s) waiting.
+                    🗑 {t('{n} account deletion request(s) waiting.', { n: data.deletionRequests })}
                 </p>
             )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                 <Card>
-                    <h3 className="font-bold text-[#0f172a] mb-3">Users</h3>
+                    <h3 className="font-bold text-[#0f172a] mb-3">{t('Users')}</h3>
                     {[['STUDENT', 'Students'], ['LANDLORD', 'Landlords'], ['ADMIN', 'Admins'], ['LEGAL_REVIEWER', 'Legal reviewers']].map(([r, label]) => (
-                        <div key={r} className="flex justify-between text-sm py-1.5 border-b border-gray-50"><span className="text-gray-600">{label}</span><strong>{data.users[r] || 0}</strong></div>
+                        <div key={r} className="flex justify-between text-sm py-1.5 border-b border-gray-50"><span className="text-gray-600">{t(label)}</span><strong>{data.users[r] || 0}</strong></div>
                     ))}
                 </Card>
                 <Card>
-                    <h3 className="font-bold text-[#0f172a] mb-3">Listings by status</h3>
+                    <h3 className="font-bold text-[#0f172a] mb-3">{t('Listings by status')}</h3>
                     {Object.entries(data.listings).map(([s, n]) => (
                         <div key={s} className="flex justify-between text-sm py-1.5 border-b border-gray-50"><span className="text-gray-600">{statusLabel(s)}</span><strong>{n}</strong></div>
                     ))}
                 </Card>
             </div>
-            <h3 className="text-[1.1rem] font-bold text-[#0f172a] mb-3">Recent Admin Actions</h3>
-            {data.recentActions.length === 0 ? <p className="text-sm text-gray-400 font-bold">No actions yet.</p> : data.recentActions.map((a) => (
+            <h3 className="text-[1.1rem] font-bold text-[#0f172a] mb-3">{t('Recent Admin Actions')}</h3>
+            {data.recentActions.length === 0 ? <p className="text-sm text-gray-400 font-bold">{t('No actions yet.')}</p> : data.recentActions.map((a) => (
                 <div key={a.id} className="flex justify-between py-3 border-b border-gray-100 text-sm">
-                    <span className="text-gray-600"><strong className="text-gray-900">{a.actor}</strong> — {a.action.replaceAll('_', ' ').toLowerCase()}</span>
+                    <span className="text-gray-600"><strong className="text-gray-900">{a.actor}</strong> — {t(a.action.replaceAll('_', ' ').toLowerCase())}</span>
                     <span className="text-gray-400">{timeAgo(a.createdAt)}</span>
                 </div>
             ))}
@@ -119,6 +129,7 @@ export function Overview({ data, go }) {
 /* ----------------------------------------------------------- verifications */
 
 export function VerificationQueue({ onChange }) {
+    const { t } = useT();
     const q = useQueue('/admin/verifications', 'PENDING');
     const decide = async (id, decision, note) => {
         try {
@@ -128,28 +139,28 @@ export function VerificationQueue({ onChange }) {
         } catch (err) { q.setError(err); }
     };
     return (
-        <Page title="Student Verifications" right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']]} />}>
+        <Page title={t('Student Verifications')} right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']]} />}>
             <ErrorBanner error={q.error} className="mb-4" />
-            <p className="text-[12px] text-gray-500 mb-4">Check the offer letter and student card against the student's name and Student ID. Landlord identity is checked by the legal reviewer.</p>
+            <p className="text-[12px] text-gray-500 mb-4">{t("Check the offer letter and student card against the student's name and Student ID. Landlord identity is checked by the legal reviewer.")}</p>
             {!q.items ? <LoadingBlock /> : q.items.length === 0 ? <Empty text="Nothing to review. 🎉" /> : (
                 <div className="space-y-4">
                     {q.items.map((v) => (
                         <Card key={v.id}>
                             <div className="flex flex-wrap justify-between gap-2">
                                 <div>
-                                    <h3 className="font-bold text-[#0f172a]">{v.user.name} <Pill className={v.type === 'STUDENT' ? 'bg-[#dbeafe] text-[#1d4ed8]' : 'bg-[#f3e8ff] text-[#7e22ce]'}>{v.type}</Pill></h3>
+                                    <h3 className="font-bold text-[#0f172a]">{v.user.name} <Pill className={v.type === 'STUDENT' ? 'bg-[#dbeafe] text-[#1d4ed8]' : 'bg-[#f3e8ff] text-[#7e22ce]'}>{t(v.type === 'STUDENT' ? 'Student' : 'Landlord')}</Pill></h3>
                                     <p className="text-[13px] text-gray-500 mt-1">
-                                        {v.user.email} {v.user.emailVerified ? '(e-mail confirmed)' : '(e-mail NOT confirmed)'}
-                                        {v.user.studentId && <> • Student ID: <strong>{v.user.studentId}</strong></>}
+                                        {v.user.email} {v.user.emailVerified ? t('(e-mail confirmed)') : t('(e-mail NOT confirmed)')}
+                                        {v.user.studentId && <> • {t('Student ID:')} <strong>{v.user.studentId}</strong></>}
                                         {v.user.phone && <> • {v.user.phone}</>}
                                     </p>
-                                    <p className="text-[12px] text-gray-400 mt-1">Method: {{ EMAIL_DOMAIN: 'University e-mail (legacy)', MANUAL: 'Written note (legacy)', DOCUMENTS: 'Uploaded documents' }[v.method]} • Submitted {timeAgo(v.createdAt)}</p>
+                                    <p className="text-[12px] text-gray-400 mt-1">{t('Method:')} {t({ EMAIL_DOMAIN: 'University e-mail (legacy)', MANUAL: 'Written note (legacy)', DOCUMENTS: 'Uploaded documents' }[v.method])} • {t('Submitted {time}', { time: timeAgo(v.createdAt) })}</p>
                                 </div>
-                                <Pill className={v.status === 'APPROVED' ? 'bg-[#dcfce7] text-[#15803d]' : v.status === 'REJECTED' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fefce8] text-[#a16207]'}>{v.status}</Pill>
+                                <Pill className={v.status === 'APPROVED' ? 'bg-[#dcfce7] text-[#15803d]' : v.status === 'REJECTED' ? 'bg-[#fee2e2] text-[#b91c1c]' : 'bg-[#fefce8] text-[#a16207]'}>{t(STATUS_TEXT[v.status] || v.status)}</Pill>
                             </div>
                             {v.note && <p className="text-[13px] text-gray-700 bg-[#f8f9fa] border-l-4 border-[#203569] p-3 rounded-r-lg mt-3">"{v.note}"</p>}
                             {v.documents?.length > 0 && <div className="mt-3"><DocumentLinks documents={v.documents} /></div>}
-                            {v.decisionNote && <p className="text-[12px] text-gray-500 mt-2">Decision note: {v.decisionNote} {v.reviewedBy && `— ${v.reviewedBy}`}</p>}
+                            {v.decisionNote && <p className="text-[12px] text-gray-500 mt-2">{t('Decision note:')} {v.decisionNote} {v.reviewedBy && `— ${v.reviewedBy}`}</p>}
                             {v.status === 'PENDING' && (
                                 <Decision onApprove={() => decide(v.id, 'APPROVED')} onReject={(note) => decide(v.id, 'REJECTED', note)} />
                             )}
@@ -164,6 +175,7 @@ export function VerificationQueue({ onChange }) {
 /* ---------------------------------------------------------------- listings */
 
 export function ListingQueue({ onChange }) {
+    const { t } = useT();
     const q = useQueue('/admin/listings', 'PENDING_REVIEW');
     const [open, setOpen] = useState(null);
     const act = async (id, action, reason) => {
@@ -174,52 +186,52 @@ export function ListingQueue({ onChange }) {
         } catch (err) { q.setError(err); }
     };
     return (
-        <Page title="Listing Approval" right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING_REVIEW', 'Pending Review'], ['PUBLISHED', 'Active'], ['REJECTED', 'Rejected'], ['PAUSED', 'Paused'], ['RENTED', 'Rented'], ['DRAFT', 'Draft'], ['ALL', 'All']]} />}>
+        <Page title={t('Listing Approval')} right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING_REVIEW', 'Pending Review'], ['PUBLISHED', 'Active'], ['REJECTED', 'Rejected'], ['PAUSED', 'Paused'], ['RENTED', 'Rented'], ['DRAFT', 'Draft'], ['ALL', 'All']]} />}>
             <ErrorBanner error={q.error} className="mb-4" />
             {!q.items ? <LoadingBlock /> : q.items.length === 0 ? <Empty text="No listings in this state." /> : (
                 <div className="space-y-4">
                     {q.items.map((l) => (
                         <Card key={l.id}>
                             <div className="flex flex-col sm:flex-row gap-5">
-                                {l.photos[0] ? <img src={assetUrl(l.photos[0].url)} alt={l.title} className="w-full sm:w-[140px] h-[100px] object-cover rounded-lg flex-shrink-0" /> : <div className="w-full sm:w-[140px] h-[100px] bg-[#e2e8f0] rounded-lg flex items-center justify-center text-gray-400 font-bold text-sm">No photo</div>}
+                                {l.photos[0] ? <img src={assetUrl(l.photos[0].url)} alt={l.title} className="w-full sm:w-[140px] h-[100px] object-cover rounded-lg flex-shrink-0" /> : <div className="w-full sm:w-[140px] h-[100px] bg-[#e2e8f0] rounded-lg flex items-center justify-center text-gray-400 font-bold text-sm">{t('No photo')}</div>}
                                 <div className="flex-1">
                                     <div className="flex flex-wrap justify-between gap-2">
                                         <h3 className="font-bold text-[#1e3a8a] text-[1.05rem]">{l.title}</h3>
                                         <div className="flex flex-wrap gap-2">
-                                            <Pill className={LEGAL_STATUS[l.legalStatus].className}>{LEGAL_STATUS[l.legalStatus].label}</Pill>
+                                            <Pill className={LEGAL_STATUS[l.legalStatus].className}>{t(LEGAL_STATUS[l.legalStatus].label)}</Pill>
                                             <Pill className="bg-gray-100 text-gray-600">{statusLabel(l.status)}</Pill>
                                         </div>
                                     </div>
                                     <p className="text-[13px] text-gray-500 mt-1">
-                                        By <strong>{l.landlord.name}</strong> {l.landlord.verified ? '(verified)' : '(not verified)'} • RM {l.rent}/mo • Deposit RM {l.deposit} • {l.distanceKm} km • {l.roomType}
+                                        {t('By')} <strong>{l.landlord.name}</strong> {l.landlord.verified ? t('(verified)') : t('(not verified)')} • RM {l.rent}/{t('mo')} • {t('Deposit: RM {n}', { n: l.deposit })} • {l.distanceKm} km • {t(l.roomType)}
                                     </p>
-                                    {l.rejectionReason && <p className="text-[12px] text-[#b91c1c] font-bold mt-1">{l.rejectionReason}</p>}
-                                    <button onClick={() => setOpen(open === l.id ? null : l.id)} className="text-[12px] font-bold text-[#1d4ed8] hover:underline mt-2 cursor-pointer">{open === l.id ? 'Hide details' : 'View details'}</button>
+                                    {l.rejectionReason && <p className="text-[12px] text-[#b91c1c] font-bold mt-1">{t(l.rejectionReason)}</p>}
+                                    <button onClick={() => setOpen(open === l.id ? null : l.id)} className="text-[12px] font-bold text-[#1d4ed8] hover:underline mt-2 cursor-pointer">{open === l.id ? t('Hide details') : t('View details')}</button>
                                 </div>
                             </div>
                             {open === l.id && (
                                 <div className="mt-4 border-t border-gray-100 pt-4 space-y-3 text-sm text-gray-600">
-                                    <p className="whitespace-pre-line">{l.description || 'No description.'}</p>
-                                    {l.houseRules && <p><strong>House rules:</strong> {l.houseRules}</p>}
+                                    <p className="whitespace-pre-line">{l.description || t('No description.')}</p>
+                                    {l.houseRules && <p><strong>{t('House rules:')}</strong> {l.houseRules}</p>}
                                     <p>
-                                        <strong>Address:</strong>{' '}
+                                        <strong>{t('Address:')}</strong>{' '}
                                         {l.address ? (
                                             <a href={l.googleMapsUrl} target="_blank" rel="noopener noreferrer" className="text-[#1d4ed8] font-bold hover:underline">📍 {l.address} ↗</a>
                                         ) : '—'}
-                                        {l.mapUrl && <span className="text-[12px] text-gray-500"> (landlord pasted a Google Maps pin)</span>}
+                                        {l.mapUrl && <span className="text-[12px] text-gray-500"> {t('(landlord pasted a Google Maps pin)')}</span>}
                                     </p>
-                                    <p><strong>Area:</strong> {l.approximateArea || '—'} • <strong>Available:</strong> {l.availableFrom || 'now'} • <strong>Furnished:</strong> {l.furnished ? 'Yes' : 'No'}</p>
-                                    <div className="flex flex-wrap gap-1.5">{l.facilities.map((f) => <span key={f} className="bg-gray-100 text-gray-600 text-[11px] font-bold px-2 py-0.5 rounded">{f}</span>)}</div>
+                                    <p><strong>{t('Area:')}</strong> {l.approximateArea || '—'} • <strong>{t('Available:')}</strong> {l.availableFrom || t('now')} • <strong>{t('Furnished:')}</strong> {l.furnished ? t('Yes') : t('No')}</p>
+                                    <div className="flex flex-wrap gap-1.5">{l.facilities.map((f) => <span key={f} className="bg-gray-100 text-gray-600 text-[11px] font-bold px-2 py-0.5 rounded">{t(f)}</span>)}</div>
                                     <div className="flex flex-wrap gap-2">{l.photos.map((p) => <img key={p.id} src={assetUrl(p.url)} alt="" className="w-24 h-16 object-cover rounded" />)}</div>
                                     <div>
-                                        <p className="font-bold text-gray-700 mb-1">Ownership documents</p>
+                                        <p className="font-bold text-gray-700 mb-1">{t('Ownership documents')}</p>
                                         <DocumentLinks documents={l.documents} empty="None (approved before document checks existed)." />
-                                        {l.legalNote && <p className="text-[12px] text-gray-500 mt-1">Legal reviewer: {l.legalNote}</p>}
+                                        {l.legalNote && <p className="text-[12px] text-gray-500 mt-1">{t('Legal reviewer:')} {l.legalNote}</p>}
                                     </div>
                                 </div>
                             )}
                             {l.status === 'PENDING_REVIEW' && l.legalStatus !== 'APPROVED' && (
-                                <p className="mt-4 text-[12px] font-bold text-[#6d28d9]">⚖️ Waiting for the legal reviewer to check the property documents. You can approve it after that.</p>
+                                <p className="mt-4 text-[12px] font-bold text-[#6d28d9]">⚖️ {t('Waiting for the legal reviewer to check the property documents. You can approve it after that.')}</p>
                             )}
                             {l.status === 'PENDING_REVIEW' && l.legalStatus === 'APPROVED' && <Decision onApprove={() => act(l.id, 'approve')} onReject={(r) => act(l.id, 'reject', r)} />}
                             {l.status === 'PUBLISHED' && <Decision onReject={(r) => act(l.id, 'suspend', r)} rejectLabel="Suspend Listing" />}
@@ -234,6 +246,7 @@ export function ListingQueue({ onChange }) {
 /* ----------------------------------------------------------------- reviews */
 
 export function ReviewQueue({ onChange }) {
+    const { t } = useT();
     const q = useQueue('/admin/reviews', 'PENDING');
     const decide = async (id, decision, note) => {
         try {
@@ -243,7 +256,7 @@ export function ReviewQueue({ onChange }) {
         } catch (err) { q.setError(err); }
     };
     return (
-        <Page title="Review Moderation" right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']]} />}>
+        <Page title={t('Review Moderation')} right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['PENDING', 'Pending'], ['APPROVED', 'Approved'], ['REJECTED', 'Rejected'], ['ALL', 'All']]} />}>
             <ErrorBanner error={q.error} className="mb-4" />
             {!q.items ? <LoadingBlock /> : q.items.length === 0 ? <Empty text="No reviews waiting." /> : (
                 <div className="space-y-4">
@@ -252,17 +265,17 @@ export function ReviewQueue({ onChange }) {
                             <div className="flex flex-wrap justify-between gap-2 mb-2">
                                 <div>
                                     <h3 className="font-bold text-[#0f172a]">{r.author.name} → "{r.listing.title}"</h3>
-                                    <p className="text-[12px] text-gray-500">Landlord: {r.landlord.name} • Stayed {r.stayFrom}{r.stayTo ? ` – ${r.stayTo}` : ' – present'} • {timeAgo(r.createdAt)} {r.edited && '• edited'}</p>
+                                    <p className="text-[12px] text-gray-500">{t('Landlord:')} {r.landlord.name} • {t('Stayed {from} – {to}', { from: r.stayFrom, to: r.stayTo || t('present') })} • {timeAgo(r.createdAt)} {r.edited && `• ${t('edited')}`}</p>
                                 </div>
                                 <Stars value={r.rating} />
                             </div>
                             <p className="text-[14px] text-gray-700 leading-relaxed">{r.body}</p>
                             <div className="bg-[#fefce8] border border-[#fef08a] rounded-lg p-3 mt-3 text-[13px] text-[#713f12]">
-                                <strong>Proof of stay (private):</strong> {r.proofNote}
+                                <strong>{t('Proof of stay (private):')}</strong> {r.proofNote}
                                 <br />
-                                <span className="text-[12px]">{r.hadInquiry ? '✓ Student contacted this landlord about the listing through the platform.' : 'No in-app conversation with the landlord about this listing.'}</span>
+                                <span className="text-[12px]">{r.hadInquiry ? t('✓ Student contacted this landlord about the listing through the platform.') : t('No in-app conversation with the landlord about this listing.')}</span>
                             </div>
-                            {r.moderationNote && <p className="text-[12px] text-gray-500 mt-2">Moderation note: {r.moderationNote}</p>}
+                            {r.moderationNote && <p className="text-[12px] text-gray-500 mt-2">{t('Moderation note:')} {r.moderationNote}</p>}
                             {r.moderationStatus === 'PENDING' && <Decision onApprove={() => decide(r.id, 'APPROVED')} onReject={(n) => decide(r.id, 'REJECTED', n)} approveLabel="Publish" />}
                             {r.moderationStatus === 'APPROVED' && <Decision onReject={(n) => decide(r.id, 'REJECTED', n)} rejectLabel="Unpublish" />}
                         </Card>
@@ -276,6 +289,7 @@ export function ReviewQueue({ onChange }) {
 /* ----------------------------------------------------------------- reports */
 
 export function ReportQueue({ onChange }) {
+    const { t } = useT();
     const q = useQueue('/admin/reports', 'OPEN');
     const [notice, setNotice] = useState(null);
     const resolve = async (id, status, resolution) => {
@@ -286,18 +300,18 @@ export function ReportQueue({ onChange }) {
         } catch (err) { q.setError(err); }
     };
     const quick = async (r) => {
-        const reason = window.prompt(`Reason for suspending this ${r.targetType.toLowerCase()}:`);
+        const reason = window.prompt(t('Reason for suspending this item:'));
         if (!reason) return;
         try {
             if (r.targetType === 'LISTING') await api(`/admin/listings/${r.targetId}`, { method: 'PATCH', body: { action: 'suspend', reason } });
             else if (r.targetType === 'REVIEW') await api(`/admin/reviews/${r.targetId}`, { method: 'PATCH', body: { decision: 'REJECTED', note: reason } });
             else await api(`/admin/users/${r.target.ownerId}`, { method: 'PATCH', body: { status: 'SUSPENDED', reason } });
-            setNotice('Action applied. Remember to resolve the report.');
+            setNotice(t('Action applied. Remember to resolve the report.'));
             q.load();
         } catch (err) { q.setError(err); }
     };
     return (
-        <Page title="Abuse Reports" right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['OPEN', 'Open'], ['RESOLVED', 'Resolved'], ['DISMISSED', 'Dismissed'], ['ALL', 'All']]} />}>
+        <Page title={t('Abuse Reports')} right={<StatusFilter value={q.status} onChange={q.setStatus} options={[['OPEN', 'Open'], ['RESOLVED', 'Resolved'], ['DISMISSED', 'Dismissed'], ['ALL', 'All']]} />}>
             <ErrorBanner error={q.error} className="mb-4" />
             <SuccessBanner message={notice} className="mb-4" />
             {!q.items ? <LoadingBlock /> : q.items.length === 0 ? <Empty text="No reports. 🎉" /> : (
@@ -305,27 +319,27 @@ export function ReportQueue({ onChange }) {
                     {q.items.map((r) => (
                         <Card key={r.id}>
                             <div className="flex flex-wrap justify-between gap-2">
-                                <h3 className="font-bold text-[#0f172a]"><Pill className="bg-[#fff1f2] text-[#be123c]">{r.targetType}</Pill> {r.reason}</h3>
-                                <span className="text-[12px] text-gray-400">by {r.reporter} • {timeAgo(r.createdAt)}</span>
+                                <h3 className="font-bold text-[#0f172a]"><Pill className="bg-[#fff1f2] text-[#be123c]">{t({ LISTING: 'Listing', REVIEW: 'Review', USER: 'User', MESSAGE: 'Message' }[r.targetType] || r.targetType)}</Pill> {t(r.reason)}</h3>
+                                <span className="text-[12px] text-gray-400">{t('by {name}', { name: r.reporter })} • {timeAgo(r.createdAt)}</span>
                             </div>
                             <p className="text-[13px] text-gray-700 bg-[#f8f9fa] border-l-4 border-[#e11d48] p-3 rounded-r-lg mt-3">
-                                {r.target ? r.target.label : 'This item has been deleted.'}
-                                {r.target?.owner && <span className="block text-[12px] text-gray-500 mt-1">Owner: {r.target.owner}</span>}
+                                {r.target ? r.target.label : t('This item has been deleted.')}
+                                {r.target?.owner && <span className="block text-[12px] text-gray-500 mt-1">{t('Owner:')} {r.target.owner}</span>}
                             </p>
-                            {r.details && <p className="text-[13px] text-gray-600 mt-2">Reporter's details: {r.details}</p>}
-                            {r.resolution && <p className="text-[12px] text-gray-500 mt-2">Resolution: {r.resolution} {r.resolvedBy && `— ${r.resolvedBy}`}</p>}
+                            {r.details && <p className="text-[13px] text-gray-600 mt-2">{t("Reporter's details:")} {r.details}</p>}
+                            {r.resolution && <p className="text-[12px] text-gray-500 mt-2">{t('Resolution:')} {r.resolution} {r.resolvedBy && `— ${r.resolvedBy}`}</p>}
                             {r.status === 'OPEN' && (
                                 <Decision
                                     approveLabel="Resolve"
                                     rejectLabel="Dismiss"
-                                    onApprove={async () => { const t = window.prompt('Describe what you did to resolve this report:'); if (t) await resolve(r.id, 'RESOLVED', t); }}
-                                    onReject={(t) => resolve(r.id, 'DISMISSED', t)}
+                                    onApprove={async () => { const text = window.prompt(t('Describe what you did to resolve this report:')); if (text) await resolve(r.id, 'RESOLVED', text); }}
+                                    onReject={(text) => resolve(r.id, 'DISMISSED', text)}
                                     extra={r.target && r.targetType !== 'MESSAGE' ? (
                                         <button onClick={() => quick(r)} className="border border-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-gray-50 transition cursor-pointer">
-                                            {r.targetType === 'LISTING' ? 'Suspend listing' : r.targetType === 'REVIEW' ? 'Unpublish review' : 'Suspend user'}
+                                            {r.targetType === 'LISTING' ? t('Suspend listing') : r.targetType === 'REVIEW' ? t('Unpublish review') : t('Suspend user')}
                                         </button>
                                     ) : r.target ? (
-                                        <button onClick={() => quick(r)} className="border border-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-gray-50 transition cursor-pointer">Suspend sender</button>
+                                        <button onClick={() => quick(r)} className="border border-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-gray-50 transition cursor-pointer">{t('Suspend sender')}</button>
                                     ) : null}
                                 />
                             )}
@@ -340,6 +354,7 @@ export function ReportQueue({ onChange }) {
 /* ------------------------------------------------------------------- users */
 
 export function Users({ onChange, currentUserId }) {
+    const { t } = useT();
     const [role, setRole] = useState('');
     const [status, setStatus] = useState('');
     const [search, setSearch] = useState('');
@@ -349,10 +364,10 @@ export function Users({ onChange, currentUserId }) {
     const load = useCallback(() => {
         api('/admin/users', { query: { role, status, q: search.trim() } }).then(setItems).catch(setError);
     }, [role, status, search]);
-    useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t); }, [load]);
+    useEffect(() => { const timer = setTimeout(load, 250); return () => clearTimeout(timer); }, [load]);
 
     const setUserStatus = async (u, next) => {
-        const reason = next === 'SUSPENDED' ? window.prompt(`Reason for suspending ${u.name}:`) : 'Reactivated';
+        const reason = next === 'SUSPENDED' ? window.prompt(t('Reason for suspending {name}:', { name: u.name })) : 'Reactivated';
         if (next === 'SUSPENDED' && !reason) return;
         try {
             await api(`/admin/users/${u.id}`, { method: 'PATCH', body: { status: next, reason } });
@@ -361,7 +376,7 @@ export function Users({ onChange, currentUserId }) {
         } catch (err) { setError(err); }
     };
     const remove = async (u) => {
-        if (!window.confirm(`Permanently delete ${u.name} (${u.email}) and all their data? This cannot be undone.`)) return;
+        if (!window.confirm(t('Permanently delete {name} ({email}) and all their data? This cannot be undone.', { name: u.name, email: u.email }))) return;
         try {
             await api(`/admin/users/${u.id}`, { method: 'DELETE' });
             load();
@@ -373,10 +388,10 @@ export function Users({ onChange, currentUserId }) {
 
     return (
         <Page
-            title="Users"
+            title={t('Users')}
             right={
                 <div className="flex flex-wrap gap-2">
-                    <input type="search" aria-label="Search users" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, e-mail or Student ID" className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569]" />
+                    <input type="search" aria-label={t('Search users')} value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('Name, e-mail or Student ID')} className="p-2 border border-gray-300 rounded-lg text-sm outline-none focus:border-[#203569]" />
                     <StatusFilter value={role} onChange={setRole} options={[['', 'All roles'], ['STUDENT', 'Students'], ['LANDLORD', 'Landlords'], ['LEGAL_REVIEWER', 'Legal reviewers'], ['ADMIN', 'Admins']]} />
                     <StatusFilter value={status} onChange={setStatus} options={[['', 'Any status'], ['ACTIVE', 'Active'], ['SUSPENDED', 'Suspended'], ['DELETION_REQUESTED', 'Deletion requested']]} />
                 </div>
@@ -388,23 +403,23 @@ export function Users({ onChange, currentUserId }) {
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="text-left text-[11px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
-                                <th className="py-3 pr-3">Name</th><th className="py-3 pr-3">Role</th><th className="py-3 pr-3">Verified</th><th className="py-3 pr-3">Status</th><th className="py-3">Actions</th>
+                                <th className="py-3 pr-3">{t('Name')}</th><th className="py-3 pr-3">{t('Role')}</th><th className="py-3 pr-3">{t('Verified')}</th><th className="py-3 pr-3">{t('Status')}</th><th className="py-3">{t('Actions')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {items.map((u) => (
                                 <tr key={u.id} className="border-b border-gray-100 align-top">
                                     <td className="py-3 pr-3"><strong className="text-gray-900">{u.name}</strong><br /><span className="text-gray-500 text-[12px]">{u.email}{u.studentId && ` • ${u.studentId}`}</span></td>
-                                    <td className="py-3 pr-3 text-gray-600 capitalize">{u.role.replace('_', ' ').toLowerCase()}</td>
-                                    <td className="py-3 pr-3">{['ADMIN', 'LEGAL_REVIEWER'].includes(u.role) ? '—' : (u.role === 'STUDENT' ? u.studentVerified : u.landlordVerified) ? '✓' : <span className="text-[#a16207] font-bold">Pending</span>}</td>
-                                    <td className="py-3 pr-3"><Pill className={statusPill(u.status)}>{u.status.replace('_', ' ')}</Pill></td>
+                                    <td className="py-3 pr-3 text-gray-600">{t(ROLE_TEXT[u.role] || u.role)}</td>
+                                    <td className="py-3 pr-3">{['ADMIN', 'LEGAL_REVIEWER'].includes(u.role) ? '—' : (u.role === 'STUDENT' ? u.studentVerified : u.landlordVerified) ? '✓' : <span className="text-[#a16207] font-bold">{t('Pending')}</span>}</td>
+                                    <td className="py-3 pr-3"><Pill className={statusPill(u.status)}>{t(USER_STATUS_TEXT[u.status] || u.status)}</Pill></td>
                                     <td className="py-3 whitespace-nowrap">
                                         {u.role !== 'ADMIN' && u.id !== currentUserId && (
                                             <div className="flex gap-2">
                                                 {u.status === 'SUSPENDED'
-                                                    ? <button onClick={() => setUserStatus(u, 'ACTIVE')} className="text-[12px] font-bold text-[#15803d] hover:underline cursor-pointer">Reactivate</button>
-                                                    : <button onClick={() => setUserStatus(u, 'SUSPENDED')} className="text-[12px] font-bold text-[#a16207] hover:underline cursor-pointer">Suspend</button>}
-                                                <button onClick={() => remove(u)} className="text-[12px] font-bold text-[#b91c1c] hover:underline cursor-pointer">Delete</button>
+                                                    ? <button onClick={() => setUserStatus(u, 'ACTIVE')} className="text-[12px] font-bold text-[#15803d] hover:underline cursor-pointer">{t('Reactivate')}</button>
+                                                    : <button onClick={() => setUserStatus(u, 'SUSPENDED')} className="text-[12px] font-bold text-[#a16207] hover:underline cursor-pointer">{t('Suspend')}</button>}
+                                                <button onClick={() => remove(u)} className="text-[12px] font-bold text-[#b91c1c] hover:underline cursor-pointer">{t('Delete')}</button>
                                             </div>
                                         )}
                                     </td>
@@ -421,6 +436,7 @@ export function Users({ onChange, currentUserId }) {
 /* ---------------------------------------------------------------- campuses */
 
 export function Campuses() {
+    const { t } = useT();
     const [unis, setUnis] = useState(null);
     const [error, setError] = useState(null);
     const [notice, setNotice] = useState(null);
@@ -446,57 +462,57 @@ export function Campuses() {
     const input = 'p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 text-sm';
 
     return (
-        <Page title="Campus & Verification Domains">
+        <Page title={t('Campus & Verification Domains')}>
             <ErrorBanner error={error} className="mb-4" />
             <SuccessBanner message={notice} className="mb-4" />
             {!unis ? <LoadingBlock /> : unis.map((u) => (
                 <Card key={u.id}>
                     <h3 className="font-bold text-[#0f172a] mb-4">{u.name}</h3>
                     <form onSubmit={wrap(() => api(`/admin/universities/${u.id}`, { method: 'PATCH', body: { emailDomains: domains[u.id].split(',').map((d) => d.trim()).filter(Boolean) } }), 'E-mail domains saved.')} className="mb-6">
-                        <label htmlFor={`dom-${u.id}`} className="block text-[13px] font-bold text-[#374151] mb-1.5">Student e-mail domains (only these can register as students, comma separated)</label>
+                        <label htmlFor={`dom-${u.id}`} className="block text-[13px] font-bold text-[#374151] mb-1.5">{t('Student e-mail domains (only these can register as students, comma separated)')}</label>
                         <div className="flex flex-col sm:flex-row gap-2">
                             <input id={`dom-${u.id}`} value={domains[u.id] || ''} onChange={(e) => setDomains({ ...domains, [u.id]: e.target.value })} className={`flex-1 ${input}`} />
-                            <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">Save Domains</button>
+                            <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">{t('Save Domains')}</button>
                         </div>
                     </form>
 
                     <label className="flex items-start gap-2 text-[13px] text-[#374151] font-bold mb-6 cursor-pointer">
                         <input type="checkbox" checked={u.requireStudentIdEmail} onChange={wrap(() => api(`/admin/universities/${u.id}`, { method: 'PATCH', body: { requireStudentIdEmail: !u.requireStudentIdEmail } }), 'Setting saved.')} className="accent-[#203569] w-4 h-4 mt-0.5" />
                         <span>
-                            Student ID must match the e-mail (e.g. BCS24020031 ↔ bcs24020031@student.uts.edu.my)
-                            <span className="block text-[12px] text-gray-500 font-medium">Turn off if some students' e-mails do not start with their Student ID.</span>
+                            {t('Student ID must match the e-mail (e.g. BCS24020031 ↔ bcs24020031@student.uts.edu.my)')}
+                            <span className="block text-[12px] text-gray-500 font-medium">{t("Turn off if some students' e-mails do not start with their Student ID.")}</span>
                         </span>
                     </label>
 
-                    <p className="text-[13px] font-bold text-[#374151] mb-2">Campuses (coordinates used for distance reference)</p>
+                    <p className="text-[13px] font-bold text-[#374151] mb-2">{t('Campuses (coordinates used for distance reference)')}</p>
                     <div className="space-y-2 mb-4">
                         {u.campuses.map((c) => {
                             const ed = campusEdits[c.id] || c;
                             return (
                                 <form key={c.id} onSubmit={wrap(() => api(`/admin/campuses/${c.id}`, { method: 'PATCH', body: { name: ed.name, latitude: ed.latitude, longitude: ed.longitude } }), 'Campus saved.')} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_120px_auto] gap-2">
-                                    <input aria-label="Campus name" value={ed.name} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, name: e.target.value } })} className={input} />
-                                    <input aria-label="Latitude" type="number" step="0.000001" value={ed.latitude} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, latitude: e.target.value } })} className={input} />
-                                    <input aria-label="Longitude" type="number" step="0.000001" value={ed.longitude} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, longitude: e.target.value } })} className={input} />
-                                    <button className="border border-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-gray-50 cursor-pointer">Save</button>
+                                    <input aria-label={t('Campus name')} value={ed.name} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, name: e.target.value } })} className={input} />
+                                    <input aria-label={t('Latitude')} type="number" step="0.000001" value={ed.latitude} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, latitude: e.target.value } })} className={input} />
+                                    <input aria-label={t('Longitude')} type="number" step="0.000001" value={ed.longitude} onChange={(e) => setCampusEdits({ ...campusEdits, [c.id]: { ...ed, longitude: e.target.value } })} className={input} />
+                                    <button className="border border-gray-300 text-gray-700 text-xs font-bold px-4 py-2 rounded-lg bg-white hover:bg-gray-50 cursor-pointer">{t('Save')}</button>
                                 </form>
                             );
                         })}
                     </div>
                     <form onSubmit={wrap(async () => { await api('/admin/campuses', { method: 'POST', body: { universityId: u.id, ...newCampus } }); setNewCampus({ name: '', latitude: '', longitude: '' }); }, 'Campus added.')} className="grid grid-cols-1 sm:grid-cols-[1fr_120px_120px_auto] gap-2">
-                        <input aria-label="New campus name" required placeholder="New campus name" value={newCampus.name} onChange={(e) => setNewCampus({ ...newCampus, name: e.target.value })} className={input} />
-                        <input aria-label="New campus latitude" required type="number" step="0.000001" placeholder="Latitude" value={newCampus.latitude} onChange={(e) => setNewCampus({ ...newCampus, latitude: e.target.value })} className={input} />
-                        <input aria-label="New campus longitude" required type="number" step="0.000001" placeholder="Longitude" value={newCampus.longitude} onChange={(e) => setNewCampus({ ...newCampus, longitude: e.target.value })} className={input} />
-                        <button className="bg-[#15803d] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-800 cursor-pointer">+ Add Campus</button>
+                        <input aria-label={t('New campus name')} required placeholder={t('New campus name')} value={newCampus.name} onChange={(e) => setNewCampus({ ...newCampus, name: e.target.value })} className={input} />
+                        <input aria-label={t('New campus latitude')} required type="number" step="0.000001" placeholder={t('Latitude')} value={newCampus.latitude} onChange={(e) => setNewCampus({ ...newCampus, latitude: e.target.value })} className={input} />
+                        <input aria-label={t('New campus longitude')} required type="number" step="0.000001" placeholder={t('Longitude')} value={newCampus.longitude} onChange={(e) => setNewCampus({ ...newCampus, longitude: e.target.value })} className={input} />
+                        <button className="bg-[#15803d] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-800 cursor-pointer">+ {t('Add Campus')}</button>
                     </form>
                 </Card>
             ))}
 
             <div className="mt-6">
                 <Card>
-                    <h3 className="font-bold text-[#0f172a] mb-3">Add a Facility Option</h3>
+                    <h3 className="font-bold text-[#0f172a] mb-3">{t('Add a Facility Option')}</h3>
                     <form onSubmit={wrap(async () => { await api('/admin/amenities', { method: 'POST', body: { name: newAmenity } }); setNewAmenity(''); }, 'Facility added.')} className="flex flex-col sm:flex-row gap-2">
-                        <input aria-label="Facility name" required value={newAmenity} onChange={(e) => setNewAmenity(e.target.value)} placeholder="e.g. Swimming Pool" className={`flex-1 ${input}`} />
-                        <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">Add Facility</button>
+                        <input aria-label={t('Facility name')} required value={newAmenity} onChange={(e) => setNewAmenity(e.target.value)} placeholder={t('e.g. Swimming Pool')} className={`flex-1 ${input}`} />
+                        <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">{t('Add Facility')}</button>
                     </form>
                 </Card>
             </div>
@@ -507,24 +523,25 @@ export function Campuses() {
 /* --------------------------------------------------------------- audit log */
 
 export function AuditLog() {
+    const { t } = useT();
     const [items, setItems] = useState(null);
     const [error, setError] = useState(null);
     useEffect(() => { api('/admin/audit-logs').then(setItems).catch(setError); }, []);
     return (
-        <Page title="Audit Log">
+        <Page title={t('Audit Log')}>
             <ErrorBanner error={error} className="mb-4" />
             {!items ? <LoadingBlock /> : items.length === 0 ? <Empty text="No admin actions recorded yet." /> : (
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                         <thead>
                             <tr className="text-left text-[11px] uppercase tracking-wider text-gray-400 border-b border-gray-200">
-                                <th className="py-3 pr-3">When</th><th className="py-3 pr-3">Admin</th><th className="py-3 pr-3">Action</th><th className="py-3">Details</th>
+                                <th className="py-3 pr-3">{t('When')}</th><th className="py-3 pr-3">{t('Admin')}</th><th className="py-3 pr-3">{t('Action')}</th><th className="py-3">{t('Details')}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {items.map((a) => (
                                 <tr key={a.id} className="border-b border-gray-100 align-top">
-                                    <td className="py-3 pr-3 text-gray-500 whitespace-nowrap">{new Date(a.createdAt).toLocaleString()}</td>
+                                    <td className="py-3 pr-3 text-gray-500 whitespace-nowrap">{new Date(a.createdAt).toLocaleString(getLocale())}</td>
                                     <td className="py-3 pr-3 font-bold text-gray-800">{a.actor}</td>
                                     <td className="py-3 pr-3 text-gray-700">{a.action.replaceAll('_', ' ')}<br /><span className="text-[11px] text-gray-400">{a.targetType} {a.targetId?.slice(0, 8)}</span></td>
                                     <td className="py-3 text-[12px] text-gray-500 break-all">{a.details ? Object.entries(a.details).filter(([, v]) => v != null).map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' • ') : '—'}</td>
@@ -541,6 +558,7 @@ export function AuditLog() {
 /* --------------------------------------------------------- legal reviewers */
 
 export function Reviewers() {
+    const { t } = useT();
     const [items, setItems] = useState(null);
     const [form, setForm] = useState({ name: '', email: '' });
     const [error, setError] = useState(null);
@@ -554,7 +572,7 @@ export function Reviewers() {
         setNotice(null);
         try {
             const r = await api('/admin/reviewers', { method: 'POST', body: form });
-            setNotice(`Account created. ${r.email} will receive an e-mail to choose a password.`);
+            setNotice(t('Account created. {email} will receive an e-mail to choose a password.', { email: r.email }));
             setForm({ name: '', email: '' });
             load();
         } catch (err) { setError(err); }
@@ -568,34 +586,33 @@ export function Reviewers() {
     const input = 'p-2.5 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 text-sm';
 
     return (
-        <Page title="Legal Reviewers">
+        <Page title={t('Legal Reviewers')}>
             <p className="text-[13px] text-gray-600 mb-5">
-                Legal reviewers (for example, a lawyer working with the platform) check each landlord's identity once, and the ownership or right-to-rent documents of every property before it can be approved. They cannot see students, chats or any other admin page.
-                Get the reviewer's agreement before creating an account, because they will see landlords' personal documents.
+                {t("Legal reviewers (for example, a lawyer working with the platform) check each landlord's identity once, and the ownership or right-to-rent documents of every property before it can be approved. They cannot see students, chats or any other admin page. Get the reviewer's agreement before creating an account, because they will see landlords' personal documents.")}
             </p>
             <ErrorBanner error={error} className="mb-4" />
             <SuccessBanner message={notice} className="mb-4" />
             <Card>
-                <h3 className="font-bold text-[#0f172a] mb-3">Add a legal reviewer</h3>
+                <h3 className="font-bold text-[#0f172a] mb-3">{t('Add a legal reviewer')}</h3>
                 <form onSubmit={create} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2">
-                    <input aria-label="Reviewer name" required placeholder="Full name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
-                    <input aria-label="Reviewer e-mail" required type="email" placeholder="E-mail" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
-                    <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">Create Account</button>
+                    <input aria-label={t('Reviewer name')} required placeholder={t('Full name')} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={input} />
+                    <input aria-label={t('Reviewer e-mail')} required type="email" placeholder={t('E-mail')} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className={input} />
+                    <button className="bg-[#203569] text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-[#1a2b56] cursor-pointer">{t('Create Account')}</button>
                 </form>
-                <p className="text-[11px] text-gray-400 mt-2">They receive a link (valid 72 hours) to set their password, then sign in with “Staff login”.</p>
+                <p className="text-[11px] text-gray-400 mt-2">{t('They receive a link (valid 72 hours) to set their password, then sign in with “Staff login”.')}</p>
             </Card>
             <div className="mt-6 space-y-3">
                 {!items ? <LoadingBlock /> : items.length === 0 ? <Empty text="No legal reviewers yet." /> : items.map((u) => (
                     <div key={u.id} className="flex flex-wrap items-center justify-between gap-3 border border-gray-200 rounded-xl px-5 py-3">
                         <div>
                             <p className="font-bold text-gray-900">{u.name}</p>
-                            <p className="text-[12px] text-gray-500">{u.email} • {u.passwordSet ? 'Active' : 'Waiting for password setup'}</p>
+                            <p className="text-[12px] text-gray-500">{u.email} • {u.passwordSet ? t('Active') : t('Waiting for password setup')}</p>
                         </div>
                         <div className="flex items-center gap-3">
-                            <Pill className={u.status === 'ACTIVE' ? 'bg-[#dcfce7] text-[#15803d]' : 'bg-[#fee2e2] text-[#b91c1c]'}>{u.status}</Pill>
+                            <Pill className={u.status === 'ACTIVE' ? 'bg-[#dcfce7] text-[#15803d]' : 'bg-[#fee2e2] text-[#b91c1c]'}>{t(USER_STATUS_TEXT[u.status] || u.status)}</Pill>
                             {u.status === 'ACTIVE'
-                                ? <button onClick={() => setStatus(u, 'SUSPENDED')} className="text-[12px] font-bold text-red-600 hover:underline cursor-pointer">Suspend</button>
-                                : <button onClick={() => setStatus(u, 'ACTIVE')} className="text-[12px] font-bold text-[#15803d] hover:underline cursor-pointer">Reactivate</button>}
+                                ? <button onClick={() => setStatus(u, 'SUSPENDED')} className="text-[12px] font-bold text-red-600 hover:underline cursor-pointer">{t('Suspend')}</button>
+                                : <button onClick={() => setStatus(u, 'ACTIVE')} className="text-[12px] font-bold text-[#15803d] hover:underline cursor-pointer">{t('Reactivate')}</button>}
                         </div>
                     </div>
                 ))}

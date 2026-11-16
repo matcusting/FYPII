@@ -4,9 +4,12 @@ import { ErrorBanner, FieldError } from '../../components/ui';
 import { MAX_PHOTOS, pickPhotos } from '../../lib/photos';
 import PropertyDocumentPicker from '../../components/PropertyDocuments';
 import { useAuth } from '../../context/AuthContext';
+import { useT } from '../../i18n';
+import Rich from '../../components/Rich';
 
 
 const AddListing = ({ onCreated }) => {
+    const { t } = useT();
     const { user } = useAuth();
     const [propertyDocs, setPropertyDocs] = useState([]); // [{ kind, file }]
     const [meta, setMeta] = useState({ amenities: [], roomTypes: [] });
@@ -56,11 +59,11 @@ const AddListing = ({ onCreated }) => {
         e.preventDefault();
         setError(null);
         if (propertyDocs.length === 0) {
-            setError({ message: 'Add at least one ownership or right-to-rent document (title deed, tenancy agreement or owner\'s authorisation).' });
+            setError({ message: t('Add at least one ownership or right-to-rent document (title deed, tenancy agreement or owner\'s authorisation).') });
             return;
         }
         if (photos.length === 0) {
-            setError({ message: 'Add at least one photo — listings without photos cannot be published.' });
+            setError({ message: t('Add at least one photo — listings without photos cannot be published.') });
             return;
         }
         setIsPublishing(true);
@@ -94,7 +97,7 @@ const AddListing = ({ onCreated }) => {
             photos.forEach((p) => URL.revokeObjectURL(p.preview));
             onCreated();
         } catch (err) {
-            if (created) err.message = `${err.message} Your listing was saved as a draft — open Manage Listings to finish it.`;
+            if (created) err.message = `${t(err.message)} ${t('Your listing was saved as a draft — open Manage Listings to finish it.')}`;
             setError(err);
         } finally {
             setIsPublishing(false);
@@ -103,12 +106,12 @@ const AddListing = ({ onCreated }) => {
 
     return (
         <form onSubmit={handlePublish} className="p-5 sm:p-10 overflow-y-auto animate-fade-in-up">
-            <h2 className="text-[1.4rem] font-bold text-[#0f172a] border-b border-gray-100 pb-4 mb-6">Publish a New Listing</h2>
+            <h2 className="text-[1.4rem] font-bold text-[#0f172a] border-b border-gray-100 pb-4 mb-6">{t('Publish a New Listing')}</h2>
             <div className="space-y-6 max-w-3xl">
                 <ErrorBanner error={error} />
 
                 <div>
-                    <label htmlFor="title" className="block text-[13px] font-bold text-[#374151] mb-2">Listing Title</label>
+                    <label htmlFor="title" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Listing Title')}</label>
                     <input
                         id="title"
                         type="text"
@@ -117,7 +120,7 @@ const AddListing = ({ onCreated }) => {
                         maxLength={120}
                         value={newTitle}
                         onChange={(e) => setNewTitle(e.target.value)}
-                        placeholder="e.g., Master Room at Taman Universiti"
+                        placeholder={t('e.g., Master Room at Taman Universiti')}
                         className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"
                     />
                     <FieldError error={error} name="title" />
@@ -125,13 +128,13 @@ const AddListing = ({ onCreated }) => {
 
                 {/* 房屋照片上传与预览组件 */}
                 <div>
-                    <label className="block text-[13px] font-bold text-[#374151] mb-2">Property Photos <span className="text-gray-400 font-medium">({photos.length}/{MAX_PHOTOS}, at least 1)</span></label>
+                    <label className="block text-[13px] font-bold text-[#374151] mb-2">{t('Property Photos')} <span className="text-gray-400 font-medium">({photos.length}/{MAX_PHOTOS}, {t('at least 1')})</span></label>
                     {photos.length === 0 ? (
                         <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-[#f8f9fa] hover:bg-gray-100 hover:border-[#203569] transition-all">
                             <div className="flex flex-col items-center justify-center pt-5 pb-6">
                                 <span className="text-3xl mb-2">📷</span>
-                                <p className="mb-1 text-sm text-gray-600 font-bold">Click to upload property photos</p>
-                                <p className="text-xs text-gray-400">Supports JPG, PNG, WEBP (Max 5MB each, up to {MAX_PHOTOS})</p>
+                                <p className="mb-1 text-sm text-gray-600 font-bold">{t('Click to upload property photos')}</p>
+                                <p className="text-xs text-gray-400">{t('Supports JPG, PNG, WEBP (Max 5MB each, up to {n})', { n: MAX_PHOTOS })}</p>
                             </div>
                             <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleImageUpload} className="hidden" />
                         </label>
@@ -139,22 +142,22 @@ const AddListing = ({ onCreated }) => {
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                             {photos.map((p, i) => (
                                 <div key={p.preview} className="relative h-32 rounded-xl overflow-hidden border border-gray-200 shadow-sm group">
-                                    <img src={p.preview} alt={`Property preview ${i + 1}`} className="w-full h-full object-cover" />
-                                    {i === 0 && <span className="absolute top-2 left-2 bg-[#203569] text-white text-[10px] font-bold px-2 py-0.5 rounded">Cover</span>}
+                                    <img src={p.preview} alt={`${t('Property photo')} ${i + 1}`} className="w-full h-full object-cover" />
+                                    {i === 0 && <span className="absolute top-2 left-2 bg-[#203569] text-white text-[10px] font-bold px-2 py-0.5 rounded">{t('Cover')}</span>}
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                         <button
                                             type="button"
                                             onClick={() => removePhoto(i)}
                                             className="bg-red-600 text-white text-xs font-bold px-4 py-2 rounded-lg cursor-pointer hover:bg-red-700 transition shadow"
                                         >
-                                            Remove
+                                            {t('Remove')}
                                         </button>
                                     </div>
                                 </div>
                             ))}
                             {photos.length < MAX_PHOTOS && (
                                 <label className="h-32 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-xl cursor-pointer bg-[#f8f9fa] hover:bg-gray-100 hover:border-[#203569] transition-all text-sm font-bold text-gray-500">
-                                    <span className="text-2xl">＋</span> Add Photo
+                                    <span className="text-2xl">＋</span> {t('Add Photo')}
                                     <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleImageUpload} className="hidden" />
                                 </label>
                             )}
@@ -164,7 +167,7 @@ const AddListing = ({ onCreated }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
-                        <label htmlFor="rent" className="block text-[13px] font-bold text-[#374151] mb-2">Monthly Rent (RM)</label>
+                        <label htmlFor="rent" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Monthly Rent (RM)')}</label>
                         <input
                             id="rent"
                             type="number"
@@ -179,7 +182,7 @@ const AddListing = ({ onCreated }) => {
                         <FieldError error={error} name="rent" />
                     </div>
                     <div>
-                        <label htmlFor="deposit" className="block text-[13px] font-bold text-[#374151] mb-2">Security Deposit (RM)</label>
+                        <label htmlFor="deposit" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Security Deposit (RM)')}</label>
                         <input
                             id="deposit"
                             type="number"
@@ -195,7 +198,7 @@ const AddListing = ({ onCreated }) => {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
-                        <label htmlFor="distance" className="block text-[13px] font-bold text-[#374151] mb-2">Distance to UTS (km)</label>
+                        <label htmlFor="distance" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Distance to UTS (km)')}</label>
                         <input
                             id="distance"
                             type="number"
@@ -204,26 +207,26 @@ const AddListing = ({ onCreated }) => {
                             required
                             value={newDistance}
                             onChange={(e) => setNewDistance(e.target.value)}
-                            placeholder="e.g., 1.5"
+                            placeholder={t('e.g., 1.5')}
                             className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569]"
                         />
                     </div>
                     <div>
-                        <label htmlFor="roomType" className="block text-[13px] font-bold text-[#374151] mb-2">Room Type</label>
+                        <label htmlFor="roomType" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Room Type')}</label>
                         <select
                             id="roomType"
                             value={newRoomType}
                             onChange={(e) => setNewRoomType(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 bg-white"
                         >
-                            {(meta.roomTypes.length ? meta.roomTypes : ['Whole Apartment', 'Single Room', 'Master Room', 'Shared Room']).map((t) => <option key={t}>{t}</option>)}
+                            {(meta.roomTypes.length ? meta.roomTypes : ['Whole Apartment', 'Single Room', 'Master Room', 'Shared Room']).map((rt) => <option key={rt} value={rt}>{t(rt)}</option>)}
                         </select>
                     </div>
                 </div>
 
                 {/* 房屋地址：学生可以点击跳转到 Google Maps */}
                 <div>
-                    <label htmlFor="address" className="block text-[13px] font-bold text-[#374151] mb-2">📍 Property Address</label>
+                    <label htmlFor="address" className="block text-[13px] font-bold text-[#374151] mb-2">📍 {t('Property Address')}</label>
                     <input
                         id="address"
                         type="text"
@@ -232,69 +235,69 @@ const AddListing = ({ onCreated }) => {
                         maxLength={200}
                         value={address}
                         onChange={(e) => setAddress(e.target.value)}
-                        placeholder="e.g., No. 12, Lorong Universiti 3, Taman Universiti, 96000 Sibu, Sarawak"
+                        placeholder={t('e.g., No. 12, Lorong Universiti 3, Taman Universiti, 96000 Sibu, Sarawak')}
                         className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"
                     />
                     <FieldError error={error} name="address" />
                     <p className="text-[12px] text-gray-500 mt-1.5">
-                        Students can tap this address to open it in Google Maps.{' '}
+                        {t('Students can tap this address to open it in Google Maps.')}{' '}
                         {address.trim().length >= 5 && (
-                            <a href={mapsSearchUrl(address)} target="_blank" rel="noopener noreferrer" className="font-bold text-[#1d4ed8] hover:underline">Check it on Google Maps ↗</a>
+                            <a href={mapsSearchUrl(address)} target="_blank" rel="noopener noreferrer" className="font-bold text-[#1d4ed8] hover:underline">{t('Check it on Google Maps ↗')}</a>
                         )}
                     </p>
                 </div>
 
                 <div>
-                    <label htmlFor="mapUrl" className="block text-[13px] font-bold text-[#374151] mb-2">Google Maps Link <span className="text-gray-400 font-medium">(optional, for an exact pin)</span></label>
+                    <label htmlFor="mapUrl" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Google Maps Link')} <span className="text-gray-400 font-medium">{t('(optional, for an exact pin)')}</span></label>
                     <input
                         id="mapUrl"
                         type="url"
                         maxLength={2000}
                         value={mapUrl}
                         onChange={(e) => setMapUrl(e.target.value)}
-                        placeholder="https://maps.app.goo.gl/..."
+                        placeholder={t('https://maps.app.goo.gl/...')}
                         className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"
                     />
                     <FieldError error={error} name="mapUrl" />
-                    <p className="text-[12px] text-gray-500 mt-1.5">If Google Maps can't find your address exactly, open the house in Google Maps, tap Share → Copy link and paste it here. Students will be taken to this pin instead.</p>
+                    <p className="text-[12px] text-gray-500 mt-1.5">{t("If Google Maps can't find your address exactly, open the house in Google Maps, tap Share → Copy link and paste it here. Students will be taken to this pin instead.")}</p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                     <div>
-                        <label htmlFor="area" className="block text-[13px] font-bold text-[#374151] mb-2">Area / Neighbourhood</label>
-                        <input id="area" type="text" maxLength={120} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder="e.g., Taman Universiti" className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800" />
+                        <label htmlFor="area" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Area / Neighbourhood')}</label>
+                        <input id="area" type="text" maxLength={120} value={newArea} onChange={(e) => setNewArea(e.target.value)} placeholder={t('e.g., Taman Universiti')} className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800" />
                     </div>
                     <div>
-                        <label htmlFor="availableFrom" className="block text-[13px] font-bold text-[#374151] mb-2">Available From</label>
+                        <label htmlFor="availableFrom" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Available From')}</label>
                         <input id="availableFrom" type="date" value={availableFrom} onChange={(e) => setAvailableFrom(e.target.value)} className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800" />
                     </div>
                 </div>
 
                 <div>
-                    <label htmlFor="description" className="block text-[13px] font-bold text-[#374151] mb-2">Description</label>
-                    <textarea id="description" rows="4" maxLength={3000} value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="Describe the room, the building, nearby shops and transport..." className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"></textarea>
+                    <label htmlFor="description" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Description')}</label>
+                    <textarea id="description" rows="4" maxLength={3000} value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder={t('Describe the room, the building, nearby shops and transport...')} className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"></textarea>
                 </div>
 
                 <div>
-                    <label htmlFor="houseRules" className="block text-[13px] font-bold text-[#374151] mb-2">House Rules (optional)</label>
-                    <textarea id="houseRules" rows="2" maxLength={1000} value={houseRules} onChange={(e) => setHouseRules(e.target.value)} placeholder="e.g., No smoking indoors, quiet hours after 11pm" className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"></textarea>
+                    <label htmlFor="houseRules" className="block text-[13px] font-bold text-[#374151] mb-2">{t('House Rules (optional)')}</label>
+                    <textarea id="houseRules" rows="2" maxLength={1000} value={houseRules} onChange={(e) => setHouseRules(e.target.value)} placeholder={t('e.g., No smoking indoors, quiet hours after 11pm')} className="w-full p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800"></textarea>
                 </div>
 
                 <div>
-                    <label htmlFor="genderRestriction" className="block text-[13px] font-bold text-[#374151] mb-2">Who can rent this property?</label>
+                    <label htmlFor="genderRestriction" className="block text-[13px] font-bold text-[#374151] mb-2">{t('Who can rent this property?')}</label>
                     <select id="genderRestriction" value={genderRestriction} onChange={(e) => setGenderRestriction(e.target.value)} className="w-full sm:w-1/2 p-3 border border-gray-300 rounded-md outline-none focus:border-[#203569] text-gray-800 bg-white">
-                        {GENDER_RESTRICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        {GENDER_RESTRICTION_OPTIONS.map((o) => <option key={o.value} value={o.value}>{t(o.label)}</option>)}
                     </select>
-                    <p className="text-[12px] text-gray-500 mt-1.5">Students of the other gender will not be able to send an inquiry.</p>
+                    <p className="text-[12px] text-gray-500 mt-1.5">{t('Students of the other gender will not be able to send an inquiry.')}</p>
                 </div>
 
                 <label className="flex items-center gap-3 text-[13px] font-bold text-[#374151] cursor-pointer">
                     <input type="checkbox" checked={furnished} onChange={(e) => setFurnished(e.target.checked)} className="accent-[#203569] w-4 h-4" />
-                    Fully furnished
+                    {t('Fully furnished')}
                 </label>
 
                 <div>
-                    <label className="block text-[13px] font-bold text-[#374151] mb-3 mt-2">Included Facilities (Select all that apply)</label>
+                    <label className="block text-[13px] font-bold text-[#374151] mb-3 mt-2">{t('Included Facilities (Select all that apply)')}</label>
                     <div className="flex flex-wrap gap-3">
                         {meta.amenities.map(facility => {
                             const isSelected = selectedFacilities.includes(facility);
@@ -309,7 +312,7 @@ const AddListing = ({ onCreated }) => {
                                         : "bg-[#f3f4f6] text-gray-500 border border-gray-200 px-5 py-2.5 rounded-full text-[13px] font-bold hover:bg-gray-200 transition cursor-pointer"
                                     }
                                 >
-                                    {isSelected ? `✓ ${facility}` : `+ ${facility}`}
+                                    {isSelected ? `✓ ${t(facility)}` : `+ ${t(facility)}`}
                                 </button>
                             );
                         })}
@@ -318,27 +321,27 @@ const AddListing = ({ onCreated }) => {
 
                 {/* 房屋产权 / 出租权文件：由律师审核 */}
                 <div className="border border-[#c7d2fe] bg-[#f5f7ff] rounded-xl p-5">
-                    <p className="block text-[13px] font-bold text-[#374151] mb-1">Ownership / Right-to-Rent Documents <span className="text-[#e11d48]">*</span></p>
+                    <p className="block text-[13px] font-bold text-[#374151] mb-1">{t('Ownership / Right-to-Rent Documents')} <span className="text-[#e11d48]">*</span></p>
                     <p className="text-[12px] text-gray-600 mb-3">
-                        Show that you own this property or are allowed to rent it out: a <strong>title deed</strong>, or your <strong>tenancy agreement</strong> plus the <strong>owner's authorisation letter</strong> if you are subletting. A legal reviewer checks them privately — students never see these files. PDF, JPG or PNG, up to 10 MB each.
+                        <Rich text="Show that you own this property or are allowed to rent it out: a <b>title deed</b>, or your <b>tenancy agreement</b> plus the <b>owner's authorisation letter</b> if you are subletting. A legal reviewer checks them privately — students never see these files. PDF, JPG or PNG, up to 10 MB each." />
                     </p>
                     <PropertyDocumentPicker value={propertyDocs} onChange={setPropertyDocs} disabled={isPublishing} />
                 </div>
 
                 {user?.role === 'LANDLORD' && !user.landlordVerified && (
                     <p className="text-[12px] font-bold text-[#a16207] bg-[#fefce8] border border-[#fef08a] rounded-lg px-4 py-3">
-                        Your landlord identity is not verified yet, so this listing will be saved as a draft. Upload your identity card in Account Settings; once verified, submit it from Manage Listings.
+                        {t('Your landlord identity is not verified yet, so this listing will be saved as a draft. Upload your identity card in Account Settings; once verified, submit it from Manage Listings.')}
                     </p>
                 )}
 
                 <div className="border-t border-gray-100 mt-8 pt-6 flex flex-col sm:flex-row gap-3 sm:justify-between sm:items-center">
-                    <p className="text-[12px] text-gray-500 max-w-sm">A legal reviewer first checks your property documents, then an administrator checks the listing details. You'll get a notification at each step.</p>
+                    <p className="text-[12px] text-gray-500 max-w-sm">{t("A legal reviewer first checks your property documents, then an administrator checks the listing details. You'll get a notification at each step.")}</p>
                     <button
                         type="submit"
                         disabled={isPublishing}
                         className={`font-bold py-3 px-6 rounded-md shadow-sm transition flex items-center justify-center min-w-[240px] cursor-pointer ${isPublishing ? 'bg-[#1a2b56] text-gray-300 cursor-not-allowed' : 'bg-[#203569] text-white hover:bg-[#1a2b56]'}`}
                     >
-                        {isPublishing ? 'Publishing...' : 'Publish to Student Database'}
+                        {isPublishing ? t('Publishing...') : t('Publish to Student Database')}
                     </button>
                 </div>
             </div>

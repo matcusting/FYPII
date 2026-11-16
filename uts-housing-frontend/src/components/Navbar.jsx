@@ -1,11 +1,14 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
+import LanguageSwitcher from './LanguageSwitcher';
+import { useT } from '../i18n';
 
 const Navbar = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { unreadMessages, logout } = useAuth();
+    const { t } = useT();
 
     // 判断当前是否在主页，如果在主页则隐藏 Dashboard 按钮
     const isDashboard = location.pathname === '/student';
@@ -28,18 +31,18 @@ const Navbar = () => {
                         UTS
                     </div>
                     <span className="hidden sm:inline font-bold text-[#1f2937] text-[1.1rem] group-hover:text-[#203569] transition-colors">
-                        Housing & Roommate Finder
+                        {t('Housing & Roommate Finder')}
                     </span>
                 </div>
 
                 {/* 右侧导航菜单 */}
-                <div className="flex items-center gap-4 sm:gap-6">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-5">
                     {!isDashboard && (
                         <button
                             onClick={() => navigate('/student')}
                             className="text-sm font-bold text-gray-500 hover:text-[#203569] transition-colors"
                         >
-                            Dashboard
+                            {t('Dashboard')}
                         </button>
                     )}
 
@@ -48,7 +51,7 @@ const Navbar = () => {
                         onClick={() => navigate('/student/messages')}
                         className="text-sm font-bold text-gray-500 hover:text-[#203569] transition-colors flex items-center gap-1.5 relative cursor-pointer"
                     >
-                        <span className="text-lg">💬</span> <span className="hidden sm:inline">Messages</span>
+                        <span className="text-lg">💬</span> <span className="hidden sm:inline">{t('Messages')}</span>
                         {unreadMessages > 0 && (
                             <span className="absolute -top-1.5 -right-2 bg-[#e11d48] text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full border-2 border-white shadow-sm">
                                 {unreadMessages}
@@ -59,12 +62,15 @@ const Navbar = () => {
                     {/* 通知 */}
                     <NotificationBell />
 
+                    {/* 语言切换 */}
+                    <LanguageSwitcher />
+
                     {/* Profile 按钮 (跳转至个人设置) */}
                     <button
                         onClick={() => navigate('/student/profile')}
                         className="text-sm font-bold text-gray-500 hover:text-[#203569] transition-colors flex items-center gap-1.5"
                     >
-                        <span className="text-lg">👤</span> <span className="hidden sm:inline">Profile</span>
+                        <span className="text-lg">👤</span> <span className="hidden sm:inline">{t('Profile')}</span>
                     </button>
 
                     {/* 竖线分隔符 */}
@@ -75,7 +81,7 @@ const Navbar = () => {
                         onClick={handleLogout}
                         className="text-sm font-bold text-gray-400 hover:text-red-600 transition-colors flex items-center gap-1"
                     >
-                        Logout
+                        {t('Logout')}
                     </button>
                 </div>
             </div>

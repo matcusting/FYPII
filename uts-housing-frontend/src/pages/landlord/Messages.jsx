@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, chatTime } from '../../lib/api';
 import { ErrorBanner, LoadingBlock, ReportDialog } from '../../components/ui';
+import { useT } from '../../i18n';
 
 const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
+    const { t } = useT();
     // 管理员看到的是用户本人的名字；房东看到的是 "Admin Support"
-    const contactName = (c) => (c.type === 'SUPPORT' && !asAdmin ? 'Admin Support' : c.other?.name || 'Deleted user');
+    const contactName = (c) => (c.type === 'SUPPORT' && !asAdmin ? t('Admin Support') : c.other?.name || t('Deleted user'));
     const contactAvatar = (c) => (c.type === 'SUPPORT' && !asAdmin ? 'S' : c.other?.initials || '?');
-    const contactSubject = (c) => (c.type === 'SUPPORT' ? 'Account support' : c.listing?.title || 'General Inquiry');
+    const contactSubject = (c) => (c.type === 'SUPPORT' ? t('Account support') : c.listing?.title || t('General Inquiry'));
 
     const { conversations, active, activeId, setActiveId, messages, send, loading, reload, typingName, notifyTyping } = chat;
     const [newMessage, setNewMessage] = useState('');
@@ -38,7 +40,7 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
 
     const toggleBlock = async () => {
         if (!active?.other) return;
-        if (!active.blocked && !window.confirm(`Block ${active.other.name}?`)) return;
+        if (!active.blocked && !window.confirm(t('Block {name}?', { name: active.other.name }))) return;
         try {
             await api(`/blocks/${active.other.id}`, { method: active.blocked ? 'DELETE' : 'POST' });
             reload();
@@ -56,7 +58,7 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
                 </div>
                 <div className="overflow-y-auto flex-1">
                     {loading && <LoadingBlock />}
-                    {!loading && conversations.length === 0 && <p className="p-6 text-sm text-gray-400 font-bold text-center">No inquiries yet.</p>}
+                    {!loading && conversations.length === 0 && <p className="p-6 text-sm text-gray-400 font-bold text-center">{t('No inquiries yet.')}</p>}
                     {conversations.map(contact => {
                         const isActive = contact.id === activeId;
                         return (
@@ -87,7 +89,7 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
             {/* 右侧对话框 */}
             <div className="flex-1 flex flex-col bg-white min-h-[460px] md:min-h-0">
                 {!active ? (
-                    <div className="flex-1 flex items-center justify-center text-gray-400 font-bold text-sm">Select a conversation.</div>
+                    <div className="flex-1 flex items-center justify-center text-gray-400 font-bold text-sm">{t('Select a conversation.')}</div>
                 ) : (
                 <>
                 <div className="p-5 border-b border-gray-200 flex flex-wrap gap-3 justify-between items-center shadow-sm z-10">
@@ -96,15 +98,15 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
                         <div>
                             <h3 className="font-bold text-[#0f172a] text-[15px]">{contactName(active)}</h3>
                             <p className="text-[11px] text-gray-500 font-medium">
-                                {active.type === 'SUPPORT' && !asAdmin ? 'System' : active.other?.role === 'LANDLORD' ? (active.other.verified ? 'Verified Landlord' : 'Landlord') : active.other?.verified ? 'Verified Student' : 'Student'}
+                                {active.type === 'SUPPORT' && !asAdmin ? t('System') : active.other?.role === 'LANDLORD' ? (active.other.verified ? t('Verified Landlord') : t('Landlord')) : active.other?.verified ? t('Verified Student') : t('Student')}
                             </p>
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
                         {active.type !== 'SUPPORT' && active.other && !asAdmin && (
                             <>
-                                <button onClick={() => setReporting(true)} className="text-[11px] font-bold text-gray-400 hover:text-[#e11d48] cursor-pointer">Report</button>
-                                <button onClick={toggleBlock} className="text-[11px] font-bold text-gray-400 hover:text-[#e11d48] cursor-pointer">{active.blocked ? 'Unblock' : 'Block'}</button>
+                                <button onClick={() => setReporting(true)} className="text-[11px] font-bold text-gray-400 hover:text-[#e11d48] cursor-pointer">{t('Report')}</button>
+                                <button onClick={toggleBlock} className="text-[11px] font-bold text-gray-400 hover:text-[#e11d48] cursor-pointer">{active.blocked ? t('Unblock') : t('Block')}</button>
                             </>
                         )}
                         <span className="text-xs bg-gray-100 text-gray-600 font-bold px-3 py-1.5 rounded-md border border-gray-200">
@@ -126,18 +128,18 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
                         </div>
                     ))}
                     {typingName && (
-                        <p className="text-[11px] text-gray-400 italic font-medium px-1" aria-live="polite">{typingName} is typing…</p>
+                        <p className="text-[11px] text-gray-400 italic font-medium px-1" aria-live="polite">{t('{name} is typing…', { name: typingName })}</p>
                     )}
                     <div ref={bottomRef}></div>
                 </div>
                 <div className="p-4 border-t border-gray-200 bg-white">
                     <ErrorBanner error={error} className="mb-3" />
                     {active.blocked ? (
-                        <p className="text-center text-sm text-gray-400 font-bold py-2">Messaging is disabled because one of you has blocked the other.</p>
+                        <p className="text-center text-sm text-gray-400 font-bold py-2">{t('Messaging is disabled because one of you has blocked the other.')}</p>
                     ) : (
                     <form onSubmit={handleSendMessage} className="flex gap-3">
-                        <input type="text" aria-label="Reply" maxLength={2000} value={newMessage} onChange={(e) => { setNewMessage(e.target.value); notifyTyping(); }} placeholder={`Reply to ${contactName(active).split(' ')[0]}...`} className="flex-1 min-w-0 bg-[#f4f7fb] border border-[#e0e7ff] rounded-full px-5 py-2.5 text-[13px] outline-none focus:border-[#1d4ed8] transition-colors" />
-                        <button type="submit" aria-label="Send" disabled={!newMessage.trim()} className="bg-[#1d4ed8] text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-blue-800 transition disabled:opacity-50 cursor-pointer flex-shrink-0">
+                        <input type="text" aria-label={t('Reply')} maxLength={2000} value={newMessage} onChange={(e) => { setNewMessage(e.target.value); notifyTyping(); }} placeholder={`Reply to ${contactName(active).split(' ')[0]}...`} className="flex-1 min-w-0 bg-[#f4f7fb] border border-[#e0e7ff] rounded-full px-5 py-2.5 text-[13px] outline-none focus:border-[#1d4ed8] transition-colors" />
+                        <button type="submit" aria-label={t('Send')} disabled={!newMessage.trim()} className="bg-[#1d4ed8] text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-blue-800 transition disabled:opacity-50 cursor-pointer flex-shrink-0">
                             <span className="transform rotate-45 -mt-0.5 ml-0.5 text-sm">✈</span>
                         </button>
                     </form>

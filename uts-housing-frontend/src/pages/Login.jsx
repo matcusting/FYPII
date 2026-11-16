@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { homeFor } from '../lib/api';
 import { ErrorBanner, FullPageLoading } from '../components/ui';
+import LanguageSwitcher from '../components/LanguageSwitcher';
+import { useT } from '../i18n';
 
 // Demo credentials are only pre-filled in development builds.
 const DEV = import.meta.env.DEV;
@@ -11,6 +13,7 @@ const Login = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, loading, login } = useAuth();
+    const { t } = useT();
 
     // 控制当前选中的身份：'student' / 'landlord' / 'admin'
     const [role, setRole] = useState('student');
@@ -53,15 +56,16 @@ const Login = () => {
     if (loading) return <FullPageLoading />;
 
     return (
-        <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center font-sans px-4">
+        <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center font-sans px-4 relative">
+            <LanguageSwitcher className="absolute top-4 right-4" />
             <div className="bg-white rounded-xl shadow-[0_4px_20px_rgba(0,0,0,0.04)] border border-gray-100 p-6 sm:p-10 w-full max-w-[420px]">
 
                 <div className="flex flex-col items-center mb-6">
                     <div className="w-16 h-16 bg-[#203569] text-white rounded-full flex items-center justify-center text-2xl font-bold mb-4 tracking-wide">
                         UTS
                     </div>
-                    <h2 className="text-[1.6rem] font-bold text-[#1f2937] mb-1">{role === 'admin' ? 'Staff Login' : 'System Login'}</h2>
-                    <p className="text-gray-500 text-[14px]">Housing & Roommate Finder</p>
+                    <h2 className="text-[1.6rem] font-bold text-[#1f2937] mb-1">{role === 'admin' ? t('Staff Login') : t('System Login')}</h2>
+                    <p className="text-gray-500 text-[14px]">{t('Housing & Roommate Finder')}</p>
                 </div>
 
                 {/* 身份切换 Tabs */}
@@ -74,7 +78,7 @@ const Login = () => {
                             onClick={() => { setRole('student'); setError(null); }}
                             className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${role === 'student' ? 'bg-white text-[#203569] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                         >
-                            Student
+                            {t('Student')}
                         </button>
                         <button
                             type="button"
@@ -83,7 +87,7 @@ const Login = () => {
                             onClick={() => { setRole('landlord'); setError(null); }}
                             className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${role === 'landlord' ? 'bg-white text-[#203569] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                         >
-                            Landlord
+                            {t('Landlord')}
                         </button>
                     </div>
                 )}
@@ -95,7 +99,7 @@ const Login = () => {
                     {role === 'student' ? (
                         <>
                             <div>
-                                <label htmlFor="studentId" className="block text-[13px] font-bold text-[#203569] mb-1.5">Student ID</label>
+                                <label htmlFor="studentId" className="block text-[13px] font-bold text-[#203569] mb-1.5">{t('Student ID')}</label>
                                 <input
                                     id="studentId"
                                     type="text"
@@ -107,7 +111,7 @@ const Login = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="studentEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">UTS Student Email</label>
+                                <label htmlFor="studentEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">{t('UTS Student Email')}</label>
                                 <input
                                     id="studentEmail"
                                     type="email"
@@ -120,7 +124,7 @@ const Login = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="studentPassword" className="block text-[13px] font-bold text-[#203569] mb-1.5">Password</label>
+                                <label htmlFor="studentPassword" className="block text-[13px] font-bold text-[#203569] mb-1.5">{t('Password')}</label>
                                 <input
                                     id="studentPassword"
                                     type="password"
@@ -135,7 +139,7 @@ const Login = () => {
                     ) : (
                         <>
                             <div>
-                                <label htmlFor="landlordEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">{role === 'admin' ? 'Staff Email (administrator or legal reviewer)' : 'Landlord Email'}</label>
+                                <label htmlFor="landlordEmail" className="block text-[13px] font-bold text-[#203569] mb-1.5">{role === 'admin' ? t('Staff Email (administrator or legal reviewer)') : t('Landlord Email')}</label>
                                 <input
                                     id="landlordEmail"
                                     type="email"
@@ -147,7 +151,7 @@ const Login = () => {
                                 />
                             </div>
                             <div>
-                                <label htmlFor="landlordPassword" className="block text-[13px] font-bold text-[#203569] mb-1.5">Password</label>
+                                <label htmlFor="landlordPassword" className="block text-[13px] font-bold text-[#203569] mb-1.5">{t('Password')}</label>
                                 <input
                                     id="landlordPassword"
                                     type="password"
@@ -166,14 +170,14 @@ const Login = () => {
                         disabled={submitting}
                         className="w-full bg-[#203569] text-white font-bold py-3 px-4 rounded-lg hover:bg-[#1a2b56] transition mt-4 shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
                     >
-                        {submitting ? 'Signing in...' : role === 'student' ? 'Verify & Login' : role === 'admin' ? 'Staff Login' : 'Login as Landlord'}
+                        {submitting ? t('Signing in...') : role === 'student' ? t('Verify & Login') : role === 'admin' ? t('Staff Login') : t('Login as Landlord')}
                     </button>
                 </form>
 
                 <div className="mt-6 flex justify-between text-[13px] font-bold">
-                    <Link to="/forgot-password" className="text-gray-500 hover:text-[#203569] transition-colors">Forgot password?</Link>
+                    <Link to="/forgot-password" className="text-gray-500 hover:text-[#203569] transition-colors">{t('Forgot password?')}</Link>
                     {role !== 'admin' && (
-                        <Link to={`/register?role=${role}`} className="text-[#203569] hover:underline">Create an account</Link>
+                        <Link to={`/register?role=${role}`} className="text-[#203569] hover:underline">{t('Create an account')}</Link>
                     )}
                 </div>
                 <div className="mt-6 pt-5 border-t border-gray-100 text-center">
@@ -187,7 +191,7 @@ const Login = () => {
                         }}
                         className="text-[12px] font-bold text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
                     >
-                        {role === 'admin' ? '← Back to student / landlord login' : 'Staff login (administrator / legal reviewer)'}
+                        {role === 'admin' ? t('← Back to student / landlord login') : t('Staff login (administrator / legal reviewer)')}
                     </button>
                 </div>
             </div>

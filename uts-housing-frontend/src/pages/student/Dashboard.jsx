@@ -2,10 +2,13 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import NotificationBell from '../../components/NotificationBell';
 import { VerificationBanner } from '../../components/ui';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
+import { useT } from '../../i18n';
 
 const Dashboard = () => {
     const navigate = useNavigate();
     const { user, unreadMessages, logout } = useAuth();
+    const { t } = useT();
     const firstName = user.name.split(' ')[0];
 
     const handleLogout = async () => {
@@ -19,9 +22,10 @@ const Dashboard = () => {
                 
                 {/* 修复后的顶部 Header：加入了 Profile 跳转 和 Logout */}
                 <div className="bg-[#203569] text-white px-5 sm:px-8 py-4 flex flex-wrap gap-2 justify-between items-center">
-                    <h1 className="text-xl tracking-wide font-semibold">UTS Housing & Roommate Finder</h1>
+                    <h1 className="text-xl tracking-wide font-semibold">{t('UTS Housing & Roommate Finder')}</h1>
                     
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <LanguageSwitcher dark />
                         <NotificationBell dark />
                         {/* 变成可点击的 Profile 按钮 */}
                         <button 
@@ -43,7 +47,7 @@ const Dashboard = () => {
                             onClick={handleLogout} 
                             className="text-gray-300 hover:text-white text-sm font-bold transition px-2"
                         >
-                            Logout
+                            {t('Logout')}
                         </button>
                     </div>
                 </div>
@@ -51,8 +55,8 @@ const Dashboard = () => {
                 <div className="p-6 sm:p-10 min-h-[500px]">
                     <VerificationBanner className="mb-8" />
                     <div className="mb-8">
-                        <h2 className="text-[1.8rem] sm:text-[2.2rem] font-bold text-[#1f2937] mb-2">Welcome back, {firstName}!</h2>
-                        <p className="text-gray-500 text-lg">What are you looking for today?</p>
+                        <h2 className="text-[1.8rem] sm:text-[2.2rem] font-bold text-[#1f2937] mb-2">{t('Welcome back, {name}!', { name: firstName })}</h2>
+                        <p className="text-gray-500 text-lg">{t('What are you looking for today?')}</p>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-10">
@@ -68,8 +72,8 @@ const Dashboard = () => {
                                     <path d="M9 21V13H15V21" fill="#cbd5e1"/>
                                 </svg>
                             </div>
-                            <h3 className="text-2xl font-bold text-[#203569] mb-2">Find Housing</h3>
-                            <p className="text-[#3b82f6] text-sm">Browse verified rental listings near UTS campus.</p>
+                            <h3 className="text-2xl font-bold text-[#203569] mb-2">{t('Find Housing')}</h3>
+                            <p className="text-[#3b82f6] text-sm">{t('Browse verified rental listings near UTS campus.')}</p>
                         </div>
 
                         {/* 右侧卡片：Find a Roommate */}
@@ -84,8 +88,8 @@ const Dashboard = () => {
                                     <path d="M20 21V19C20 18.1065 19.3906 17.354 18.5432 17.0864M15 7.15939C16.1437 7.50293 17 8.64724 17 10C17 11.3528 16.1437 12.4971 15 12.8406" stroke="#a855f7" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                                 </svg>
                             </div>
-                            <h3 className="text-2xl font-bold text-[#15803d] mb-2">Find a Roommate</h3>
-                            <p className="text-[#16a34a] text-sm">Match with students based on lifestyle habits.</p>
+                            <h3 className="text-2xl font-bold text-[#15803d] mb-2">{t('Find a Roommate')}</h3>
+                            <p className="text-[#16a34a] text-sm">{t('Match with students based on lifestyle habits.')}</p>
                         </div>
                     </div>
 
@@ -93,7 +97,7 @@ const Dashboard = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
                         {[
                             { icon: '❤️', label: 'Saved Listings', text: 'Rooms you added to your wishlist', to: '/student/favorites' },
-                            { icon: '💬', label: 'Messages', text: unreadMessages > 0 ? `${unreadMessages} unread message${unreadMessages > 1 ? 's' : ''}` : 'Chat with landlords & roommates', to: '/student/messages' },
+                            { icon: '💬', label: 'Messages', text: unreadMessages > 0 ? t('{n} unread messages', { n: unreadMessages }) : 'Chat with landlords & roommates', to: '/student/messages' },
                             { icon: '⭐', label: 'Profile & Reviews', text: 'Your details, verification & reviews', to: '/student/profile' },
                         ].map((item) => (
                             <div
@@ -103,8 +107,8 @@ const Dashboard = () => {
                             >
                                 <span className="text-2xl">{item.icon}</span>
                                 <div>
-                                    <h4 className="font-bold text-[#203569] text-[15px]">{item.label}</h4>
-                                    <p className="text-[12px] text-gray-500">{item.text}</p>
+                                    <h4 className="font-bold text-[#203569] text-[15px]">{t(item.label)}</h4>
+                                    <p className="text-[12px] text-gray-500">{t(item.text)}</p>
                                 </div>
                             </div>
                         ))}

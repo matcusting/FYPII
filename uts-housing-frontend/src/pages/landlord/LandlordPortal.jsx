@@ -13,8 +13,11 @@ import AddListing from './AddListing';
 import ManageListings from './ManageListings';
 import Reviews from './Reviews';
 import AccountSettings from './AccountSettings';
+import { useT } from '../../i18n';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 
 const LandlordPortal = () => {
+    const { t } = useT();
     const navigate = useNavigate();
     const { user, logout } = useAuth();
 
@@ -67,7 +70,7 @@ const LandlordPortal = () => {
             aria-selected={activeTab === name}
             className={getTabClass(name)}
         >
-            <span className="text-lg">{icon}</span> {label} {extra}
+            <span className="text-lg">{icon}</span> {t(label)} {extra}
         </div>
     );
 
@@ -77,21 +80,22 @@ const LandlordPortal = () => {
 
                 {/* 顶部 Navbar */}
                 <div className="bg-[#0f172a] px-5 sm:px-8 py-5 flex flex-wrap gap-3 justify-between items-center">
-                    <h1 className="text-white text-xl font-bold tracking-wide">UTS Housing Provider Portal</h1>
-                    <div className="flex items-center gap-4">
+                    <h1 className="text-white text-xl font-bold tracking-wide">{t('UTS Housing Provider Portal')}</h1>
+                    <div className="flex flex-wrap items-center gap-4">
                         {user.landlordVerified ? (
                             <span className="bg-[#22c55e] text-white text-[11px] font-bold px-3 py-1 rounded flex items-center gap-1">
-                                ✓ Verified Landlord
+                                ✓ {t('Verified Landlord')}
                             </span>
                         ) : (
                             <span className="bg-[#eab308] text-white text-[11px] font-bold px-3 py-1 rounded flex items-center gap-1">
-                                ⏳ Verification Pending
+                                ⏳ {t('Verification Pending')}
                             </span>
                         )}
+                        <LanguageSwitcher dark />
                         <NotificationBell dark />
                         <span className="text-white font-bold text-sm">{user.name}</span>
                         <button onClick={handleLogout} className="text-gray-400 hover:text-white text-sm ml-2 font-bold transition cursor-pointer">
-                            Logout
+                            {t('Logout')}
                         </button>
                     </div>
                 </div>
