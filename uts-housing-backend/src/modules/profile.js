@@ -15,6 +15,7 @@ const profileSchema = z.object({
   academicYear: z.string().trim().max(20).nullable().optional(),
   bio: z.string().trim().max(1000).nullable().optional(),
   phone: z.string().trim().max(30).nullable().optional(),
+  emailNotifications: z.boolean().optional(),
 });
 
 router.get('/', (req, res) => ok(res, { user: serializeMe(req.user) }));

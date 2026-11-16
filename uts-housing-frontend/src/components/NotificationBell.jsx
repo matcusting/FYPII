@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 /** Bell icon with a dropdown of in-app notifications. `dark` = for dark headers. */
 const NotificationBell = ({ dark = false }) => {
     const navigate = useNavigate();
-    const { unreadNotifications, refresh } = useAuth();
+    const { unreadNotifications, refresh, socket } = useAuth();
     const [open, setOpen] = useState(false);
     const [items, setItems] = useState([]);
     const ref = useRef(null);
@@ -18,6 +18,14 @@ const NotificationBell = ({ dark = false }) => {
         document.addEventListener('mousedown', close);
         return () => document.removeEventListener('mousedown', close);
     }, [open]);
+
+    // New notifications appear in the open dropdown immediately.
+    useEffect(() => {
+        if (!socket || !open) return undefined;
+        const onNew = (n) => setItems((list) => (list.some((i) => i.id === n.id) ? list : [n, ...list]));
+        socket.on('notification:new', onNew);
+        return () => socket.off('notification:new', onNew);
+    }, [socket, open]);
 
     const openItem = async (n) => {
         if (!n.readAt) await api(`/notifications/${n.id}/read`, { method: 'POST' }).catch(() => {});

@@ -14,14 +14,14 @@ A web-based housing rental and roommate matching system for students of the Univ
 ## Features
 
 - **Accounts and verification:** student and landlord registration, Argon2id password hashing, HTTP-only session cookies, e-mail verification, password reset, account deletion requests. Students log in with **Student ID + UTS e-mail + password**, and a mismatch shows an error so they can retry (report Fig 4.1). E-mails on a configured UTS domain are verified automatically. Other students and all landlords go to an admin review queue.
-- **Structured listings:** rent, deposit, distance to campus, room type, facilities, area, availability date, house rules, furnished flag and up to 6 photos. Listing status workflow: Draft → Pending Review → Active / Rejected → Paused / Rented. Students only see listings an admin has approved. Listings not reconfirmed for 30 days are flagged as stale.
+- **Structured listings:** rent, deposit, distance to campus, room type, facilities, area, availability date, house rules, furnished flag and up to 6 photos. Listing status workflow: Draft → Pending Review → Active / Rejected → Paused / Rented. Students only see listings an admin has approved. Listings not reconfirmed for 30 days are flagged as stale and the owner is reminded; after 45 days they are paused automatically until the owner confirms them again.
 - **Address → Google Maps:** landlords enter the property address (and can optionally paste a Google Maps share link for an exact pin). In the listing details students tap the address to open it in Google Maps. Addresses are only returned to logged-in users. Distance to campus is entered by the landlord.
 - **Search:** keyword search; filters for max rent, distance, deposit, room type, facilities, furnished and available-by date; sorting; pagination; saved listings (wishlist).
 - **Habit-based roommate matching:** uses the report's formula `C = (M_study + M_smoke + M_clean) / 3 × 100%`, extended with optional habits (noise, guests, pets), per-habit importance weights, smoke-free deal-breakers, budget and move-in overlap, opt-in discovery, connection requests, blocking and reporting.
 - **Verified reviews:** only verified students can post a review (1–5 stars, written feedback, stay dates and a private proof-of-stay note). Each student can review a listing once. Reviews are moderated, edits go back to moderation, and the landlord can reply publicly but cannot edit the review.
-- **In-app messaging:** listing inquiries, accepted roommate connections and an Admin Support channel. Contact details stay private.
+- **Real-time messaging:** listing inquiries, accepted roommate connections and an Admin Support channel, delivered instantly over WebSocket (Socket.IO) with a typing indicator. Contact details stay private.
 - **Admin console:** overview, student and landlord verification, listing approval and suspension, review moderation, abuse reports, user suspension and deletion, campus and e-mail-domain configuration, and an audit log.
-- **Notifications:** in-app bell, plus e-mail for verification, reset and moderation decisions. Without SMTP configured, e-mails are written to the console and `logs/mail.log`.
+- **Notifications:** in-app bell updated in real time, plus e-mail for verification, reset, moderation decisions, inquiries, roommate requests and availability reminders. Users can turn the non-security e-mails off. Without SMTP configured, e-mails are written to the console and `logs/mail.log`.
 - **Responsive UI:** the original desktop design is kept, and pages also work at phone width.
 
 ## Running locally
@@ -82,7 +82,7 @@ npm run lint
 npm run build
 ```
 
-The backend suite (Vitest + Supertest, 23 tests) covers the matching formula, the address / Google Maps link rules and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
+The backend suite (Vitest + Supertest + Socket.IO client, 27 tests) covers the matching formula, the address / Google Maps link rules, the availability job, real-time chat and the acceptance scenarios: verification gates, listing moderation, search filters, ownership checks, deal-breaker exclusion, review eligibility and moderation, single-use reset tokens, upload validation, CSRF blocking and suspension. The tests run against the separate `uts_housing_test` database. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks on every push.
 
 ## Deployment notes
 
@@ -92,7 +92,8 @@ The code is ready to deploy but has not been deployed. Typical setup:
 - Backend: a Node host such as Render or Railway.
 - Database: managed PostgreSQL. Run `npm run db:deploy` on each release.
 - Production settings: `NODE_ENV=production` (secure cookies), `FRONTEND_ORIGIN`, `SMTP_URL`.
-- Hosting both under one site (for example `housing.example.com` and `api.housing.example.com`), or proxying `/api`, keeps the SameSite=Lax session cookie working.
+- Hosting both under one site (for example `housing.example.com` and `api.housing.example.com`), or proxying `/api` and `/socket.io` (with WebSocket upgrade enabled), keeps the SameSite=Lax session cookie working for both REST and real-time connections.
+- Run a single API instance (the real-time layer and the availability job run in-process). Scaling to several instances would need the Socket.IO Redis adapter.
 - Photos are stored on local disk (`UPLOAD_DIR`). Use a persistent volume or move them to S3-compatible storage before going live.
 
 See `docs/IMPLEMENTATION_STATUS.md` for what is implemented against the report and `PROJECT_REQUIREMENTS.md`, and what is still open.

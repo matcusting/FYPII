@@ -8,7 +8,7 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
     const contactAvatar = (c) => (c.type === 'SUPPORT' && !asAdmin ? 'S' : c.other?.initials || '?');
     const contactSubject = (c) => (c.type === 'SUPPORT' ? 'Account support' : c.listing?.title || 'General Inquiry');
 
-    const { conversations, active, activeId, setActiveId, messages, send, loading, reload } = chat;
+    const { conversations, active, activeId, setActiveId, messages, send, loading, reload, typingName, notifyTyping } = chat;
     const [newMessage, setNewMessage] = useState('');
     const [error, setError] = useState(null);
     const [reporting, setReporting] = useState(false);
@@ -125,6 +125,9 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
                             </div>
                         </div>
                     ))}
+                    {typingName && (
+                        <p className="text-[11px] text-gray-400 italic font-medium px-1" aria-live="polite">{typingName} is typing…</p>
+                    )}
                     <div ref={bottomRef}></div>
                 </div>
                 <div className="p-4 border-t border-gray-200 bg-white">
@@ -133,7 +136,7 @@ const Messages = ({ chat, title = 'Student Inquiries', asAdmin = false }) => {
                         <p className="text-center text-sm text-gray-400 font-bold py-2">Messaging is disabled because one of you has blocked the other.</p>
                     ) : (
                     <form onSubmit={handleSendMessage} className="flex gap-3">
-                        <input type="text" aria-label="Reply" maxLength={2000} value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder={`Reply to ${contactName(active).split(' ')[0]}...`} className="flex-1 min-w-0 bg-[#f4f7fb] border border-[#e0e7ff] rounded-full px-5 py-2.5 text-[13px] outline-none focus:border-[#1d4ed8] transition-colors" />
+                        <input type="text" aria-label="Reply" maxLength={2000} value={newMessage} onChange={(e) => { setNewMessage(e.target.value); notifyTyping(); }} placeholder={`Reply to ${contactName(active).split(' ')[0]}...`} className="flex-1 min-w-0 bg-[#f4f7fb] border border-[#e0e7ff] rounded-full px-5 py-2.5 text-[13px] outline-none focus:border-[#1d4ed8] transition-colors" />
                         <button type="submit" aria-label="Send" disabled={!newMessage.trim()} className="bg-[#1d4ed8] text-white w-10 h-10 rounded-full flex items-center justify-center hover:bg-blue-800 transition disabled:opacity-50 cursor-pointer flex-shrink-0">
                             <span className="transform rotate-45 -mt-0.5 ml-0.5 text-sm">✈</span>
                         </button>

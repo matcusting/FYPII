@@ -260,7 +260,7 @@ router.patch('/:id', requireAuth, writeLimiter, async (req, res) => {
   const listing = await prisma.$transaction(async (tx) => {
     await tx.listing.update({
       where: { id: existing.id },
-      data: { ...toData(merged), ...(needsReview ? { status: 'PENDING_REVIEW', rejectionReason: null } : {}), lastConfirmedAt: new Date() },
+      data: { ...toData(merged), staleReminderAt: null, ...(needsReview ? { status: 'PENDING_REVIEW', rejectionReason: null } : {}), lastConfirmedAt: new Date() },
     });
     if (d.facilities) await setAmenities(tx, existing.id, merged.facilities);
     return tx.listing.findUnique({ where: { id: existing.id }, include: listingInclude });
@@ -292,6 +292,8 @@ router.post('/:id/submit', requireAuth, writeLimiter, async (req, res) => {
   ok(res, serializeListing(updated, { includePrivate: true }));
 });
 
+export const AUTO_PAUSE_REASON = 'Paused automatically: availability was not reconfirmed.';
+
 const OWNER_TRANSITIONS = {
   RENTED: ['PUBLISHED', 'PAUSED'],
   PAUSED: ['PUBLISHED'],
@@ -304,11 +306,11 @@ router.post('/:id/status', requireAuth, async (req, res) => {
   if (!(OWNER_TRANSITIONS[status] || []).includes(listing.status))
     throw badRequest(`Cannot change a ${listing.status.toLowerCase()} listing to ${status.toLowerCase()}.`);
   if (status === 'PUBLISHED' && !listing.publishedAt) throw badRequest('This listing has not been approved yet — submit it for review.');
-  if (status === 'PUBLISHED' && listing.status === 'PAUSED' && listing.rejectionReason)
+  if (status === 'PUBLISHED' && listing.status === 'PAUSED' && listing.rejectionReason && listing.rejectionReason !== AUTO_PAUSE_REASON)
     throw badRequest('This listing was suspended. Edit it and submit it for review again.');
   const updated = await prisma.listing.update({
     where: { id: listing.id },
-    data: { status, ...(status === 'PUBLISHED' ? { lastConfirmedAt: new Date() } : {}) },
+    data: { status, ...(status === 'PUBLISHED' ? { lastConfirmedAt: new Date(), staleReminderAt: null, rejectionReason: null } : {}) },
     include: listingInclude,
   });
   ok(res, serializeListing(updated, { includePrivate: true }));
@@ -316,7 +318,10 @@ router.post('/:id/status', requireAuth, async (req, res) => {
 
 router.post('/:id/availability', requireAuth, async (req, res) => {
   const listing = await ownedListing(req);
-  const updated = await prisma.listing.update({ where: { id: listing.id }, data: { lastConfirmedAt: new Date() }, include: listingInclude });
+  let data = { lastConfirmedAt: new Date(), staleReminderAt: null };
+  // A listing auto-paused for being stale goes straight back online once the owner confirms it.
+  if (listing.status === 'PAUSED' && listing.rejectionReason === AUTO_PAUSE_REASON) data = { ...data, status: 'PUBLISHED', rejectionReason: null };
+  const updated = await prisma.listing.update({ where: { id: listing.id }, data, include: listingInclude });
   ok(res, serializeListing(updated, { includePrivate: true }));
 });
 

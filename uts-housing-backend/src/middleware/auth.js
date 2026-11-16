@@ -2,6 +2,7 @@ import { prisma } from '../db.js';
 import { config } from '../config.js';
 import { randomToken, sha256 } from '../utils/crypto.js';
 import { forbidden, unauthorized } from '../utils/http.js';
+import { disconnectSession } from '../realtime.js';
 
 export const SESSION_COOKIE = 'uts_sid';
 
@@ -29,10 +30,12 @@ export async function startSession(res, userId) {
 export async function endSession(req, res) {
   const token = req.cookies?.[SESSION_COOKIE];
   if (token) {
+    const session = await prisma.session.findUnique({ where: { tokenHash: sha256(token) }, select: { id: true } });
     await prisma.session.updateMany({
       where: { tokenHash: sha256(token), revokedAt: null },
       data: { revokedAt: new Date() },
     });
+    if (session) disconnectSession(session.id);
   }
   res.clearCookie(SESSION_COOKIE, { ...cookieOptions(), maxAge: undefined });
 }

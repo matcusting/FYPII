@@ -122,6 +122,43 @@ export function PasswordSection() {
     );
 }
 
+export function NotificationSettingsSection() {
+    const { user, refresh } = useAuth();
+    const [saving, setSaving] = useState(false);
+    const [error, setError] = useState(null);
+    const enabled = user?.emailNotifications !== false;
+
+    const toggle = async () => {
+        setSaving(true);
+        setError(null);
+        try {
+            await api('/profile', { method: 'PATCH', body: { emailNotifications: !enabled } });
+            await refresh();
+        } catch (err) {
+            setError(err);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <div>
+            <h3 className={sectionTitle}>Notifications</h3>
+            <ErrorBanner error={error} className="mb-3" />
+            <label className="flex items-start gap-3 cursor-pointer">
+                <input type="checkbox" checked={enabled} disabled={saving} onChange={toggle} className="mt-1 w-4 h-4 accent-[#203569]" />
+                <span>
+                    <span className="block text-sm font-bold text-gray-800">E-mail me about important updates</span>
+                    <span className="block text-[12px] text-gray-500 mt-0.5">
+                        Listing approvals, new inquiries, roommate requests and availability reminders. In-app notifications and chat messages
+                        always appear instantly. Security e-mails (verification, password reset) are always sent.
+                    </span>
+                </span>
+            </label>
+        </div>
+    );
+}
+
 export function BlockedUsersSection() {
     const [items, setItems] = useState([]);
     const load = () => api('/blocks').then(setItems).catch(() => {});

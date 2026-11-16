@@ -20,9 +20,9 @@ This document maps the FYP report (Chapters 1 and 4) and `PROJECT_REQUIREMENTS.m
 | Fig 4.4: three actors (Student, Landlord, Administrator) | Three role-protected portals | Done |
 | ER model: Users, Landlords, Listings, Reviews | `prisma/schema.prisma` (22 tables) | Done |
 | Limitation 5.2 #2: static weighting | Per-habit importance (1–3) | Done |
-| Limitation 5.2 #3: manual availability updates | `lastConfirmedAt`, stale warning and "Confirm Still Available" | Partial (still landlord-reported) |
+| Limitation 5.2 #3: manual availability updates | `services/jobs.js`: reminder after 30 days, automatic pause after 45 days, one-click "Confirm Still Available" restores it | Done (availability is still reported by the landlord, but stale rooms are hidden automatically) |
 | Future work: ML matching | — | Not done (future work) |
-| Future work: encrypted real-time chat | In-app messaging that polls every 5 s | Partial (not end-to-end encrypted, not WebSocket) |
+| Future work: encrypted real-time chat | `src/realtime.js` (Socket.IO): messages, typing indicator and notifications pushed instantly, cookie-authenticated, origin-restricted, encrypted in transit with HTTPS/WSS in production | Partial (real-time done; not end-to-end encrypted, because admins must be able to review reported messages) |
 
 ## PROJECT_REQUIREMENTS.md functional requirements
 
@@ -36,7 +36,7 @@ This document maps the FYP report (Chapters 1 and 4) and `PROJECT_REQUIREMENTS.m
 | FR-06 Reviews | Done | Verified students only, proof of stay checked by admin, one per listing, edit history, moderation, landlord reply, reporting |
 | FR-07 Contact | Done | In-app inquiries, contact details never exposed, block and report, message rate limit, no payments |
 | FR-08 Admin | Done | Verifications, listings, reviews, reports, users, campuses and domains, facilities, audit log |
-| FR-09 Notifications | Done | In-app plus e-mail (SMTP or a dev log file). Failures never block the main request. No per-user opt-out settings yet |
+| FR-09 Notifications | Done | In-app (pushed in real time) plus e-mail (SMTP or a dev log file) for listing decisions, inquiries, roommate requests and availability reminders. Users can switch e-mails off in account settings; security e-mails are always sent. Failures never block the main request |
 
 ## Security (section 11)
 
@@ -46,7 +46,20 @@ Done: Argon2id, opaque session tokens stored as SHA-256 hashes, HttpOnly + SameS
 
 - **Public deployment:** no hosting account or domain has been provisioned (README → Deployment notes).
 - **Object storage:** photos are on local disk. S3-compatible storage is needed before production.
-- **Maps:** students open the listing address in Google Maps (no API key needed). Not done: automatic distance calculation, embedded map and address autocomplete, which would need a paid Google Maps API key.
+- **Maps:** students open the listing address in Google Maps (no API key needed). Distance is entered by the landlord: automatic distance from a map pin was built and then removed on feedback (see the `claude/jolly-edison-1vzpxr` history). Not done: embedded map and address autocomplete, which would need a paid Google Maps API key.
 - **Multilingual UI:** not required by the TRF.
 - **Frontend unit tests and Playwright E2E in CI:** only the backend has automated tests. The UI flows were checked manually with Playwright during development.
 - **Open questions for the supervisor:** see `PROJECT_REQUIREMENTS.md` §18 (verification policy, sublet rules, landlord identity checks, data retention).
+
+## FYP II iteration (November 2026)
+
+| Change | Files | Evidence |
+|---|---|---|
+| Real-time chat, typing indicator and notifications over WebSocket (fallback polling only while offline) | `backend/src/realtime.js`, `frontend/src/lib/socket.js`, `hooks/useConversations.js` | `tests/fyp2.test.js` → "real-time messaging" (auth rejection, delivery to participants only, logout disconnect); checked in the browser with two accounts |
+| Availability upkeep job (remind at 30 days, auto-pause at 45 days) | `backend/src/services/jobs.js` | `tests/fyp2.test.js` → "listing availability upkeep" |
+| E-mail notification preference | `services/notify.js`, `components/AccountSections.jsx` | `tests/fyp2.test.js` → "notification preferences" |
+| `prisma generate` runs automatically after `npm install` | `backend/package.json` | — |
+
+Backend test suite: 27 tests (23 from FYP I + 4 new).
+
+Known local issue: on Windows with Node 24, a test run occasionally (about 1 in 8) aborts with a native worker crash (exit code 3221226505) before finishing; no test has failed. It also happens with only the FYP I tests, so it is an environment issue (native modules), not a test failure. Rerun, or use Node 22 as in CI.

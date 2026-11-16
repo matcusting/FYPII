@@ -30,6 +30,7 @@ export function serializeMe(user) {
     phone: user.phone,
     landlordVerified: Boolean(user.landlordVerifiedAt),
     bio: user.bio,
+    emailNotifications: user.emailNotifications ?? true,
     createdAt: user.createdAt,
   };
 }

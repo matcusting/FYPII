@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ErrorBanner, SuccessBanner } from '../../components/ui';
-import { BlockedUsersSection, DeleteAccountSection, PasswordSection, VerificationSection } from '../../components/AccountSections';
+import { BlockedUsersSection, DeleteAccountSection, NotificationSettingsSection, PasswordSection, VerificationSection } from '../../components/AccountSections';
 
 const AccountSettings = () => {
     const { user, refresh } = useAuth();
@@ -53,6 +53,7 @@ const AccountSettings = () => {
                     </div>
                 </form>
                 <VerificationSection />
+                <NotificationSettingsSection />
                 <PasswordSection />
                 <BlockedUsersSection />
                 <DeleteAccountSection />

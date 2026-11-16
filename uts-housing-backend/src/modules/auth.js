@@ -4,6 +4,7 @@ import { prisma } from '../db.js';
 import { config } from '../config.js';
 import { authLimiter } from '../middleware/security.js';
 import { endSession, requireAuth, startSession } from '../middleware/auth.js';
+import { disconnectUser } from '../realtime.js';
 import { hashPassword, isCommonPassword, randomToken, sha256, verifyPassword } from '../utils/crypto.js';
 import { AppError, badRequest, conflict, ok, parse, unauthorized } from '../utils/http.js';
 import { sendMail } from '../services/mailer.js';
@@ -231,6 +232,7 @@ router.post('/reset-password', authLimiter, async (req, res) => {
     // Invalidate every existing session after a password reset.
     prisma.session.updateMany({ where: { userId: record.userId, revokedAt: null }, data: { revokedAt: now } }),
   ]);
+  disconnectUser(record.userId);
   ok(res, { reset: true });
 });
 
@@ -250,6 +252,7 @@ router.post('/change-password', authLimiter, requireAuth, async (req, res) => {
 router.post('/logout-all', requireAuth, async (req, res) => {
   await prisma.session.updateMany({ where: { userId: req.user.id, revokedAt: null }, data: { revokedAt: new Date() } });
   await endSession(req, res);
+  disconnectUser(req.user.id);
   ok(res, { loggedOut: true });
 });
 
@@ -271,6 +274,7 @@ router.post('/delete-account', authLimiter, requireAuth, async (req, res) => {
     link: '/admin/users',
   });
   await endSession(req, res);
+  disconnectUser(req.user.id);
   ok(res, { requested: true });
 });
 

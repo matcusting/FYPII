@@ -3,7 +3,7 @@ import Navbar from '../../components/Navbar';
 import { useAuth } from '../../context/AuthContext';
 import { api } from '../../lib/api';
 import { ErrorBanner } from '../../components/ui';
-import { BlockedUsersSection, DeleteAccountSection, MyReviewsSection, PasswordSection, VerificationSection } from '../../components/AccountSections';
+import { BlockedUsersSection, DeleteAccountSection, MyReviewsSection, NotificationSettingsSection, PasswordSection, VerificationSection } from '../../components/AccountSections';
 
 const Profile = () => {
     const { user, refresh } = useAuth();
@@ -153,6 +153,7 @@ const Profile = () => {
                 <div className="px-6 sm:px-8 pb-8 space-y-10">
                     <VerificationSection />
                     <MyReviewsSection />
+                    <NotificationSettingsSection />
                     <PasswordSection />
                     <BlockedUsersSection />
                     <DeleteAccountSection />

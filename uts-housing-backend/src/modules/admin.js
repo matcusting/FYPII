@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { disconnectUser } from '../realtime.js';
 import { config } from '../config.js';
 import { requireRole } from '../middleware/auth.js';
 import { badRequest, notFound, ok, parse, uuid } from '../utils/http.js';
@@ -268,6 +269,7 @@ router.patch('/users/:id', async (req, res) => {
     ops.push(prisma.lifestyleProfile.updateMany({ where: { userId: id }, data: { discoverable: false } }));
   }
   await prisma.$transaction(ops);
+  if (status === 'SUSPENDED') disconnectUser(id);
   await audit(req.user.id, `USER_${status}`, 'User', id, { reason });
   ok(res, { id, status });
 });

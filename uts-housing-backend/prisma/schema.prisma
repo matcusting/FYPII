@@ -118,6 +118,8 @@ model User {
   phone              String?
   landlordVerifiedAt DateTime?     @db.Timestamptz
   bio                String?
+  // Notification preferences (FR-09). Security e-mails (verification, password reset) are always sent.
+  emailNotifications Boolean       @default(true)
   createdAt          DateTime      @default(now()) @db.Timestamptz
   updatedAt          DateTime      @updatedAt @db.Timestamptz
 
@@ -222,6 +224,7 @@ model Listing {
   status          ListingStatus @default(DRAFT)
   rejectionReason String?
   lastConfirmedAt DateTime      @default(now()) @db.Timestamptz
+  staleReminderAt DateTime?     @db.Timestamptz // when the "please reconfirm" reminder was last sent
   viewCount       Int           @default(0)
   publishedAt     DateTime?     @db.Timestamptz
   deletedAt       DateTime?     @db.Timestamptz
@@ -237,6 +240,7 @@ model Listing {
   @@index([status, campusId, rent])
   @@index([availableFrom])
   @@index([ownerId])
+  @@index([status, lastConfirmedAt])
 }
 
 model ListingAmenity {

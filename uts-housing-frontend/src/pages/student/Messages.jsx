@@ -17,7 +17,7 @@ const contactRole = (c) => {
 const Messages = () => {
     const navigate = useNavigate();
     const [params] = useSearchParams();
-    const { conversations, active, activeId, setActiveId, messages, send, loading, error, reload } = useConversations({ initialId: params.get('c') });
+    const { conversations, active, activeId, setActiveId, messages, send, loading, error, reload, typingName, notifyTyping } = useConversations({ initialId: params.get('c') });
     const [newMessage, setNewMessage] = useState('');
     const [sendError, setSendError] = useState(null);
     const [sending, setSending] = useState(false);
@@ -173,6 +173,9 @@ const Messages = () => {
                                 </div>
                             </div>
                         ))}
+                        {typingName && (
+                            <p className="text-[11px] text-gray-400 italic font-medium px-1" aria-live="polite">{typingName} is typing…</p>
+                        )}
                         <div ref={bottomRef}></div>
                     </div>
 
@@ -186,7 +189,7 @@ const Messages = () => {
                             <input
                                 type="text"
                                 value={newMessage}
-                                onChange={(e) => setNewMessage(e.target.value)}
+                                onChange={(e) => { setNewMessage(e.target.value); notifyTyping(); }}
                                 placeholder="Type your message here..."
                                 aria-label="Message"
                                 maxLength={2000}

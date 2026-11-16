@@ -6,6 +6,7 @@ import { messageLimiter, writeLimiter } from '../middleware/security.js';
 import { badRequest, forbidden, notFound, ok, parse, uuid } from '../utils/http.js';
 import { googleMapsUrl, photoUrl, serializePublicUser } from '../services/serialize.js';
 import { notify } from '../services/notify.js';
+import { emitToUser } from '../realtime.js';
 
 /* ----------------------------------------------------------------- helpers */
 
@@ -46,6 +47,14 @@ async function postMessage(conversationId, sender, body) {
 }
 
 const shapeMessage = (m, meId) => ({ id: m.id, body: m.body, createdAt: m.createdAt, mine: m.senderId === meId, senderName: m.sender?.name });
+
+/** Push a new message to every participant's open tabs (each gets its own `mine` flag). */
+async function broadcastMessage(conversationId, message, sender) {
+  const parts = await prisma.conversationParticipant.findMany({ where: { conversationId }, select: { userId: true } });
+  for (const p of parts) {
+    emitToUser(p.userId, 'message:new', { conversationId, message: shapeMessage({ ...message, sender }, p.userId) });
+  }
+}
 
 /* ------------------------------------------------------------ conversations */
 
@@ -136,6 +145,7 @@ router.post('/:id/messages', messageLimiter, async (req, res) => {
   const blocked = await blockedIdsFor(req.user.id);
   if (others.some((id) => blocked.includes(id))) throw forbidden('You cannot message this user.');
   const msg = await postMessage(convo.id, req.user, body);
+  await broadcastMessage(convo.id, msg, req.user);
   for (const id of others) {
     await notify(id, { type: 'MESSAGE', title: 'New message', body: `${req.user.name}: ${body.slice(0, 80)}`, link: null });
   }
@@ -181,7 +191,8 @@ inquiryRouter.post('/', requireAuth, writeLimiter, async (req, res) => {
   const convo = await prisma.$transaction((tx) =>
     findOrCreateConversation(tx, { type: 'LISTING_INQUIRY', userIds: [req.user.id, listing.ownerId], listingId }),
   );
-  await postMessage(convo.id, req.user, body);
+  const msg = await postMessage(convo.id, req.user, body);
+  await broadcastMessage(convo.id, msg, req.user);
   await notify(listing.ownerId, {
     type: 'INQUIRY',
     title: 'New student inquiry',

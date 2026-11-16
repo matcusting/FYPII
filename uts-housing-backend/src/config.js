@@ -14,5 +14,7 @@ export const config = {
   emailFrom: process.env.EMAIL_FROM || 'no-reply@uts-housing.local',
   maxPhotosPerListing: 6,
   maxPhotoBytes: 5 * 1024 * 1024,
-  staleListingDays: 30,
+  staleListingDays: Number(process.env.STALE_LISTING_DAYS || 30),
+  autoPauseListingDays: Number(process.env.AUTO_PAUSE_LISTING_DAYS || 45),
+  jobIntervalMinutes: Number(process.env.JOB_INTERVAL_MINUTES || 60),
 };

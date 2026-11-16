@@ -3,6 +3,9 @@ import { api, assetUrl, mapsSearchUrl, statusLabel } from '../../lib/api';
 import { pickPhotos } from '../../lib/photos';
 import { ErrorBanner, LoadingBlock } from '../../components/ui';
 
+// Listings paused by the availability job can go back online with one click.
+const isAutoPaused = (prop) => Boolean(prop.rejectionReason?.startsWith('Paused automatically'));
+
 const STATUS_BADGE = {
     PUBLISHED: 'bg-[#dcfce7] text-[#15803d]',
     PENDING_REVIEW: 'bg-[#fefce8] text-[#a16207]',
@@ -49,7 +52,9 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
     };
 
     const handleEditClick = (prop) => {
-        setEditingProperty({ ...prop, newPhotos: [], description: prop.description || '', approximateArea: prop.approximateArea || '', address: prop.address || '', mapUrl: prop.mapUrl || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
+        setEditingProperty({
+            ...prop,
+            newPhotos: [], description: prop.description || '', approximateArea: prop.approximateArea || '', address: prop.address || '', mapUrl: prop.mapUrl || '', houseRules: prop.houseRules || '', availableFrom: prop.availableFrom || '' });
         setEditError(null);
         setIsEditModalOpen(true);
     };
@@ -126,7 +131,10 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
     const actionsFor = (prop) => {
         const busy = busyId === prop.id;
         const list = [<button key="edit" disabled={busy} onClick={() => handleEditClick(prop)} className={btn}>Edit Details</button>];
-        if (prop.status === 'PUBLISHED') {
+        if (prop.status === 'PAUSED' && isAutoPaused(prop)) {
+            list.push(<button key="confirm" disabled={busy} onClick={() => reconfirm(prop)} className="border border-[#bfdbfe] text-[#1d4ed8] text-[12px] font-bold px-4 py-1.5 rounded bg-[#eff6ff] hover:bg-blue-100 transition cursor-pointer">Confirm Still Available</button>);
+            list.push(<button key="rent" disabled={busy} onClick={() => setStatus(prop, 'RENTED')} className={btn}>Mark as Rented</button>);
+        } else if (prop.status === 'PUBLISHED') {
             list.push(<button key="rent" disabled={busy} onClick={() => setStatus(prop, 'RENTED')} className={btn}>Mark as Rented</button>);
             list.push(<button key="pause" disabled={busy} onClick={() => setStatus(prop, 'PAUSED')} className={btn}>Pause</button>);
             if (prop.isStale) list.push(<button key="confirm" disabled={busy} onClick={() => reconfirm(prop)} className="border border-[#bfdbfe] text-[#1d4ed8] text-[12px] font-bold px-4 py-1.5 rounded bg-[#eff6ff] hover:bg-blue-100 transition cursor-pointer">Confirm Still Available</button>);
@@ -192,7 +200,9 @@ const ManageListings = ({ myProperties, loading, reload, setActiveTab }) => {
                                     <p className="text-[12px] text-[#b91c1c] font-bold mb-2">Admin feedback: {prop.rejectionReason}</p>
                                 )}
                                 {prop.status === 'PAUSED' && prop.rejectionReason && (
-                                    <p className="text-[12px] text-[#b91c1c] font-bold mb-2">{prop.rejectionReason}</p>
+                                    <p className={`text-[12px] font-bold mb-2 ${isAutoPaused(prop) ? 'text-[#a16207]' : 'text-[#b91c1c]'}`}>
+                                        {prop.rejectionReason}{isAutoPaused(prop) && ' Click “Confirm Still Available” to put it back online.'}
+                                    </p>
                                 )}
                                 {prop.status === 'PENDING_REVIEW' && (
                                     <p className="text-[12px] text-[#a16207] font-bold mb-2">Waiting for an administrator to approve this listing.</p>
