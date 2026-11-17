@@ -479,7 +479,7 @@ export function Campuses() {
                     <label className="flex items-start gap-2 text-[13px] text-[#374151] font-bold mb-6 cursor-pointer">
                         <input type="checkbox" checked={u.requireStudentIdEmail} onChange={wrap(() => api(`/admin/universities/${u.id}`, { method: 'PATCH', body: { requireStudentIdEmail: !u.requireStudentIdEmail } }), 'Setting saved.')} className="accent-[#203569] w-4 h-4 mt-0.5" />
                         <span>
-                            {t('Student ID must match the e-mail (e.g. BCS24020031 ↔ bcs24020031@student.uts.edu.my)')}
+                            {t('Student ID must match the e-mail (e.g. BCS12345678 ↔ bcs12345678@student.uts.edu.my)')}
                             <span className="block text-[12px] text-gray-500 font-medium">{t("Turn off if some students' e-mails do not start with their Student ID.")}</span>
                         </span>
                     </label>

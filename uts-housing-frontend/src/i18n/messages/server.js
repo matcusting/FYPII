@@ -225,7 +225,7 @@ export default {
     'Password must be at least 8 characters.': ['Kata laluan mesti sekurang-kurangnya 8 aksara.', '密码至少需要 8 个字符。'],
     'Please write at least 20 characters.': ['Sila tulis sekurang-kurangnya 20 aksara.', '请至少写 20 个字符。'],
     'Rating must be 1–5.': ['Penilaian mesti 1–5.', '评分必须在 1–5 之间。'],
-    'Student ID should be 6–20 letters/digits, e.g. BCS24020031.': ['ID Pelajar mestilah 6–20 huruf/digit, cth. BCS24020031.', '学号应为 6–20 位字母或数字，例如 BCS24020031。'],
+    'Student ID should be 6–20 letters/digits, e.g. BCS12345678.': ['ID Pelajar mestilah 6–20 huruf/digit, cth. BCS12345678.', '学号应为 6–20 位字母或数字，例如 BCS12345678。'],
     'Title must be at least 5 characters.': ['Tajuk mesti sekurang-kurangnya 5 aksara.', '标题至少需要 5 个字符。'],
     'Use YYYY-MM-DD.': ['Gunakan format YYYY-MM-DD.', '请使用 YYYY-MM-DD 格式。'],
     'You must accept the terms to continue.': ['Anda mesti menerima terma untuk meneruskan.', '必须同意条款才能继续。'],

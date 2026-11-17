@@ -23,7 +23,7 @@ const studentId = z
   .string()
   .trim()
   .toUpperCase()
-  .regex(/^[A-Z0-9]{6,20}$/, 'Student ID should be 6–20 letters/digits, e.g. BCS24020031.');
+  .regex(/^[A-Z0-9]{6,20}$/, 'Student ID should be 6–20 letters/digits, e.g. BCS12345678.');
 
 const registerSchema = z
   .object({
@@ -45,7 +45,7 @@ const registerSchema = z
 /**
  * Students may only register with their university student e-mail (domains set
  * by admins in Campus & Domains, e.g. student.uts.edu.my). When the university
- * requires it, the part before @ must be the Student ID (bcs24020031@…).
+ * requires it, the part before @ must be the Student ID (bcs12345678@…).
  */
 async function checkStudentEmail(addr, sid) {
   const uni = await universityForEmail(addr);
@@ -58,7 +58,7 @@ async function checkStudentEmail(addr, sid) {
   }
   if (uni.requireStudentIdEmail && addr.split('@')[0].toUpperCase() !== sid)
     throw badRequest('studentId: The Student ID does not match your student e-mail.', {
-      studentId: 'The Student ID must match your student e-mail (e.g. BCS24020031 for bcs24020031@…).',
+      studentId: 'The Student ID must match your student e-mail (e.g. BCS12345678 for bcs12345678@…).',
     });
   return uni;
 }

@@ -20,7 +20,7 @@ const Register = () => {
 
     const set = (k) => (e) => setForm({ ...form, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
 
-    // Student e-mails look like bcs24020031@student.uts.edu.my — fill the Student ID from it.
+    // Student e-mails look like bcs12345678@student.uts.edu.my — fill the Student ID from it.
     const setStudentEmail = (e) => {
         const email = e.target.value;
         const local = email.split('@')[0];
@@ -88,7 +88,7 @@ const Register = () => {
                     <>
                         <div>
                             <label htmlFor="email" className={labelClass}>{t('UTS Student Email')}</label>
-                            <input id="email" type="email" required autoComplete="email" value={form.email} onChange={setStudentEmail} className={inputClass} placeholder="bcs24020031@student.uts.edu.my" />
+                            <input id="email" type="email" required autoComplete="email" value={form.email} onChange={setStudentEmail} className={inputClass} placeholder="bcs12345678@student.uts.edu.my" />
                             <p className="text-[12px] text-gray-500 mt-1">{t('Only your university student e-mail can be used. Personal e-mails (Gmail etc.) are not accepted.')}</p>
                             <FieldError error={error} name="email" />
                         </div>

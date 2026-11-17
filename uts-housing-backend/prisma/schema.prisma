@@ -125,7 +125,7 @@ model University {
   id           String    @id @default(uuid()) @db.Uuid
   name         String    @unique
   emailDomains String[]
-  // Student e-mails must look like <studentId>@domain (e.g. bcs24020031@student.uts.edu.my)
+  // Student e-mails must look like <studentId>@domain (e.g. bcs12345678@student.uts.edu.my)
   requireStudentIdEmail Boolean @default(true)
   campuses     Campus[]
   createdAt    DateTime  @default(now()) @db.Timestamptz

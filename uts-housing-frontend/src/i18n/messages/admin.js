@@ -101,7 +101,7 @@ export default {
     'Student e-mail domains (only these can register as students, comma separated)': ['Domain e-mel pelajar (hanya domain ini boleh mendaftar sebagai pelajar, dipisahkan dengan koma)', '学生邮箱域名（只有这些域名可以注册学生账户，用逗号分隔）'],
     'Save Domains': ['Simpan Domain', '保存域名'],
     'E-mail domains saved.': ['Domain e-mel disimpan.', '邮箱域名已保存。'],
-    'Student ID must match the e-mail (e.g. BCS24020031 ↔ bcs24020031@student.uts.edu.my)': ['ID Pelajar mesti sepadan dengan e-mel (cth. BCS24020031 ↔ bcs24020031@student.uts.edu.my)', '学号必须与邮箱一致（例如 BCS24020031 ↔ bcs24020031@student.uts.edu.my）'],
+    'Student ID must match the e-mail (e.g. BCS12345678 ↔ bcs12345678@student.uts.edu.my)': ['ID Pelajar mesti sepadan dengan e-mel (cth. BCS12345678 ↔ bcs12345678@student.uts.edu.my)', '学号必须与邮箱一致（例如 BCS12345678 ↔ bcs12345678@student.uts.edu.my）'],
     "Turn off if some students' e-mails do not start with their Student ID.": ['Matikan jika e-mel sesetengah pelajar tidak bermula dengan ID Pelajar mereka.', '如果部分学生的邮箱不是以学号开头，请关闭此项。'],
     'Setting saved.': ['Tetapan disimpan.', '设置已保存。'],
     'Campuses (coordinates used for distance reference)': ['Kampus (koordinat digunakan sebagai rujukan jarak)', '校区（坐标用于计算距离）'],

@@ -118,7 +118,7 @@ const Login = () => {
                                     required
                                     autoComplete="email"
                                     value={studentEmail}
-                                    placeholder="bcs24020031@student.uts.edu.my"
+                                    placeholder="bcs12345678@student.uts.edu.my"
                                     onChange={(e) => setStudentEmail(e.target.value)}
                                     className="w-full p-2.5 border border-gray-300 rounded-lg focus:border-[#203569] outline-none text-gray-800 transition-colors"
                                 />
