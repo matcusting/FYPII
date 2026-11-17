@@ -4,7 +4,18 @@ import nodemailer from 'nodemailer';
 import { config } from '../config.js';
 
 let transport = null;
-if (config.smtpUrl) transport = nodemailer.createTransport(config.smtpUrl);
+if (config.smtpUrl) {
+  // A malformed SMTP_URL (e.g. only the key pasted) must not stop the server from starting.
+  if (/^smtps?:\/\//i.test(config.smtpUrl)) {
+    try {
+      transport = nodemailer.createTransport(config.smtpUrl);
+    } catch (err) {
+      console.error('[mail] SMTP_URL could not be used, falling back to the mail log:', err.message);
+    }
+  } else {
+    console.error('[mail] SMTP_URL must start with smtp:// or smtps:// — e-mails go to the mail log instead.');
+  }
+}
 
 /**
  * Send an e-mail. Without SMTP configured (local development) the message is
